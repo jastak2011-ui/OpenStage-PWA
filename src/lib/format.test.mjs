@@ -16,6 +16,7 @@ import {
 import { createId } from './ids-test-target.mjs';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './importExport-test-target.mjs';
 import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
+import { appleTvPortraitPrompterSettings, calculateExternalPrompterLayout, normalizeExternalDisplaySettings } from '../services/externalDisplay-test-target.mjs';
 import {
   anchoredChordLineLayout,
   chartLineHeightEm,
@@ -52,6 +53,23 @@ assert.equal(getStageSwipeDirection({ startX: 240, startY: 200, endX: 120, endY:
 assert.equal(getStageSwipeDirection({ startX: 120, startY: 200, endX: 240, endY: 210 }), -1);
 assert.equal(getStageSwipeDirection({ startX: 120, startY: 200, endX: 155, endY: 205 }), 0);
 assert.equal(getStageSwipeDirection({ startX: 120, startY: 200, endX: 190, endY: 300 }), 0);
+
+const standardExternal = normalizeExternalDisplaySettings(undefined);
+assert.equal(standardExternal.outputMode, 'standard');
+assert.equal(standardExternal.offsetX, 0);
+const airPlaySettings = appleTvPortraitPrompterSettings(standardExternal);
+assert.equal(airPlaySettings.outputMode, 'airplay-portrait-fill');
+assert.equal(airPlaySettings.profileName, 'Apple TV Portrait Prompter');
+assert.equal(airPlaySettings.rotation, 'cw-90');
+assert.equal(airPlaySettings.scaleMode, 'fill');
+const airPlayLayout = calculateExternalPrompterLayout(airPlaySettings, 1920, 1080);
+assert.equal(airPlayLayout.isQuarterTurn, true);
+assert.equal(airPlayLayout.contentWidth, 1080);
+assert.equal(airPlayLayout.contentHeight, 1920);
+assert.equal(airPlayLayout.rotatedWidth, 1920);
+assert.equal(airPlayLayout.rotatedHeight, 1080);
+assert.equal(airPlayLayout.contentTransform.includes('rotate(90deg)'), true);
+assert.equal(airPlayLayout.scale > 0.9, true);
 
 assert.equal(calculateAutoscrollPixelsPerSecond(450, 120, 18), 3.75);
 assert.equal(calculateAutoscrollPixelsPerSecond(450, 225, 18), 2);

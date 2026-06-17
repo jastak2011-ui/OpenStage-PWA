@@ -111,6 +111,7 @@ export type AutoscrollDurationMode = 'manual-duration' | 'bpm-estimate' | 'manua
 export type ReadingPace = 'slower' | 'normal' | 'faster';
 export type ExternalDisplayRotation = 'normal' | 'cw-90' | 'ccw-90' | 'rotate-180';
 export type ExternalDisplayScaleMode = 'fit' | 'fill' | 'manual';
+export type ExternalDisplayOutputMode = 'standard' | 'airplay-portrait-fill';
 export type StageDocumentThemeName =
   | 'standard-white'
   | 'sepia'
@@ -135,11 +136,16 @@ export type StageFontFamilyName =
 
 export type ExternalDisplaySettings = {
   enabled: boolean;
+  outputMode: ExternalDisplayOutputMode;
   rotation: ExternalDisplayRotation;
   scaleMode: ExternalDisplayScaleMode;
   manualZoom: number;
+  offsetX: number;
+  offsetY: number;
   safeMargin: number;
   showCalibration: boolean;
+  fillScreenTest: boolean;
+  profileName: string;
 };
 
 export type PerformanceState = {

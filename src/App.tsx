@@ -128,10 +128,11 @@ import {
   type EnrichmentResult
 } from './services/enrichment/metadataEnrichment';
 import {
-  externalRotationDegrees,
-  externalScale,
+  appleTvPortraitPrompterSettings,
+  calculateExternalPrompterLayout,
   isExternalPrompterRoute,
   loadExternalDisplayPayload,
+  normalizeExternalDisplaySettings,
   openExternalPrompter,
   saveExternalDisplayPayload,
   supportsExternalWindow,
@@ -3535,10 +3536,11 @@ function ExternalDisplayControls({
   state: PerformanceState;
   setState: (next: Partial<PerformanceState>) => void;
 }) {
-  const settings = state.externalDisplay;
+  const settings = getExternalDisplaySettings(state);
   const [status, setStatus] = useState('');
   const updateSettings = (next: Partial<PerformanceState['externalDisplay']>) =>
     setState({ externalDisplay: { ...settings, ...next } });
+  const activateAirPlayPortrait = () => setState({ externalDisplay: appleTvPortraitPrompterSettings(settings) });
 
   async function launchExternalDisplay() {
     updateSettings({ enabled: true });
@@ -3574,6 +3576,27 @@ function ExternalDisplayControls({
         {settings.enabled ? 'External Mode On' : 'External Mode Off'}
       </button>
       <label className="grid gap-1">
+        External Display Mode
+        <select
+          className="input bg-slate-900 text-white"
+          value={settings.outputMode}
+          onChange={(event) => {
+            const outputMode = event.target.value as PerformanceState['externalDisplay']['outputMode'];
+            if (outputMode === 'airplay-portrait-fill') {
+              setState({ externalDisplay: appleTvPortraitPrompterSettings(settings) });
+            } else {
+              updateSettings({ outputMode: 'standard', profileName: 'Standard External Display' });
+            }
+          }}
+        >
+          <option value="standard">Standard External Display</option>
+          <option value="airplay-portrait-fill">AirPlay Portrait Fill</option>
+        </select>
+      </label>
+      <button className="stage-menu-button" type="button" onClick={activateAirPlayPortrait}>
+        Apple TV Portrait Prompter Profile
+      </button>
+      <label className="grid gap-1">
         Rotation
         <select className="input bg-slate-900 text-white" value={settings.rotation} onChange={(event) => updateSettings({ rotation: event.target.value as PerformanceState['externalDisplay']['rotation'] })}>
           <option value="normal">Normal</option>
@@ -3592,17 +3615,37 @@ function ExternalDisplayControls({
       </label>
       {settings.scaleMode === 'manual' && (
         <label className="grid gap-1">
-          Zoom {settings.manualZoom.toFixed(2)}x
-          <input type="range" min={0.5} max={2} step={0.05} value={settings.manualZoom} onChange={(event) => updateSettings({ manualZoom: Number(event.target.value) })} />
+          Manual Zoom {Math.round(settings.manualZoom * 100)}%
+          <input type="range" min={0.35} max={3} step={0.05} value={settings.manualZoom} onChange={(event) => updateSettings({ manualZoom: Number(event.target.value) })} />
+        </label>
+      )}
+      {settings.scaleMode !== 'manual' && (
+        <label className="grid gap-1">
+          Zoom Trim {Math.round(settings.manualZoom * 100)}%
+          <input type="range" min={0.75} max={1.5} step={0.025} value={settings.manualZoom} onChange={(event) => updateSettings({ manualZoom: Number(event.target.value) })} />
         </label>
       )}
       <label className="grid gap-1">
+        Horizontal Offset {settings.offsetX.toFixed(1)}vw
+        <input type="range" min={-25} max={25} step={0.5} value={settings.offsetX} onChange={(event) => updateSettings({ offsetX: Number(event.target.value) })} />
+      </label>
+      <label className="grid gap-1">
+        Vertical Offset {settings.offsetY.toFixed(1)}vh
+        <input type="range" min={-25} max={25} step={0.5} value={settings.offsetY} onChange={(event) => updateSettings({ offsetY: Number(event.target.value) })} />
+      </label>
+      <label className="grid gap-1">
         Safe margin {settings.safeMargin}%
-        <input type="range" min={0} max={12} step={1} value={settings.safeMargin} onChange={(event) => updateSettings({ safeMargin: Number(event.target.value) })} />
+        <input type="range" min={0} max={20} step={1} value={settings.safeMargin} onChange={(event) => updateSettings({ safeMargin: Number(event.target.value) })} />
       </label>
       <button className="stage-menu-button" onClick={() => updateSettings({ showCalibration: !settings.showCalibration })}>
         Calibration {settings.showCalibration ? 'On' : 'Off'}
       </button>
+      <button className="stage-menu-button" onClick={() => updateSettings({ fillScreenTest: !settings.fillScreenTest, showCalibration: true })}>
+        Fill Screen Test {settings.fillScreenTest ? 'On' : 'Off'}
+      </button>
+      <div className="rounded-md border border-slate-700 bg-black/20 p-2 text-slate-300">
+        Profile: {settings.profileName}
+      </div>
       {status && <div className="text-amber-200">{status}</div>}
       {!supportsPresentationApi() && <div className="text-slate-400">Safari fallback: use AirPlay mirroring, then apply rotation/scale here.</div>}
       <div className="text-slate-400">Rotation and scale apply only to the external prompter output, not this iPad Stage view.</div>
@@ -4129,6 +4172,10 @@ function ColorSwatchGroup({
 
 function ExternalPrompterApp() {
   const [payload, setPayload] = useState<ExternalDisplayPayload | null>(() => loadExternalDisplayPayload());
+  const [viewport, setViewport] = useState(() => ({
+    width: typeof window === 'undefined' ? 1280 : window.innerWidth,
+    height: typeof window === 'undefined' ? 720 : window.innerHeight
+  }));
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
@@ -4145,8 +4192,11 @@ function ExternalPrompterApp() {
     }
 
     const timer = window.setInterval(() => setPayload(loadExternalDisplayPayload()), 1000);
+    const handleResize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', handleResize);
     return () => {
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('resize', handleResize);
       channel?.close();
       window.clearInterval(timer);
     };
@@ -4192,70 +4242,80 @@ function ExternalPrompterApp() {
     viewportWidth: window.innerWidth,
     displayMode: getDisplayModeLabel(payload.performance)
   });
-  const rotation = externalRotationDegrees(settings.rotation);
-  const scale = externalScale(settings);
-  const isQuarterTurn = settings.rotation === 'cw-90' || settings.rotation === 'ccw-90';
+  const layout = calculateExternalPrompterLayout(settings, viewport.width, viewport.height);
 
   return (
     <main
       className={`${getStageTheme(payload.performance.stageTheme).className} relative h-screen w-screen overflow-hidden`}
       style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
     >
-      {settings.showCalibration && <ExternalCalibrationOverlay rotation={settings.rotation} safeMargin={settings.safeMargin} />}
+      {settings.showCalibration && <ExternalCalibrationOverlay settings={settings} layout={layout} />}
       <div className="external-prompter-viewport absolute inset-0 flex items-center justify-center overflow-hidden">
         <div
-          className="external-prompter-output flex items-center justify-center"
+          className="absolute left-1/2 top-1/2 flex items-center justify-center"
           style={{
-            width: isQuarterTurn ? '100vh' : '100vw',
-            height: isQuarterTurn ? '100vw' : '100vh',
-            padding: `${settings.safeMargin}vmin`,
-            boxSizing: 'border-box',
-            transform: `rotate(${rotation}deg) scale(${scale})`,
+            transform: layout.offsetTransform,
             transformOrigin: 'center center'
           }}
         >
-          <article
-            className="font-chart whitespace-pre-wrap"
+          <div
+            className="external-prompter-output flex items-center justify-center"
             style={{
-              fontSize: `${lyricFontSize}px`,
-              lineHeight: 1.52,
-              color: documentTheme.text,
-              fontFamily: stageFontFamily,
-              width: '100%',
-              maxWidth: '100%',
-              maxHeight: '100%',
-              overflow: 'hidden'
+              width: `${layout.contentWidth}px`,
+              height: `${layout.contentHeight}px`,
+              padding: `${settings.safeMargin}vmin`,
+              boxSizing: 'border-box',
+              transform: layout.contentTransform,
+              transformOrigin: 'center center'
             }}
           >
-            {rendered.lines.map((line, index) => (
-              <ChordProDisplayLine
-                key={`${line.raw}-${index}`}
-                line={line}
-                transpose={payload.performance.transpose}
-                showNashville={payload.performance.showNashvilleNumbers}
-                songKey={payload.song.performanceKey || payload.song.key}
-                boldChords={boldChords}
-                italicChords={italicChords}
-                chordFontColor={chordFontColor}
-                chordHighlightColor={chordHighlightColor}
-                sectionFontSize={sectionFontSize}
-                sectionFontColor={sectionFontColor}
-                sectionBold={sectionBold}
-                sectionItalic={sectionItalic}
-                sectionUppercase={sectionUppercase}
-                sectionSpacingBefore={sectionSpacingBefore}
-                sectionSpacingAfter={sectionSpacingAfter}
-                displayPreference={payload.song.displayPreference ?? 'inline'}
-                lineIndex={index}
-                chordFontSize={chordFontSize}
-                chordFontFamily={chordFontFamily}
-                lyricFontSize={lyricFontSize}
-                lineSpacing={lineSpacing}
-                chordVerticalOffset={chordVerticalOffset}
-                showAnchorDebug={Boolean(payload.performance.showChordAnchorDebug)}
-              />
-            ))}
-          </article>
+            {settings.fillScreenTest ? (
+              <ExternalFillScreenTest settings={settings} layout={layout} />
+            ) : (
+              <article
+                className="font-chart whitespace-pre-wrap"
+                style={{
+                  fontSize: `${lyricFontSize}px`,
+                  lineHeight: 1.52,
+                  color: documentTheme.text,
+                  fontFamily: stageFontFamily,
+                  width: '100%',
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  overflow: 'hidden'
+                }}
+              >
+                {rendered.lines.map((line, index) => (
+                  <ChordProDisplayLine
+                    key={`${line.raw}-${index}`}
+                    line={line}
+                    transpose={payload.performance.transpose}
+                    showNashville={payload.performance.showNashvilleNumbers}
+                    songKey={payload.song.performanceKey || payload.song.key}
+                    boldChords={boldChords}
+                    italicChords={italicChords}
+                    chordFontColor={chordFontColor}
+                    chordHighlightColor={chordHighlightColor}
+                    sectionFontSize={sectionFontSize}
+                    sectionFontColor={sectionFontColor}
+                    sectionBold={sectionBold}
+                    sectionItalic={sectionItalic}
+                    sectionUppercase={sectionUppercase}
+                    sectionSpacingBefore={sectionSpacingBefore}
+                    sectionSpacingAfter={sectionSpacingAfter}
+                    displayPreference={payload.song.displayPreference ?? 'inline'}
+                    lineIndex={index}
+                    chordFontSize={chordFontSize}
+                    chordFontFamily={chordFontFamily}
+                    lyricFontSize={lyricFontSize}
+                    lineSpacing={lineSpacing}
+                    chordVerticalOffset={chordVerticalOffset}
+                    showAnchorDebug={Boolean(payload.performance.showChordAnchorDebug)}
+                  />
+                ))}
+              </article>
+            )}
+          </div>
         </div>
       </div>
     </main>
@@ -4263,22 +4323,52 @@ function ExternalPrompterApp() {
 }
 
 function ExternalCalibrationOverlay({
-  rotation,
-  safeMargin
+  settings,
+  layout
 }: {
-  rotation: PerformanceState['externalDisplay']['rotation'];
-  safeMargin: number;
+  settings: PerformanceState['externalDisplay'];
+  layout: ReturnType<typeof calculateExternalPrompterLayout>;
 }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-20 text-amber-200">
+      <div
+        className="absolute border border-amber-300/80"
+        style={{
+          inset: `${settings.safeMargin}%`
+        }}
+      />
       <div className="absolute inset-x-0 top-1/2 border-t border-amber-300/70" />
       <div className="absolute inset-y-0 left-1/2 border-l border-amber-300/70" />
-      <div className="absolute left-2 top-2 h-10 w-10 border-l-4 border-t-4 border-amber-300" />
-      <div className="absolute right-2 top-2 h-10 w-10 border-r-4 border-t-4 border-amber-300" />
-      <div className="absolute bottom-2 left-2 h-10 w-10 border-b-4 border-l-4 border-amber-300" />
-      <div className="absolute bottom-2 right-2 h-10 w-10 border-b-4 border-r-4 border-amber-300" />
-      <div className="absolute left-1/2 top-4 -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-sm">
-        Calibration / {rotation} / safe margin {safeMargin}%
+      <div className="absolute left-2 top-2 h-12 w-12 border-l-4 border-t-4 border-amber-300"><span className="absolute left-2 top-2 text-xs font-bold">TL</span></div>
+      <div className="absolute right-2 top-2 h-12 w-12 border-r-4 border-t-4 border-amber-300"><span className="absolute right-2 top-2 text-xs font-bold">TR</span></div>
+      <div className="absolute bottom-2 left-2 h-12 w-12 border-b-4 border-l-4 border-amber-300"><span className="absolute bottom-2 left-2 text-xs font-bold">BL</span></div>
+      <div className="absolute bottom-2 right-2 h-12 w-12 border-b-4 border-r-4 border-amber-300"><span className="absolute bottom-2 right-2 text-xs font-bold">BR</span></div>
+      <div className="absolute left-1/2 top-4 max-w-[92vw] -translate-x-1/2 rounded bg-black/75 px-3 py-2 text-center text-sm leading-snug">
+        <div>{settings.profileName} / {settings.rotation} / {settings.scaleMode}</div>
+        <div>zoom {Math.round(layout.scale * 100)}% / safe {settings.safeMargin}% / offset {settings.offsetX.toFixed(1)}vw, {settings.offsetY.toFixed(1)}vh</div>
+      </div>
+    </div>
+  );
+}
+
+function ExternalFillScreenTest({
+  settings,
+  layout
+}: {
+  settings: PerformanceState['externalDisplay'];
+  layout: ReturnType<typeof calculateExternalPrompterLayout>;
+}) {
+  return (
+    <div className="grid h-full w-full place-items-center bg-black text-amber-100">
+      <div className="grid h-full w-full place-items-center border-[1.5vmin] border-amber-300 bg-gradient-to-br from-slate-950 via-slate-900 to-black p-[4vmin]">
+        <div className="grid h-full w-full place-items-center border border-amber-200/70 text-center">
+          <div className="rounded bg-black/60 px-5 py-4 text-[4vmin] font-bold leading-tight">
+            <div>FILL SCREEN TEST</div>
+            <div className="text-[0.48em] font-semibold text-amber-200">
+              {settings.rotation} / {settings.scaleMode} / {Math.round(layout.scale * 100)}%
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -5190,7 +5280,7 @@ function updateChordVerticalOffset(
 }
 
 function getExternalDisplaySettings(state: PerformanceState) {
-  return state.externalDisplay ?? defaultPerformanceState.externalDisplay;
+  return normalizeExternalDisplaySettings(state.externalDisplay ?? defaultPerformanceState.externalDisplay);
 }
 
 function buildSetlistEntries(songIds: string[], songs: Song[]): SetlistEntry[] {

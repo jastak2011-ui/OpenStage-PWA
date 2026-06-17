@@ -75,8 +75,65 @@ export function externalRotationDegrees(rotation: ExternalDisplaySettings['rotat
   return 0;
 }
 
-export function externalScale(settings: ExternalDisplaySettings) {
-  if (settings.scaleMode === 'manual') return settings.manualZoom;
-  if (settings.scaleMode === 'fill') return 1.12;
-  return 1;
+export function normalizeExternalDisplaySettings(settings: Partial<ExternalDisplaySettings> | undefined): ExternalDisplaySettings {
+  return {
+    enabled: Boolean(settings?.enabled),
+    outputMode: settings?.outputMode ?? 'standard',
+    rotation: settings?.rotation ?? 'normal',
+    scaleMode: settings?.scaleMode ?? 'fit',
+    manualZoom: Number(settings?.manualZoom ?? 1) || 1,
+    offsetX: Number(settings?.offsetX ?? 0) || 0,
+    offsetY: Number(settings?.offsetY ?? 0) || 0,
+    safeMargin: Number(settings?.safeMargin ?? 4) || 0,
+    showCalibration: Boolean(settings?.showCalibration),
+    fillScreenTest: Boolean(settings?.fillScreenTest),
+    profileName: settings?.profileName ?? 'Standard External Display'
+  };
+}
+
+export function appleTvPortraitPrompterSettings(settings: ExternalDisplaySettings): ExternalDisplaySettings {
+  return {
+    ...settings,
+    enabled: true,
+    outputMode: 'airplay-portrait-fill',
+    profileName: 'Apple TV Portrait Prompter',
+    rotation: settings.rotation === 'ccw-90' ? 'ccw-90' : 'cw-90',
+    scaleMode: 'fill',
+    safeMargin: settings.safeMargin || 4,
+    showCalibration: true
+  };
+}
+
+export function calculateExternalPrompterLayout(settings: ExternalDisplaySettings, viewportWidth: number, viewportHeight: number) {
+  const normalized = normalizeExternalDisplaySettings(settings);
+  const rotation = externalRotationDegrees(normalized.rotation);
+  const isQuarterTurn = normalized.rotation === 'cw-90' || normalized.rotation === 'ccw-90';
+  const safeInsetX = viewportWidth * (normalized.safeMargin / 100);
+  const safeInsetY = viewportHeight * (normalized.safeMargin / 100);
+  const availableWidth = Math.max(1, viewportWidth - safeInsetX * 2);
+  const availableHeight = Math.max(1, viewportHeight - safeInsetY * 2);
+  const contentWidth = isQuarterTurn ? viewportHeight : viewportWidth;
+  const contentHeight = isQuarterTurn ? viewportWidth : viewportHeight;
+  const rotatedWidth = isQuarterTurn ? contentHeight : contentWidth;
+  const rotatedHeight = isQuarterTurn ? contentWidth : contentHeight;
+  const fitScale = Math.min(availableWidth / rotatedWidth, availableHeight / rotatedHeight);
+  const fillScale = Math.max(availableWidth / rotatedWidth, availableHeight / rotatedHeight);
+  const baseScale = normalized.scaleMode === 'fill' ? fillScale : normalized.scaleMode === 'manual' ? 1 : fitScale;
+  const scale = Math.max(0.1, baseScale * normalized.manualZoom);
+
+  return {
+    rotation,
+    isQuarterTurn,
+    contentWidth,
+    contentHeight,
+    rotatedWidth,
+    rotatedHeight,
+    availableWidth,
+    availableHeight,
+    scale,
+    offsetX: normalized.offsetX,
+    offsetY: normalized.offsetY,
+    offsetTransform: `translate(-50%, -50%) translate(${normalized.offsetX}vw, ${normalized.offsetY}vh)`,
+    contentTransform: `rotate(${rotation}deg) scale(${scale})`
+  };
 }

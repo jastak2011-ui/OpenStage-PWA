@@ -61,6 +61,14 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/services/externalDisplay.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/services/externalDisplay-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/lib/displaySettings.ts')],
   bundle: true,
   platform: 'node',

@@ -171,11 +171,16 @@ export const defaultPerformanceState: PerformanceState = {
   showAutoscrollDebug: false,
   externalDisplay: {
     enabled: false,
+    outputMode: 'standard',
     rotation: 'normal',
     scaleMode: 'fit',
     manualZoom: 1,
+    offsetX: 0,
+    offsetY: 0,
     safeMargin: 4,
-    showCalibration: false
+    showCalibration: false,
+    fillScreenTest: false,
+    profileName: 'Standard External Display'
   }
 };
 
