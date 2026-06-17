@@ -15,6 +15,7 @@ import {
 } from './chordLayout-test-target.mjs';
 import { createId } from './ids-test-target.mjs';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './importExport-test-target.mjs';
+import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
 import {
   anchoredChordLineLayout,
   chartLineHeightEm,
@@ -47,6 +48,10 @@ const favoriteJsonSong = parseJsonSongs(songsToJson([favoriteCsvSong]))[0];
 assert.equal(favoriteJsonSong.favorite, true);
 const legacyJsonSong = parseJsonSongs('[{"title":"Legacy Tune","chart":"[C]Old"}]')[0];
 assert.equal(legacyJsonSong.favorite, false);
+assert.equal(getStageSwipeDirection({ startX: 240, startY: 200, endX: 120, endY: 210 }), 1);
+assert.equal(getStageSwipeDirection({ startX: 120, startY: 200, endX: 240, endY: 210 }), -1);
+assert.equal(getStageSwipeDirection({ startX: 120, startY: 200, endX: 155, endY: 205 }), 0);
+assert.equal(getStageSwipeDirection({ startX: 120, startY: 200, endX: 190, endY: 300 }), 0);
 
 assert.equal(calculateAutoscrollPixelsPerSecond(450, 120, 18), 3.75);
 assert.equal(calculateAutoscrollPixelsPerSecond(450, 225, 18), 2);

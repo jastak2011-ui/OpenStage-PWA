@@ -53,6 +53,14 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/lib/stageGestures.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/stageGestures-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/lib/displaySettings.ts')],
   bundle: true,
   platform: 'node',

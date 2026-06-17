@@ -62,6 +62,7 @@ import {
   estimateBpmAutoscrollDurationSeconds
 } from './lib/autoscroll';
 import { formatDuration, isValidDurationInput, parseDurationInput } from './lib/format';
+import { getStageSwipeDirection } from './lib/stageGestures';
 import { createId } from './lib/ids';
 import {
   anchoredChordLineLayout,
@@ -3278,6 +3279,7 @@ function PerformanceView({
   const [formatTab, setFormatTab] = useState<StageFormatTab>('format');
   const [toolbarVisible, setToolbarVisible] = useState(true);
   const [cursorHidden, setCursorHidden] = useState(false);
+  const swipeStartRef = useRef<{ x: number; y: number; target: EventTarget | null } | null>(null);
   const stageTheme = getStageTheme(state.stageTheme);
   const stageBackground = stageTheme.className;
   const headerFontSize = getEffectiveHeaderFontSize(state);
@@ -3318,6 +3320,30 @@ function PerformanceView({
     setToolbarVisible(true);
     setActivePopover((current) => current === 'format' ? null : 'format');
   }, []);
+  const handleStageTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    if (activePopover || isInteractiveSwipeTarget(event.target)) {
+      swipeStartRef.current = null;
+      return;
+    }
+    const touch = event.touches[0];
+    swipeStartRef.current = touch ? { x: touch.clientX, y: touch.clientY, target: event.target } : null;
+  }, [activePopover]);
+  const handleStageTouchEnd = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || activePopover || isInteractiveSwipeTarget(start.target) || isInteractiveSwipeTarget(event.target)) return;
+
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    const direction = getStageSwipeDirection({
+      startX: start.x,
+      startY: start.y,
+      endX: touch.clientX,
+      endY: touch.clientY
+    });
+    if (direction === 1) onNext();
+    if (direction === -1) onPrevious();
+  }, [activePopover, onNext, onPrevious]);
 
   useEffect(() => {
     if (activePopover) return;
@@ -3458,6 +3484,8 @@ function PerformanceView({
         ref={stageRef}
         className={`stage-scroll h-full overflow-y-auto overflow-x-hidden px-5 pb-36 pt-28 sm:px-10 lg:px-16 ${state.portraitMode ? 'portrait-prompter' : ''}`}
         onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
+        onTouchStart={handleStageTouchStart}
+        onTouchEnd={handleStageTouchEnd}
       >
         <article
           className={`stage-chart mx-auto font-chart transition-opacity duration-200 ${state.portraitMode ? 'max-w-3xl' : 'max-w-5xl'} ${state.mirroredMode ? 'mirror-stage' : ''} ${state.splitScreen ? 'tablet-columns' : ''} ${isTransitioningSong ? 'opacity-35' : 'opacity-100'}`}
@@ -4034,6 +4062,10 @@ function StageLibrarySongButton({
 
 function StagePopoverTitle({ title }: { title: string }) {
   return <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">{title}</div>;
+}
+
+function isInteractiveSwipeTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement && Boolean(target.closest('button, input, textarea, select, option, label, [role="button"], [data-stage-control]'));
 }
 
 function StageTabButton({
