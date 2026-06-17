@@ -3398,6 +3398,7 @@ function PerformanceView({
           <div className="relative flex items-center gap-1 rounded-full border border-white/10 bg-black/25 p-1 backdrop-blur-md">
             <StageIconButton icon={<Pencil size={19} />} label="Edit Song" tone={toolbarButton} onClick={onEdit} />
             <StageIconButton icon={<Settings size={19} />} label="Format" tone={toolbarButton} active={activePopover === 'format'} onClick={() => openFormatPopover('format')} />
+            <StageIconButton icon={<Monitor size={19} />} label="External Display" tone={toolbarButton} active={activePopover === 'format' && formatTab === 'external'} onClick={() => openFormatPopover('external')} />
             <StageIconButton icon={<MoreHorizontal size={19} />} label="More" tone={toolbarButton} active={activePopover === 'more'} onClick={() => togglePopover('more')} />
           </div>
         </div>
@@ -3541,6 +3542,7 @@ function ExternalDisplayControls({
   const updateSettings = (next: Partial<PerformanceState['externalDisplay']>) =>
     setState({ externalDisplay: { ...settings, ...next } });
   const activateAirPlayPortrait = () => setState({ externalDisplay: appleTvPortraitPrompterSettings(settings) });
+  const outputStatus = status || (settings.enabled ? 'External output connected' : 'Open the external output first to preview changes.');
 
   async function launchExternalDisplay() {
     updateSettings({ enabled: true });
@@ -3560,16 +3562,34 @@ function ExternalDisplayControls({
   }
 
   return (
-    <div className="grid gap-2 rounded-md border border-slate-700 bg-slate-950 p-3 text-xs">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <div className="font-semibold text-white">External Display</div>
-          <div className="text-slate-400">
-            Presentation API {supportsPresentationApi() ? 'available' : 'unavailable'} / window {supportsExternalWindow() ? 'available' : 'blocked'}
+    <div className="grid gap-3 rounded-md border border-slate-700 bg-slate-950 p-3 text-xs">
+      <div className="grid gap-2">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="font-semibold text-white">External Display</div>
+            <div className="text-slate-400">
+              Presentation API {supportsPresentationApi() ? 'available' : 'unavailable'} / window {supportsExternalWindow() ? 'available' : 'blocked'}
+            </div>
+          </div>
+          <div className={`rounded-full border px-2 py-1 text-[0.65rem] font-semibold ${settings.enabled ? 'border-teal-400/50 bg-teal-400/10 text-teal-100' : 'border-amber-300/40 bg-amber-300/10 text-amber-100'}`}>
+            {outputStatus}
           </div>
         </div>
-        <button className="stage-menu-button" onClick={launchExternalDisplay}>
-          <Monitor size={18} /> Preview / Calibrate
+        <div className="rounded-md border border-slate-700 bg-black/20 p-3 text-slate-300">
+          <div>Step 1: Open External Prompter Output</div>
+          <div>Step 2: AirPlay that output to Apple TV</div>
+          <div>Step 3: Use the controls below to adjust rotation, zoom, offset, and safe margins</div>
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <button className="stage-menu-button" type="button" onClick={launchExternalDisplay}>
+          <Monitor size={18} /> Open External Prompter Output
+        </button>
+        <button className="stage-menu-button" type="button" onClick={() => updateSettings({ enabled: true, showCalibration: true, fillScreenTest: false })}>
+          <Gauge size={18} /> Start Calibration
+        </button>
+        <button className="stage-menu-button" type="button" onClick={() => updateSettings({ enabled: true, fillScreenTest: !settings.fillScreenTest, showCalibration: true })}>
+          <Expand size={18} /> Fill Screen Test
         </button>
       </div>
       <button className="stage-menu-button" onClick={() => updateSettings({ enabled: !settings.enabled })}>
@@ -3637,16 +3657,18 @@ function ExternalDisplayControls({
         Safe margin {settings.safeMargin}%
         <input type="range" min={0} max={20} step={1} value={settings.safeMargin} onChange={(event) => updateSettings({ safeMargin: Number(event.target.value) })} />
       </label>
-      <button className="stage-menu-button" onClick={() => updateSettings({ showCalibration: !settings.showCalibration })}>
-        Calibration {settings.showCalibration ? 'On' : 'Off'}
-      </button>
-      <button className="stage-menu-button" onClick={() => updateSettings({ fillScreenTest: !settings.fillScreenTest, showCalibration: true })}>
-        Fill Screen Test {settings.fillScreenTest ? 'On' : 'Off'}
-      </button>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button className="stage-menu-button" onClick={() => updateSettings({ enabled: true, showCalibration: !settings.showCalibration })}>
+          Calibration Overlay {settings.showCalibration ? 'On' : 'Off'}
+        </button>
+        <button className="stage-menu-button" onClick={() => updateSettings({ enabled: true, fillScreenTest: !settings.fillScreenTest, showCalibration: true })}>
+          Fill Screen Test {settings.fillScreenTest ? 'On' : 'Off'}
+        </button>
+      </div>
       <div className="rounded-md border border-slate-700 bg-black/20 p-2 text-slate-300">
         Profile: {settings.profileName}
       </div>
-      {status && <div className="text-amber-200">{status}</div>}
+      {!settings.enabled && <div className="text-amber-200">Open the external output first to preview changes.</div>}
       {!supportsPresentationApi() && <div className="text-slate-400">Safari fallback: use AirPlay mirroring, then apply rotation/scale here.</div>}
       <div className="text-slate-400">Rotation and scale apply only to the external prompter output, not this iPad Stage view.</div>
     </div>
