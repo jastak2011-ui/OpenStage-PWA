@@ -1,0 +1,87 @@
+import { build } from 'esbuild';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+
+await build({
+  entryPoints: [resolve(root, 'src/lib/format.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/format-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/lib/autoscroll.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/autoscroll-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/lib/chords.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/chords-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/lib/chordLayout.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/chordLayout-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/lib/ids.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/ids-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/lib/importExport.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/importExport-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/lib/displaySettings.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/displaySettings-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/lib/onsongArchive.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/onsongArchive-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/lib/setlists.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/setlists-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/services/rendering/songRenderer.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/services/rendering/songRenderer-test-target.mjs')
+});
+
+await import(pathToFileURL(resolve(root, 'src/lib/format.test.mjs')).href);

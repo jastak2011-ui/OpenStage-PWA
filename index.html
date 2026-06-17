@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>OpenStage PWA</title>
+  </head>
+  <body>
+    <div id="openstage-html-fallback" style="min-height:100vh;background:#0b1020;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px;box-sizing:border-box;">
+      <h1 style="margin:0 0 8px;font-size:24px;">OpenStage loading...</h1>
+      <p style="margin:0 0 16px;color:#cbd5e1;">HTML loaded. Waiting for the app to start.</p>
+      <pre id="openstage-startup-log" style="white-space:pre-wrap;border:1px solid #334155;border-radius:8px;background:#111827;padding:12px;color:#fde68a;font-size:13px;line-height:1.45;">HTML loaded</pre>
+    </div>
+    <div id="root"></div>
+    <script>
+      (function () {
+        var startedAt = Date.now();
+        var logEl = document.getElementById('openstage-startup-log');
+        var fallbackEl = document.getElementById('openstage-html-fallback');
+        var checkpoints = ['HTML loaded'];
+
+        function write() {
+          if (!logEl) return;
+          logEl.textContent = checkpoints.join('\n');
+        }
+
+        function checkpoint(message) {
+          checkpoints.push(message);
+          write();
+        }
+
+        function showError(label, error) {
+          var message = label + ': ' + (error && (error.stack || error.message || error.reason || error.toString()) || 'Unknown error');
+          checkpoint(message);
+          if (fallbackEl) {
+            fallbackEl.style.display = 'block';
+            fallbackEl.innerHTML =
+              '<h1 style="margin:0 0 8px;font-size:24px;">OpenStage failed to start on this browser</h1>' +
+              '<p style="margin:0 0 16px;color:#fecaca;">A startup error was caught before React could render.</p>' +
+              '<pre style="white-space:pre-wrap;border:1px solid #7f1d1d;border-radius:8px;background:#450a0a;padding:12px;color:#fee2e2;font-size:13px;line-height:1.45;">' +
+              escapeHtml(checkpoints.join('\n')) +
+              '</pre>';
+          }
+        }
+
+        function escapeHtml(value) {
+          return String(value).replace(/[&<>"']/g, function (char) {
+            return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char];
+          });
+        }
+
+        window.OpenStageStartup = {
+          checkpoint: checkpoint,
+          markMounted: function () {
+            checkpoint('React mounted');
+            if (fallbackEl) fallbackEl.style.display = 'none';
+          },
+          showError: showError,
+          getCheckpoints: function () {
+            return checkpoints.slice();
+          }
+        };
+
+        window.onerror = function (message, source, lineno, colno, error) {
+          showError('window.onerror ' + message + ' at ' + source + ':' + lineno + ':' + colno, error);
+        };
+
+        window.onunhandledrejection = function (event) {
+          showError('window.onunhandledrejection', event && (event.reason || event));
+        };
+
+        checkpoint('main script requested');
+
+        window.setTimeout(function () {
+          if (!window.OpenStageReactMounted) {
+            checkpoint('React mount timeout after ' + (Date.now() - startedAt) + 'ms');
+            showError('OpenStage failed to start on this browser', 'React did not mount within 5 seconds');
+          }
+        }, 5000);
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

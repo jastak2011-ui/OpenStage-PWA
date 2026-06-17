@@ -1,0 +1,315 @@
+{new_song}
+{t:Fixture Song 01}
+{st:Fixture Artist}
+{key:C}
+{capo:0}
+{tempo:90}
+{time:4/4}
+{midi: program 1}
+[C]Verse line one [G]line two
+{new_song}
+{t:Fixture Song 02}
+{st:Fixture Artist}
+{key:D}
+{capo:1}
+{tempo:91}
+{time:4/4}
+{midi: program 1}
+[D]Verse line one [A]line two
+{new_song}
+{t:Fixture Song 03}
+{st:Fixture Artist}
+{key:E}
+{capo:0}
+{tempo:92}
+{time:4/4}
+{midi: program 1}
+[E]Verse line one [B]line two
+{new_song}
+{t:Fixture Song 04}
+{st:Fixture Artist}
+{key:F}
+{capo:2}
+{tempo:93}
+{time:4/4}
+{midi: program 1}
+[F]Verse line one [C]line two
+{new_song}
+{t:Fixture Song 05}
+{st:Fixture Artist}
+{key:G}
+{capo:0}
+{tempo:94}
+{time:4/4}
+{midi: program 1}
+[G]Verse line one [D]line two
+{new_song}
+{t:Fixture Song 06}
+{st:Fixture Artist}
+{key:A}
+{capo:3}
+{tempo:95}
+{time:4/4}
+{midi: program 1}
+[A]Verse line one [E]line two
+{new_song}
+{t:Fixture Song 07}
+{st:Fixture Artist}
+{key:Bb}
+{capo:0}
+{tempo:96}
+{time:4/4}
+{midi: program 1}
+[Bb]Verse line one [F]line two
+{new_song}
+{t:Fixture Song 08}
+{st:Fixture Artist}
+{key:C}
+{capo:0}
+{tempo:97}
+{time:4/4}
+{midi: program 1}
+[C]Verse line one [G]line two
+{new_song}
+{t:Fixture Song 09}
+{st:Fixture Artist}
+{key:D}
+{capo:1}
+{tempo:98}
+{time:4/4}
+{midi: program 1}
+[D]Verse line one [A]line two
+{new_song}
+{t:Fixture Song 10}
+{st:Fixture Artist}
+{key:E}
+{capo:0}
+{tempo:99}
+{time:4/4}
+{midi: program 1}
+[E]Verse line one [B]line two
+{new_song}
+{t:Fixture Song 11}
+{st:Fixture Artist}
+{key:F}
+{capo:2}
+{tempo:100}
+{time:4/4}
+{midi: program 1}
+[F]Verse line one [C]line two
+{new_song}
+{t:Fixture Song 12}
+{st:Fixture Artist}
+{key:G}
+{capo:0}
+{tempo:101}
+{time:4/4}
+{midi: program 1}
+[G]Verse line one [D]line two
+{new_song}
+{t:Fixture Song 13}
+{st:Fixture Artist}
+{key:A}
+{capo:3}
+{tempo:102}
+{time:4/4}
+{midi: program 1}
+[A]Verse line one [E]line two
+{new_song}
+{t:Fixture Song 14}
+{st:Fixture Artist}
+{key:Bb}
+{capo:0}
+{tempo:103}
+{time:4/4}
+{midi: program 1}
+[Bb]Verse line one [F]line two
+{new_song}
+{t:Fixture Song 15}
+{st:Fixture Artist}
+{key:C}
+{capo:0}
+{tempo:104}
+{time:4/4}
+{midi: program 1}
+[C]Verse line one [G]line two
+{new_song}
+{t:Fixture Song 16}
+{st:Fixture Artist}
+{key:D}
+{capo:1}
+{tempo:105}
+{time:4/4}
+{midi: program 1}
+[D]Verse line one [A]line two
+{new_song}
+{t:Fixture Song 17}
+{st:Fixture Artist}
+{key:E}
+{capo:0}
+{tempo:106}
+{time:4/4}
+{midi: program 1}
+[E]Verse line one [B]line two
+{new_song}
+{t:Fixture Song 18}
+{st:Fixture Artist}
+{key:F}
+{capo:2}
+{tempo:107}
+{time:4/4}
+{midi: program 1}
+[F]Verse line one [C]line two
+{new_song}
+{t:Fixture Song 19}
+{st:Fixture Artist}
+{key:G}
+{capo:0}
+{tempo:108}
+{time:4/4}
+{midi: program 1}
+[G]Verse line one [D]line two
+{new_song}
+{t:Fixture Song 20}
+{st:Fixture Artist}
+{key:A}
+{capo:3}
+{tempo:109}
+{time:4/4}
+{midi: program 1}
+[A]Verse line one [E]line two
+{new_song}
+{t:Fixture Song 21}
+{st:Fixture Artist}
+{key:Bb}
+{capo:0}
+{tempo:110}
+{time:4/4}
+{midi: program 1}
+[Bb]Verse line one [F]line two
+{new_song}
+{t:Fixture Song 22}
+{st:Fixture Artist}
+{key:C}
+{capo:0}
+{tempo:111}
+{time:4/4}
+{midi: program 1}
+[C]Verse line one [G]line two
+{new_song}
+{t:Fixture Song 23}
+{st:Fixture Artist}
+{key:D}
+{capo:1}
+{tempo:112}
+{time:4/4}
+{midi: program 1}
+[D]Verse line one [A]line two
+{new_song}
+{t:Fixture Song 24}
+{st:Fixture Artist}
+{key:E}
+{capo:0}
+{tempo:113}
+{time:4/4}
+{midi: program 1}
+[E]Verse line one [B]line two
+{new_song}
+{t:Fixture Song 25}
+{st:Fixture Artist}
+{key:F}
+{capo:2}
+{tempo:114}
+{time:4/4}
+{midi: program 1}
+[F]Verse line one [C]line two
+{new_song}
+{t:Fixture Song 26}
+{st:Fixture Artist}
+{key:G}
+{capo:0}
+{tempo:115}
+{time:4/4}
+{midi: program 1}
+[G]Verse line one [D]line two
+{new_song}
+{t:Fixture Song 27}
+{st:Fixture Artist}
+{key:A}
+{capo:3}
+{tempo:116}
+{time:4/4}
+{midi: program 1}
+[A]Verse line one [E]line two
+{new_song}
+{t:Fixture Song 28}
+{st:Fixture Artist}
+{key:Bb}
+{capo:0}
+{tempo:117}
+{time:4/4}
+{midi: program 1}
+[Bb]Verse line one [F]line two
+{new_song}
+{t:Fixture Song 29}
+{st:Fixture Artist}
+{key:C}
+{capo:0}
+{tempo:118}
+{time:4/4}
+{midi: program 1}
+[C]Verse line one [G]line two
+{new_song}
+{t:Fixture Song 30}
+{st:Fixture Artist}
+{key:D}
+{capo:1}
+{tempo:119}
+{time:4/4}
+{midi: program 1}
+[D]Verse line one [A]line two
+{new_song}
+{t:Fixture Song 31}
+{st:Fixture Artist}
+{key:E}
+{capo:0}
+{tempo:120}
+{time:4/4}
+{midi: program 1}
+[E]Verse line one [B]line two
+{new_song}
+{t:Fixture Song 32}
+{st:Fixture Artist}
+{key:F}
+{capo:2}
+{tempo:121}
+{time:4/4}
+{midi: program 1}
+[F]Verse line one [C]line two
+{new_song}
+{t:Fixture Song 33}
+{st:Fixture Artist}
+{key:G}
+{capo:0}
+{tempo:122}
+{time:4/4}
+{midi: program 1}
+[G]Verse line one [D]line two
+{new_song}
+{t:Fixture Song 34}
+{st:Fixture Artist}
+{key:A}
+{capo:3}
+{tempo:123}
+{time:4/4}
+{midi: program 1}
+[A]Verse line one [E]line two
+{new_song}
+{t:Fixture Song 35}
+{st:Fixture Artist}
+{key:Bb}
+{capo:0}
+{tempo:124}
+{time:4/4}
+{midi: program 1}
+[Bb]Verse line one [F]line two
