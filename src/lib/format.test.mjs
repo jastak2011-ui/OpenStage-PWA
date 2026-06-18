@@ -30,12 +30,14 @@ import {
   getEffectiveChordVerticalOffset,
   getEffectiveHarmonyUnderline,
   getEffectiveLineSpacing,
+  getEffectiveShowChords,
   getEffectiveSongArtistBold,
   getEffectiveSongArtistFontSize,
   getEffectiveSongTitleBold,
   getEffectiveSongTitleFontSize,
   harmonyUnderlineUpdate,
   lineSpacingUpdate,
+  showChordsUpdate,
   songArtistBoldUpdate,
   songArtistFontSizeUpdate,
   songTitleBoldUpdate,
@@ -114,6 +116,24 @@ assert.equal(getStageSwipeDirection({ startX: 240, startY: 200, endX: 120, endY:
 assert.equal(getStageSwipeDirection({ startX: 120, startY: 200, endX: 240, endY: 210 }), -1);
 assert.equal(getStageSwipeDirection({ startX: 120, startY: 200, endX: 155, endY: 205 }), 0);
 assert.equal(getStageSwipeDirection({ startX: 120, startY: 200, endX: 190, endY: 300 }), 0);
+
+const baseDisplayState = {
+  activeProfile: 'desktop',
+  showChords: true,
+  showChordsByProfile: {}
+};
+assert.equal(getEffectiveShowChords(baseDisplayState), true);
+const hiddenDesktopChords = { ...baseDisplayState, ...showChordsUpdate(baseDisplayState, false) };
+assert.equal(getEffectiveShowChords(hiddenDesktopChords), false);
+const iphoneChordProfile = {
+  ...hiddenDesktopChords,
+  activeProfile: 'iphone',
+  showChordsByProfile: {
+    ...hiddenDesktopChords.showChordsByProfile,
+    iphone: true
+  }
+};
+assert.equal(getEffectiveShowChords(iphoneChordProfile), true);
 
 const standardExternal = normalizeExternalDisplaySettings(undefined);
 assert.equal(standardExternal.outputMode, 'standard');

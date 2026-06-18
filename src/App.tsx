@@ -102,6 +102,7 @@ import {
   getEffectiveSectionSpacingAfter,
   getEffectiveSectionSpacingBefore,
   getEffectiveSectionUppercase,
+  getEffectiveShowChords,
   getEffectiveShowHarmonyCues,
   getEffectiveSongArtistBold,
   getEffectiveSongArtistColor,
@@ -137,6 +138,7 @@ import {
   sectionSpacingBeforeUpdate,
   sectionUppercaseUpdate,
   showHarmonyCuesUpdate,
+  showChordsUpdate,
   songArtistBoldUpdate,
   songArtistColorUpdate,
   songArtistFontSizeUpdate,
@@ -3582,6 +3584,7 @@ function PerformanceView({
   const chordHighlightColor = getEffectiveChordHighlightColor(state);
   const boldChords = getEffectiveBoldChords(state);
   const italicChords = getEffectiveItalicChords(state);
+  const showChords = getEffectiveShowChords(state);
   const documentTheme = getDocumentThemePreset(getEffectiveDocumentTheme(state));
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
   const chordFontFamily = getEffectiveUseMonospaceChords(state) ? 'Consolas, "Courier New", monospace' : stageFontFamily;
@@ -3827,6 +3830,7 @@ function PerformanceView({
               songKey={song.performanceKey || song.key}
               boldChords={boldChords}
               italicChords={italicChords}
+              showChords={showChords}
               chordFontColor={chordFontColor}
               chordHighlightColor={chordHighlightColor}
               sectionFontSize={sectionFontSize}
@@ -4412,6 +4416,9 @@ function StageControlPopover({
                 <button className="stage-menu-button" type="button" onClick={() => setState({ showNashvilleNumbers: !state.showNashvilleNumbers })}>
                   Nashville Numbers {state.showNashvilleNumbers ? 'On' : 'Off'}
                 </button>
+                <button className="stage-menu-button" type="button" onClick={() => setState(showChordsUpdate(state, !getEffectiveShowChords(state)))}>
+                  Show Chords {getEffectiveShowChords(state) ? 'On' : 'Off'}
+                </button>
                 <button className="stage-menu-button" type="button" onClick={onToggleDisplayPreference}>
                   Mode: {displayPreference === 'chords-over' ? 'Chords Over Lyrics' : 'Inline Chords'}
                 </button>
@@ -4834,6 +4841,7 @@ function ExternalPrompterApp() {
   const chordHighlightColor = getEffectiveChordHighlightColor(payload.performance);
   const boldChords = getEffectiveBoldChords(payload.performance);
   const italicChords = getEffectiveItalicChords(payload.performance);
+  const showChords = getEffectiveShowChords(payload.performance);
   const sectionFontSize = getEffectiveSectionFontSize(payload.performance);
   const sectionFontColor = getEffectiveSectionFontColor(payload.performance);
   const sectionBold = getEffectiveSectionBold(payload.performance);
@@ -4917,6 +4925,7 @@ function ExternalPrompterApp() {
                     songKey={payload.song.performanceKey || payload.song.key}
                     boldChords={boldChords}
                     italicChords={italicChords}
+                    showChords={showChords}
                     chordFontColor={chordFontColor}
                     chordHighlightColor={chordHighlightColor}
                     sectionFontSize={sectionFontSize}
@@ -5269,6 +5278,7 @@ function ChordProDisplayLine({
   songKey,
   boldChords,
   italicChords,
+  showChords,
   chordFontColor,
   chordHighlightColor,
   sectionFontSize,
@@ -5303,6 +5313,7 @@ function ChordProDisplayLine({
   songKey: string;
   boldChords: boolean;
   italicChords: boolean;
+  showChords: boolean;
   chordFontColor: string;
   chordHighlightColor: string;
   sectionFontSize: number;
@@ -5418,6 +5429,7 @@ function ChordProDisplayLine({
   if (line.type === 'chord-over') {
     if (isHiddenStageTextLine(`${line.chordLine}\n${line.lyricLine}`)) return null;
     if (!line.lyricLine) {
+      if (!showChords) return null;
       const chordRowHeight = Math.ceil(chordFontSize * 1.25);
       if (mobileReflowMode) {
         return (
@@ -5442,6 +5454,7 @@ function ChordProDisplayLine({
           chordStyle={chordStyle}
           lyricLineStyle={lyricLineStyle}
           rowSpacingStyle={rowSpacingStyle}
+          showChords={showChords}
           showHarmonyCues={showHarmonyCues}
           harmonyStyle={harmonyStyle}
           harmonyIconColor={resolvedHarmonyIconColor}
@@ -5461,6 +5474,7 @@ function ChordProDisplayLine({
         lineSpacing={lineSpacing}
         chordVerticalOffset={chordVerticalOffset}
         showAnchorDebug={showAnchorDebug}
+        showChords={showChords}
         showHarmonyCues={showHarmonyCues}
         harmonyStyle={harmonyStyle}
         harmonyIconColor={resolvedHarmonyIconColor}
@@ -5490,6 +5504,7 @@ function ChordProDisplayLine({
           chordStyle={chordStyle}
           lyricLineStyle={lyricLineStyle}
           rowSpacingStyle={rowSpacingStyle}
+          showChords={showChords}
           showHarmonyCues={showHarmonyCues}
           harmonyStyle={harmonyStyle}
           harmonyIconColor={resolvedHarmonyIconColor}
@@ -5509,6 +5524,7 @@ function ChordProDisplayLine({
         lineSpacing={lineSpacing}
         chordVerticalOffset={chordVerticalOffset}
         showAnchorDebug={showAnchorDebug}
+        showChords={showChords}
         showHarmonyCues={showHarmonyCues}
         harmonyStyle={harmonyStyle}
         harmonyIconColor={resolvedHarmonyIconColor}
@@ -5529,6 +5545,7 @@ function ChordProDisplayLine({
           chordStyle={chordStyle}
           lyricLineStyle={lyricLineStyle}
           rowSpacingStyle={rowSpacingStyle}
+          showChords={showChords}
           showHarmonyCues={showHarmonyCues}
           harmonyStyle={harmonyStyle}
           harmonyIconColor={resolvedHarmonyIconColor}
@@ -5548,6 +5565,7 @@ function ChordProDisplayLine({
         lineSpacing={lineSpacing}
         chordVerticalOffset={chordVerticalOffset}
         showAnchorDebug={showAnchorDebug}
+        showChords={showChords}
         showHarmonyCues={showHarmonyCues}
         harmonyStyle={harmonyStyle}
         harmonyIconColor={resolvedHarmonyIconColor}
@@ -5600,6 +5618,7 @@ function MobileReflowChordLine({
   chordStyle,
   lyricLineStyle,
   rowSpacingStyle,
+  showChords,
   showHarmonyCues,
   harmonyStyle,
   harmonyIconColor,
@@ -5612,6 +5631,7 @@ function MobileReflowChordLine({
   chordStyle: React.CSSProperties;
   lyricLineStyle: React.CSSProperties;
   rowSpacingStyle: React.CSSProperties;
+  showChords: boolean;
   showHarmonyCues: boolean;
   harmonyStyle: React.CSSProperties;
   harmonyIconColor: string;
@@ -5634,15 +5654,6 @@ function MobileReflowChordLine({
   const nodes: React.ReactNode[] = [];
 
   boundaries.forEach((boundary, index) => {
-    const chords = groupedAnchors.get(boundary) ?? [];
-    chords.forEach((chord, chordIndex) => {
-      nodes.push(
-        <span key={`chord-${boundary}-${chord}-${chordIndex}`} className={`stage-mobile-inline-chord ${chordClassName}`} style={chordStyle}>
-          {chord}
-        </span>
-      );
-    });
-
     const nextBoundary = boundaries[index + 1];
     if (nextBoundary === undefined || boundary >= nextBoundary) return;
     nodes.push(
@@ -5662,7 +5673,16 @@ function MobileReflowChordLine({
   return (
     <div data-line-index={lineIndex} className="stage-mobile-reflow-line relative min-w-0 max-w-full break-words" style={{ ...lyricLineStyle, ...rowSpacingStyle }}>
       {showHarmonyCues && harmonyIconVisible && lyricState.hasHarmony && <HarmonyCueIcon color={harmonyIconColor} />}
-      {nodes}
+      {showChords && anchoredLine.anchors.length > 0 && (
+        <div className="stage-mobile-compact-chord-row font-mono">
+          {anchoredLine.anchors.map((anchor, index) => (
+            <span key={`${anchor.chord}-${anchor.index}-${index}`} className={chordClassName} style={chordStyle}>
+              {anchor.chord}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="stage-mobile-lyric-row">{nodes}</div>
     </div>
   );
 }
@@ -5732,6 +5752,7 @@ function AnchoredChordDisplayLine({
   lineSpacing,
   chordVerticalOffset,
   showAnchorDebug,
+  showChords,
   showHarmonyCues,
   harmonyStyle,
   harmonyIconColor,
@@ -5747,6 +5768,7 @@ function AnchoredChordDisplayLine({
   lineSpacing: number;
   chordVerticalOffset: number;
   showAnchorDebug: boolean;
+  showChords: boolean;
   showHarmonyCues: boolean;
   harmonyStyle: React.CSSProperties;
   harmonyIconColor: string;
@@ -5820,7 +5842,7 @@ function AnchoredChordDisplayLine({
           lineHeight: `${lyricLineHeight}px`
         }}
       >
-        {anchoredLine.anchors.length > 0 && (
+        {showChords && anchoredLine.anchors.length > 0 && (
           <div className="pointer-events-none absolute left-0 top-0 h-full">
             {anchoredLine.anchors.map((anchor, index) => (
               <span

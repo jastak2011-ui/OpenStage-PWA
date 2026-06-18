@@ -335,6 +335,20 @@ export function italicChordsUpdate(state: PerformanceState, italicChords: boolea
   };
 }
 
+export function getEffectiveShowChords(state: PerformanceState) {
+  return state.showChordsByProfile?.[state.activeProfile] ?? state.showChords ?? true;
+}
+
+export function showChordsUpdate(state: PerformanceState, showChords: boolean): Partial<PerformanceState> {
+  return {
+    showChords,
+    showChordsByProfile: {
+      ...(state.showChordsByProfile ?? {}),
+      [state.activeProfile]: showChords
+    }
+  };
+}
+
 export function getEffectiveSectionFontSize(state: PerformanceState) {
   const profileSize = state.sectionFontSizesByProfile?.[state.activeProfile];
   return clampRange(profileSize ?? state.sectionFontSize ?? Math.round(getEffectiveLyricFontSize(state) * 1.08), 14, 64, 36);

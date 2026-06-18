@@ -299,6 +299,17 @@ export const defaultPerformanceState: PerformanceState = {
     tablet: false,
     'portrait-prompter': false
   },
+  showChords: true,
+  showChordsByProfile: {
+    desktop: true,
+    'ipad-portrait': true,
+    'ipad-landscape': true,
+    iphone: true,
+    'prompter-display': true,
+    'stage-device': true,
+    tablet: true,
+    'portrait-prompter': true
+  },
   inlineChordsOnPhone: true,
   splitScreen: false,
   countdownSeconds: 0,
@@ -383,6 +394,7 @@ export const useAppStore = create<AppStore>()(
           const currentUseMonospaceChords = state.performance.useMonospaceChordsByProfile ?? {};
           const currentBoldChords = state.performance.boldChordsByProfile ?? {};
           const currentItalicChords = state.performance.italicChordsByProfile ?? {};
+          const currentShowChords = state.performance.showChordsByProfile ?? {};
           const nextFontSize =
             next.fontSize ??
             currentLyricSizes[activeProfile] ??
@@ -548,6 +560,11 @@ export const useAppStore = create<AppStore>()(
             currentItalicChords[activeProfile] ??
             state.performance.italicChords ??
             defaultPerformanceState.italicChords;
+          const nextShowChords =
+            next.showChords ??
+            currentShowChords[activeProfile] ??
+            state.performance.showChords ??
+            defaultPerformanceState.showChords;
           return {
             performance: {
               ...state.performance,
@@ -750,6 +767,12 @@ export const useAppStore = create<AppStore>()(
                 ...currentItalicChords,
                 ...(next.italicChordsByProfile ?? {}),
                 [activeProfile]: nextItalicChords
+              },
+              showChords: nextShowChords,
+              showChordsByProfile: {
+                ...currentShowChords,
+                ...(next.showChordsByProfile ?? {}),
+                [activeProfile]: nextShowChords
               },
               pedalMappings: {
                 ...state.performance.pedalMappings,

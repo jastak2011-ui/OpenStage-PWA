@@ -479,11 +479,12 @@ label,
     word-break: normal;
   }
 
-  .stage-mobile-inline-chord {
-    display: inline-block;
-    margin-right: 0.22em;
-    transform: translateY(-0.08em);
-    vertical-align: baseline;
+  .stage-mobile-compact-chord-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.08em 0.45em;
+    margin-bottom: 0.12em;
+    line-height: 1.2;
   }
 
   .stage-mobile-chord-row {
