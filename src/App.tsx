@@ -15,6 +15,7 @@ import {
   ListMusic,
   LogIn,
   Lock,
+  Menu,
   Mic2,
   Monitor,
   Moon,
@@ -34,6 +35,7 @@ import {
   Trash2,
   Unlock,
   Upload,
+  X,
 } from 'lucide-react';
 import {
   DndContext,
@@ -279,6 +281,21 @@ type AutoscrollStopReason =
   | 'target-changed'
   | 'stale-loop-cancelled';
 
+const mobileModeOptions: Array<{ mode: StageMode; label: string; icon: React.ReactNode }> = [
+  { mode: 'library', label: 'Library', icon: <Library size={19} /> },
+  { mode: 'import', label: 'Import', icon: <Upload size={19} /> },
+  { mode: 'setlist', label: 'Setlist', icon: <ListMusic size={19} /> },
+  { mode: 'perform', label: 'Perform', icon: <Mic2 size={19} /> },
+  { mode: 'stage', label: 'Stage', icon: <Monitor size={19} /> },
+  { mode: 'pedals', label: 'Pedals', icon: <Settings size={19} /> },
+  { mode: 'settings', label: 'Settings', icon: <Settings size={19} /> },
+  { mode: 'diagnostics', label: 'Diagnostics', icon: <Gauge size={19} /> }
+];
+
+function modeLabel(mode: StageMode) {
+  return mobileModeOptions.find((item) => item.mode === mode)?.label ?? 'Editor';
+}
+
 type AutoscrollController = {
   active: boolean;
   loopId: number;
@@ -486,6 +503,7 @@ export default function App() {
   const [allowSetlistDuplicates, setAllowSetlistDuplicates] = useState(false);
   const [selectedSongId, setSelectedSongId] = useState('');
   const [activeMode, setActiveMode] = useState<StageMode>('library');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [smartFilter, setSmartFilter] = useState('all');
   const [quickEdit, setQuickEdit] = useState(false);
@@ -614,6 +632,14 @@ export default function App() {
   const previousNavigationSong = activeNavigationIndex >= 0 ? activeNavigationSongs[activeNavigationIndex - 1] : undefined;
   const isStageSurface = activeMode === 'perform' || activeMode === 'stage';
   const selectedEffectiveCapo = selectedSong ? getEffectiveCapo(selectedSong, performanceState) : 0;
+  const setTopLevelMode = useCallback((mode: StageMode) => {
+    if ((mode === 'perform' || mode === 'stage') && !selectedSongId && songs[0]) {
+      setSelectedSongId(songs[0].id);
+      setNavigationContext('library');
+    }
+    setActiveMode(mode);
+    setMobileNavOpen(false);
+  }, [selectedSongId, songs]);
 
   useEffect(() => {
     performanceStateRef.current = performanceState;
@@ -1529,7 +1555,7 @@ export default function App() {
   return (
     <div className={`min-h-screen ${isStageSurface ? getStageTheme(performanceState.stageTheme).className : 'bg-slate-100 text-slate-950'}`}>
       <header className={`${isStageSurface ? 'hidden' : 'sticky'} top-0 z-30 border-b border-slate-300 bg-slate-950 text-white`}>
-        <div className="flex min-h-16 flex-wrap items-center gap-3 px-4 py-3">
+        <div className="app-desktop-header flex min-h-16 flex-wrap items-center gap-3 px-4 py-3">
           <div className="flex items-center gap-3 pr-3">
             <img src="/openstage-icon.svg" className="h-10 w-10" alt="" />
             <div>
@@ -1586,6 +1612,68 @@ export default function App() {
             </button>
           </div>
         </div>
+        <div className="app-mobile-header hidden min-h-14 items-center gap-3 px-3 py-2">
+          <img src="/openstage-icon.svg" className="h-9 w-9 shrink-0" alt="" />
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-base font-semibold leading-tight">OpenStage</h1>
+            <p className="truncate text-xs text-slate-300">{modeLabel(activeMode)}</p>
+          </div>
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="Open navigation"
+            aria-expanded={mobileNavOpen}
+            onClick={() => setMobileNavOpen(true)}
+          >
+            <Menu size={20} />
+          </button>
+        </div>
+        {mobileNavOpen && (
+          <div className="app-mobile-nav fixed inset-0 z-50 bg-slate-950 text-white">
+            <div className="flex items-center gap-3 border-b border-slate-800 px-4 pb-3 pt-[max(0.85rem,env(safe-area-inset-top))]">
+              <img src="/openstage-icon.svg" className="h-10 w-10" alt="" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-lg font-semibold">OpenStage</div>
+                <div className="truncate text-sm text-slate-300">{modeLabel(activeMode)}</div>
+              </div>
+              <button className="icon-button" type="button" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="max-h-[calc(100svh-5rem)] overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+              <div className="grid gap-2">
+                {mobileModeOptions.map((item) => (
+                  <button
+                    key={item.mode}
+                    className={`flex min-h-12 items-center gap-3 rounded-md border px-3 text-left text-sm font-semibold ${activeMode === item.mode ? 'border-teal-300 bg-teal-500/15 text-teal-100' : 'border-slate-800 bg-slate-900 text-slate-100'}`}
+                    type="button"
+                    onClick={() => setTopLevelMode(item.mode)}
+                  >
+                    {item.icon}
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-5 border-t border-slate-800 pt-4">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-normal text-slate-400">Quick Actions</div>
+                <div className="grid gap-2">
+                  <button className="stage-menu-button justify-start" type="button" onClick={() => { void saveSong(emptySong()); setMobileNavOpen(false); }}>
+                    <Plus size={18} /> Add Song
+                  </button>
+                  <button className="stage-menu-button justify-start" type="button" onClick={() => setTopLevelMode('import')}>
+                    <Upload size={18} /> Import
+                  </button>
+                  <button className="stage-menu-button justify-start" type="button" onClick={() => { void exportSongs('json'); setMobileNavOpen(false); }}>
+                    <FileJson size={18} /> Export Backup
+                  </button>
+                  <button className="stage-menu-button justify-start" type="button" disabled={!supabase} onClick={() => { void handleSupabaseAuth(); setMobileNavOpen(false); }}>
+                    <LogIn size={18} /> {syncEmail ? 'Sign out' : 'Sign in / Sync'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </header>
 
       {activeMode === 'library' && (

@@ -293,6 +293,22 @@ label,
     overflow-x: hidden;
   }
 
+  .app-desktop-header {
+    display: none !important;
+  }
+
+  .app-mobile-header {
+    display: flex !important;
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
+
+  .app-mobile-nav {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
   .primary-button,
   .secondary-button,
   .danger-button {
