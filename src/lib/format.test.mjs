@@ -13,7 +13,7 @@ import {
   convertInlineChordLine,
   inlineChordsToChordOverLyrics
 } from './chordLayout-test-target.mjs';
-import { markHarmonyRange, parseHarmonyText, removeHarmonyRange, stripHarmonyMarkup } from './harmony-test-target.mjs';
+import { harmonyTextRuns, markHarmonyRange, parseHarmonyText, removeHarmonyRange, stripHarmonyMarkup } from './harmony-test-target.mjs';
 import { createId } from './ids-test-target.mjs';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './importExport-test-target.mjs';
 import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
@@ -55,6 +55,17 @@ assert.equal(legacyJsonSong.favorite, false);
 const harmonyText = parseHarmonyText('Take it [HARMONY]easy[/HARMONY]');
 assert.equal(harmonyText.text, 'Take it easy');
 assert.deepEqual(harmonyText.ranges, [{ start: 8, end: 12 }]);
+const standalonePlainHarmony = parseHarmonyText('[HARMONY]ooh ooh ooh, ooh ooh ooh[/HARMONY]');
+assert.equal(standalonePlainHarmony.text, 'ooh ooh ooh, ooh ooh ooh');
+assert.deepEqual(standalonePlainHarmony.ranges, [{ start: 0, end: 'ooh ooh ooh, ooh ooh ooh'.length }]);
+assert.deepEqual(
+  harmonyTextRuns('Lead lyric [HARMONY]backup phrase[/HARMONY] rest of line').map((run) => ({ text: run.text, harmony: run.harmony })),
+  [
+    { text: 'Lead lyric ', harmony: false },
+    { text: 'backup phrase', harmony: true },
+    { text: ' rest of line', harmony: false }
+  ]
+);
 assert.equal(stripHarmonyMarkup('[HARMONY]Full line[/HARMONY]'), 'Full line');
 assert.equal(markHarmonyRange('Take it easy', 8, 12), 'Take it [HARMONY]easy[/HARMONY]');
 assert.equal(markHarmonyRange('(ooh...ooh....ooh...ooh)', 0, 25), '[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]');
@@ -461,6 +472,27 @@ const standaloneHarmonyLine = {
 const standaloneHarmonyRendered = renderSong(standaloneHarmonyLine, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G' });
 assert.equal(standaloneHarmonyRendered.lines[0].type, 'lyrics');
 assert.equal(standaloneHarmonyRendered.lines[0].tokens.map((token) => token.display).join(''), '[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]');
+const plainHarmonyLine = {
+  ...standaloneHarmonyLine,
+  id: 'plain-harmony-line',
+  chart: '[HARMONY]ooh ooh ooh, ooh ooh ooh[/HARMONY]',
+  updatedAt: '2026-05-27T00:01:32.000Z'
+};
+const plainHarmonyRendered = renderSong(plainHarmonyLine, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G' });
+assert.equal(plainHarmonyRendered.lines[0].type, 'lyrics');
+const plainHarmonyDisplay = plainHarmonyRendered.lines[0].tokens.map((token) => token.display).join('');
+assert.equal(plainHarmonyDisplay, '[HARMONY]ooh ooh ooh, ooh ooh ooh[/HARMONY]');
+assert.equal(parseHarmonyText(plainHarmonyDisplay).text, 'ooh ooh ooh, ooh ooh ooh');
+const mixedHarmonyLine = {
+  ...standaloneHarmonyLine,
+  id: 'mixed-harmony-line',
+  chart: 'Lead lyric [HARMONY]backup phrase[/HARMONY] rest of line',
+  updatedAt: '2026-05-27T00:01:33.000Z'
+};
+const mixedHarmonyRendered = renderSong(mixedHarmonyLine, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G' });
+const mixedHarmonyDisplay = mixedHarmonyRendered.lines[0].tokens.map((token) => token.display).join('');
+assert.equal(parseHarmonyText(mixedHarmonyDisplay).text, 'Lead lyric backup phrase rest of line');
+assert.deepEqual(parseHarmonyText(mixedHarmonyDisplay).ranges, [{ start: 'Lead lyric '.length, end: 'Lead lyric backup phrase'.length }]);
 const legacyHarmonyTokenSong = {
   ...standaloneHarmonyLine,
   id: 'legacy-harmony-token-song',

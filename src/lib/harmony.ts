@@ -12,6 +12,13 @@ export type ParsedHarmonyText = {
   hasHarmony: boolean;
 };
 
+export type HarmonyTextRun = {
+  text: string;
+  harmony: boolean;
+  start: number;
+  end: number;
+};
+
 const harmonyTagPattern = /\[\/?HARMONY\]/gi;
 
 export function isHarmonyTag(value: string) {
@@ -50,6 +57,37 @@ export function parseHarmonyText(input: string): ParsedHarmonyText {
 
 export function stripHarmonyMarkup(input: string) {
   return parseHarmonyText(input).text;
+}
+
+export function harmonyTextRuns(input: string): HarmonyTextRun[] {
+  const parsed = parseHarmonyText(input);
+  return harmonyRunsFromParsed(parsed.text, parsed.ranges);
+}
+
+export function harmonyRunsFromParsed(text: string, ranges: HarmonyRange[]): HarmonyTextRun[] {
+  const runs: HarmonyTextRun[] = [];
+  const boundaries = Array.from(new Set([
+    0,
+    text.length,
+    ...ranges.flatMap((range) => [
+      Math.max(0, Math.min(text.length, range.start)),
+      Math.max(0, Math.min(text.length, range.end))
+    ])
+  ])).sort((left, right) => left - right);
+
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const start = boundaries[index];
+    const end = boundaries[index + 1];
+    if (start >= end) continue;
+    runs.push({
+      text: text.slice(start, end),
+      harmony: ranges.some((range) => start >= range.start && start < range.end),
+      start,
+      end
+    });
+  }
+
+  return runs;
 }
 
 export function hasHarmonyMarkup(input: string) {
