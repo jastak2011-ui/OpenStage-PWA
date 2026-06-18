@@ -154,6 +154,7 @@ function classifySongMetadataLines(song, lines) {
   const result = [];
   const title = song.title?.trim() ?? "";
   const artist = song.artist?.trim() ?? "";
+  const hasArtistDirective = lines.some((line) => line.type === "directive" && line.name === "artist" && line.value.trim().length > 0);
   let titleRendered = false;
   let artistRendered = false;
   let leadingMetadataRegion = true;
@@ -166,6 +167,13 @@ function classifySongMetadataLines(song, lines) {
       return;
     }
     if (line.type === "directive" && line.name === "artist") {
+      if (!artistRendered && (artist || line.value)) {
+        result.push({ type: "song-artist", raw: line.raw, value: artist || line.value });
+        artistRendered = true;
+      }
+      return;
+    }
+    if (line.type === "directive" && line.name === "subtitle" && !hasArtistDirective) {
       if (!artistRendered && (artist || line.value)) {
         result.push({ type: "song-artist", raw: line.raw, value: artist || line.value });
         artistRendered = true;
@@ -205,6 +213,7 @@ function clearRenderCache() {
   renderCache.clear();
 }
 function renderLine(line, options) {
+  if (line.type === "directive") return { ...line, name: normalizeDisplayDirectiveName(line.name) };
   if (line.type !== "lyrics") return line;
   return {
     type: "lyrics",
@@ -229,9 +238,24 @@ function diagnostics(startedAt, parsedLineCount) {
   };
 }
 function getSongDisplayLines(song) {
-  return song.parsedChordPro?.lines ?? song.chart.split(/\r?\n/).map(
-    (line) => line.trim() ? { type: "lyrics", raw: line, tokens: parseFallbackTokens(line) } : { type: "blank", raw: line }
-  );
+  return song.parsedChordPro?.lines ?? song.chart.split(/\r?\n/).map((line) => parseFallbackDisplayLine(line));
+}
+function parseFallbackDisplayLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return { type: "blank", raw: line };
+  const directiveMatch = trimmed.match(/^\{\s*([^:}]+)\s*(?::\s*([^}]*))?\}$/);
+  if (directiveMatch) {
+    const name = normalizeDisplayDirectiveName(directiveMatch[1]);
+    const value = directiveMatch[2]?.trim() ?? "";
+    return { type: "directive", raw: line, name, value };
+  }
+  return { type: "lyrics", raw: line, tokens: parseFallbackTokens(line) };
+}
+function normalizeDisplayDirectiveName(name) {
+  const lower = name.trim().toLowerCase();
+  if (lower === "t") return "title";
+  if (lower === "st") return "subtitle";
+  return lower;
 }
 function parseFallbackTokens(line) {
   const tokens = [];

@@ -5049,11 +5049,31 @@ function ChordProDisplayLine({
   }
 
   if (line.type === 'song-title') {
-    return <div data-line-index={lineIndex} className="mb-1 whitespace-normal leading-tight tracking-normal" style={songTitleStyle}>{line.value}</div>;
+    return (
+      <div
+        data-line-index={lineIndex}
+        data-song-document-role="title"
+        data-song-document-font-size={songTitleStyle.fontSize?.toString() ?? ''}
+        className="mb-1 whitespace-normal leading-tight tracking-normal"
+        style={songTitleStyle}
+      >
+        {line.value}
+      </div>
+    );
   }
 
   if (line.type === 'song-artist') {
-    return <div data-line-index={lineIndex} className="mb-6 whitespace-normal leading-snug tracking-normal" style={songArtistStyle}>{line.value}</div>;
+    return (
+      <div
+        data-line-index={lineIndex}
+        data-song-document-role="artist"
+        data-song-document-font-size={songArtistStyle.fontSize?.toString() ?? ''}
+        className="mb-6 whitespace-normal leading-snug tracking-normal"
+        style={songArtistStyle}
+      >
+        {line.value}
+      </div>
+    );
   }
 
   if (line.type === 'directive') {

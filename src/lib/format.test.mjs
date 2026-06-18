@@ -528,6 +528,10 @@ clearRenderCache();
 renderSong(capoSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', songTitleFontSize: 42 });
 renderSong(capoSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', songTitleFontSize: 64 });
 assert.equal(getRenderCacheSize(), 2);
+clearRenderCache();
+renderSong(capoSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', songArtistFontSize: 28 });
+renderSong(capoSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', songArtistFontSize: 44 });
+assert.equal(getRenderCacheSize(), 2);
 
 const chordProMetadataSong = {
   ...capoSong,
@@ -543,6 +547,79 @@ assert.equal(chordProMetadataRendered.lines[0].type, 'song-title');
 assert.equal(chordProMetadataRendered.lines[0].value, 'Take On Me');
 assert.equal(chordProMetadataRendered.lines[1].type, 'song-artist');
 assert.equal(chordProMetadataRendered.lines[1].value, 'a-ha');
+
+const shorthandMetadataSong = {
+  ...capoSong,
+  id: 'chordpro-shorthand-metadata-song',
+  title: 'Sympathy For The Devil',
+  artist: 'Rolling Stones',
+  chart: '{t: Sympathy For The Devil}\n{st: Rolling Stones}\n[G]Please allow me',
+  parsedChordPro: parseChordPro('{t: Sympathy For The Devil}\n{st: Rolling Stones}\n[G]Please allow me'),
+  updatedAt: '2026-05-27T00:00:12.000Z'
+};
+const shorthandMetadataRendered = renderSong(shorthandMetadataSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', songTitleFontSize: 58, songArtistFontSize: 46 });
+assert.equal(shorthandMetadataRendered.lines[0].type, 'song-title');
+assert.equal(shorthandMetadataRendered.lines[0].value, 'Sympathy For The Devil');
+assert.equal(shorthandMetadataRendered.lines[1].type, 'song-artist');
+assert.equal(shorthandMetadataRendered.lines[1].value, 'Rolling Stones');
+assert.equal(shorthandMetadataRendered.lines.filter((line) => line.type === 'song-title').length, 1);
+assert.equal(shorthandMetadataRendered.lines.filter((line) => line.type === 'song-artist').length, 1);
+
+const legacyStoredShorthandSong = {
+  ...shorthandMetadataSong,
+  id: 'legacy-stored-shorthand-metadata-song',
+  parsedChordPro: {
+    directives: { t: ['Sympathy For The Devil'], st: ['Rolling Stones'] },
+    warnings: [],
+    lines: [
+      { type: 'directive', raw: '{t: Sympathy For The Devil}', name: 't', value: 'Sympathy For The Devil' },
+      { type: 'directive', raw: '{st: Rolling Stones}', name: 'st', value: 'Rolling Stones' },
+      { type: 'lyrics', raw: '[G]Please allow me', tokens: [{ type: 'chord', value: 'G' }, { type: 'text', value: 'Please allow me' }] }
+    ]
+  },
+  updatedAt: '2026-05-27T00:00:15.000Z'
+};
+const legacyStoredShorthandRendered = renderSong(legacyStoredShorthandSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', songArtistFontSize: 45 });
+assert.equal(legacyStoredShorthandRendered.lines[0].type, 'song-title');
+assert.equal(legacyStoredShorthandRendered.lines[1].type, 'song-artist');
+assert.equal(legacyStoredShorthandRendered.lines[1].value, 'Rolling Stones');
+
+const rawFallbackShorthandSong = {
+  ...shorthandMetadataSong,
+  id: 'raw-fallback-shorthand-metadata-song',
+  parsedChordPro: undefined,
+  updatedAt: '2026-05-27T00:00:16.000Z'
+};
+const rawFallbackShorthandRendered = renderSong(rawFallbackShorthandSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', songArtistFontSize: 45 });
+assert.equal(rawFallbackShorthandRendered.lines[0].type, 'song-title');
+assert.equal(rawFallbackShorthandRendered.lines[1].type, 'song-artist');
+assert.equal(rawFallbackShorthandRendered.lines[1].value, 'Rolling Stones');
+
+const subtitleMetadataSong = {
+  ...capoSong,
+  id: 'chordpro-subtitle-metadata-song',
+  title: 'Sympathy For The Devil',
+  artist: 'Rolling Stones',
+  chart: '{title: Sympathy For The Devil}\n{subtitle: Rolling Stones}\n[G]Please allow me',
+  parsedChordPro: parseChordPro('{title: Sympathy For The Devil}\n{subtitle: Rolling Stones}\n[G]Please allow me'),
+  updatedAt: '2026-05-27T00:00:13.000Z'
+};
+const subtitleMetadataRendered = renderSong(subtitleMetadataSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', songArtistFontSize: 46 });
+assert.equal(subtitleMetadataRendered.lines[1].type, 'song-artist');
+assert.equal(subtitleMetadataRendered.lines[1].value, 'Rolling Stones');
+
+const artistMetadataSong = {
+  ...capoSong,
+  id: 'chordpro-artist-metadata-song',
+  title: 'Sympathy For The Devil',
+  artist: 'Rolling Stones',
+  chart: '{title: Sympathy For The Devil}\n{artist: Rolling Stones}\n[G]Please allow me',
+  parsedChordPro: parseChordPro('{title: Sympathy For The Devil}\n{artist: Rolling Stones}\n[G]Please allow me'),
+  updatedAt: '2026-05-27T00:00:14.000Z'
+};
+const artistMetadataRendered = renderSong(artistMetadataSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', songArtistFontSize: 46 });
+assert.equal(artistMetadataRendered.lines[1].type, 'song-artist');
+assert.equal(artistMetadataRendered.lines[1].value, 'Rolling Stones');
 
 const onsongPlainMetadataSong = {
   ...capoSong,
