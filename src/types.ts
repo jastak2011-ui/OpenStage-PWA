@@ -189,6 +189,8 @@ export type PerformanceState = {
   harmonyIconColorsByProfile: Partial<Record<DeviceProfile, string>>;
   harmonyItalic: boolean;
   harmonyItalicByProfile: Partial<Record<DeviceProfile, boolean>>;
+  harmonyUnderline: boolean;
+  harmonyUnderlineByProfile: Partial<Record<DeviceProfile, boolean>>;
   harmonyIconVisible: boolean;
   harmonyIconVisibleByProfile: Partial<Record<DeviceProfile, boolean>>;
   documentTheme: StageDocumentThemeName;

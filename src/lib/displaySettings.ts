@@ -374,6 +374,20 @@ export function harmonyItalicUpdate(state: PerformanceState, harmonyItalic: bool
   };
 }
 
+export function getEffectiveHarmonyUnderline(state: PerformanceState) {
+  return state.harmonyUnderlineByProfile?.[state.activeProfile] ?? state.harmonyUnderline ?? true;
+}
+
+export function harmonyUnderlineUpdate(state: PerformanceState, harmonyUnderline: boolean): Partial<PerformanceState> {
+  return {
+    harmonyUnderline,
+    harmonyUnderlineByProfile: {
+      ...(state.harmonyUnderlineByProfile ?? {}),
+      [state.activeProfile]: harmonyUnderline
+    }
+  };
+}
+
 export function getEffectiveHarmonyIconVisible(state: PerformanceState) {
   return state.harmonyIconVisibleByProfile?.[state.activeProfile] ?? state.harmonyIconVisible ?? true;
 }

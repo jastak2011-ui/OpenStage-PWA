@@ -90,6 +90,7 @@ import {
   getEffectiveHarmonyIconVisible,
   getEffectiveHarmonyItalic,
   getEffectiveHarmonyTextColor,
+  getEffectiveHarmonyUnderline,
   getEffectiveItalicChords,
   getEffectiveLineSpacing,
   getEffectiveLyricFontSize,
@@ -109,6 +110,7 @@ import {
   harmonyIconVisibleUpdate,
   harmonyItalicUpdate,
   harmonyTextColorUpdate,
+  harmonyUnderlineUpdate,
   italicChordsUpdate,
   lineSpacingUpdate,
   lyricFontSizeUpdate,
@@ -2441,6 +2443,7 @@ function SongEditorView({
   const [enrichmentError, setEnrichmentError] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(false);
   const chartEditorRef = useRef<HTMLTextAreaElement | null>(null);
+  const chartSelectionRef = useRef({ start: 0, end: 0 });
 
   useEffect(() => {
     setDraft(song);
@@ -2481,10 +2484,16 @@ function SongEditorView({
 
   function updateChartFromSelection(updater: (chart: string, start: number, end: number) => string) {
     const editor = chartEditorRef.current;
-    const start = editor?.selectionStart ?? 0;
-    const end = editor?.selectionEnd ?? start;
+    const liveStart = editor?.selectionStart;
+    const liveEnd = editor?.selectionEnd;
+    const remembered = chartSelectionRef.current;
+    const hasLiveSelection = typeof liveStart === 'number' && typeof liveEnd === 'number' && liveStart !== liveEnd;
+    const hasRememberedSelection = remembered.start !== remembered.end;
+    const start = hasLiveSelection ? liveStart : hasRememberedSelection ? remembered.start : liveStart ?? remembered.start ?? 0;
+    const end = hasLiveSelection ? liveEnd : hasRememberedSelection ? remembered.end : liveEnd ?? remembered.end ?? start;
     const nextChart = updater(draft.chart, start, end);
     setDraft({ ...draft, chart: nextChart });
+    chartSelectionRef.current = { start, end: start };
     window.requestAnimationFrame(() => {
       chartEditorRef.current?.focus();
       const nextPosition = Math.min(nextChart.length, start);
@@ -2498,6 +2507,12 @@ function SongEditorView({
 
   function removeHarmonySelection() {
     updateChartFromSelection((chart, start, end) => removeHarmonyRange(chart, start, end));
+  }
+
+  function rememberChartSelection() {
+    const editor = chartEditorRef.current;
+    if (!editor) return;
+    chartSelectionRef.current = { start: editor.selectionStart, end: editor.selectionEnd };
   }
 
   return (
@@ -2705,6 +2720,10 @@ function SongEditorView({
                   className="min-h-[72vh] rounded-md border border-slate-300 bg-slate-950 p-4 font-mono text-base leading-7 text-slate-100 outline-none focus:border-teal-500"
                   value={draft.chart}
                   spellCheck={false}
+                  onSelect={rememberChartSelection}
+                  onKeyUp={rememberChartSelection}
+                  onMouseUp={rememberChartSelection}
+                  onTouchEnd={rememberChartSelection}
                   onChange={(event) => setDraft({ ...draft, chart: event.target.value })}
                 />
               </label>
@@ -3348,6 +3367,7 @@ function PerformanceView({
   const harmonyTextColor = getEffectiveHarmonyTextColor(state);
   const harmonyIconColor = getEffectiveHarmonyIconColor(state);
   const harmonyItalic = getEffectiveHarmonyItalic(state);
+  const harmonyUnderline = getEffectiveHarmonyUnderline(state);
   const harmonyIconVisible = getEffectiveHarmonyIconVisible(state);
   const visibleStageNotes = filterStageNotes(song.notes);
   const autoscrollStatus = isAutoscrolling ? 'Running' : autoscrollDebug.stopReason === 'none' || autoscrollDebug.stopReason === 'user-paused' ? 'Paused' : 'Stopped';
@@ -3565,6 +3585,7 @@ function PerformanceView({
               harmonyTextColor={harmonyTextColor}
               harmonyIconColor={harmonyIconColor}
               harmonyItalic={harmonyItalic}
+              harmonyUnderline={harmonyUnderline}
               harmonyIconVisible={harmonyIconVisible}
               displayPreference={song.displayPreference ?? 'inline'}
               lineIndex={index}
@@ -3971,7 +3992,17 @@ function StageControlPopover({
                 <div className="relative mt-2 whitespace-pre">
                   {getEffectiveShowHarmonyCues(state) && getEffectiveHarmonyIconVisible(state) && <HarmonyCueIcon color={resolveHarmonyColor(getEffectiveHarmonyIconColor(state))} />}
                   {'Lead line with '}
-                  <span style={{ color: resolveHarmonyColor(getEffectiveHarmonyTextColor(state)), fontStyle: getEffectiveHarmonyItalic(state) ? 'italic' : undefined }}>harmony phrase</span>
+                  <span
+                    style={{
+                      color: resolveHarmonyColor(getEffectiveHarmonyTextColor(state)),
+                      fontStyle: getEffectiveHarmonyItalic(state) ? 'italic' : undefined,
+                      textDecorationLine: getEffectiveHarmonyUnderline(state) ? 'underline' : undefined,
+                      textDecorationThickness: getEffectiveHarmonyUnderline(state) ? '0.08em' : undefined,
+                      textUnderlineOffset: getEffectiveHarmonyUnderline(state) ? '0.16em' : undefined
+                    }}
+                  >
+                    harmony phrase
+                  </span>
                 </div>
                 </div>
                 <button className="stage-menu-button" type="button" onClick={() => setState({ minimalStageMode: !state.minimalStageMode })}>
@@ -4039,6 +4070,9 @@ function StageControlPopover({
                 />
                 <button className="stage-menu-button" type="button" onClick={() => setState(harmonyItalicUpdate(state, !getEffectiveHarmonyItalic(state)))}>
                   Harmony Italic {getEffectiveHarmonyItalic(state) ? 'On' : 'Off'}
+                </button>
+                <button className="stage-menu-button" type="button" onClick={() => setState(harmonyUnderlineUpdate(state, !getEffectiveHarmonyUnderline(state)))}>
+                  Harmony Underline {getEffectiveHarmonyUnderline(state) ? 'On' : 'Off'}
                 </button>
                 <button className="stage-menu-button" type="button" onClick={() => setState(harmonyIconVisibleUpdate(state, !getEffectiveHarmonyIconVisible(state)))}>
                   Harmony Icon {getEffectiveHarmonyIconVisible(state) ? 'On' : 'Off'}
@@ -4343,6 +4377,7 @@ function ExternalPrompterApp() {
   const harmonyTextColor = getEffectiveHarmonyTextColor(payload.performance);
   const harmonyIconColor = getEffectiveHarmonyIconColor(payload.performance);
   const harmonyItalic = getEffectiveHarmonyItalic(payload.performance);
+  const harmonyUnderline = getEffectiveHarmonyUnderline(payload.performance);
   const harmonyIconVisible = getEffectiveHarmonyIconVisible(payload.performance);
   const rendered = renderSong(payload.song, {
     transpose: payload.performance.transpose,
@@ -4419,6 +4454,7 @@ function ExternalPrompterApp() {
                     harmonyTextColor={harmonyTextColor}
                     harmonyIconColor={harmonyIconColor}
                     harmonyItalic={harmonyItalic}
+                    harmonyUnderline={harmonyUnderline}
                     harmonyIconVisible={harmonyIconVisible}
                     displayPreference={payload.song.displayPreference ?? 'inline'}
                     lineIndex={index}
@@ -4736,6 +4772,7 @@ function ChordProDisplayLine({
   harmonyTextColor,
   harmonyIconColor,
   harmonyItalic,
+  harmonyUnderline,
   harmonyIconVisible,
   displayPreference,
   lineIndex,
@@ -4765,6 +4802,7 @@ function ChordProDisplayLine({
   harmonyTextColor: string;
   harmonyIconColor: string;
   harmonyItalic: boolean;
+  harmonyUnderline: boolean;
   harmonyIconVisible: boolean;
   displayPreference: Song['displayPreference'];
   lineIndex: number;
@@ -4806,7 +4844,10 @@ function ChordProDisplayLine({
   };
   const harmonyStyle: React.CSSProperties = {
     color: showHarmonyCues ? resolveHarmonyColor(harmonyTextColor) : undefined,
-    fontStyle: showHarmonyCues && harmonyItalic ? 'italic' : undefined
+    fontStyle: showHarmonyCues && harmonyItalic ? 'italic' : undefined,
+    textDecorationLine: showHarmonyCues && harmonyUnderline ? 'underline' : undefined,
+    textDecorationThickness: showHarmonyCues && harmonyUnderline ? '0.08em' : undefined,
+    textUnderlineOffset: showHarmonyCues && harmonyUnderline ? '0.16em' : undefined
   };
   const resolvedHarmonyIconColor = resolveHarmonyColor(harmonyIconColor);
 

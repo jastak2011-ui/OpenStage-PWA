@@ -142,6 +142,13 @@ export const defaultPerformanceState: PerformanceState = {
     tablet: true,
     'portrait-prompter': true
   },
+  harmonyUnderline: true,
+  harmonyUnderlineByProfile: {
+    desktop: true,
+    'stage-device': true,
+    tablet: true,
+    'portrait-prompter': true
+  },
   harmonyIconVisible: true,
   harmonyIconVisibleByProfile: {
     desktop: true,
@@ -267,6 +274,7 @@ export const useAppStore = create<AppStore>()(
           const currentHarmonyTextColors = state.performance.harmonyTextColorsByProfile ?? {};
           const currentHarmonyIconColors = state.performance.harmonyIconColorsByProfile ?? {};
           const currentHarmonyItalic = state.performance.harmonyItalicByProfile ?? {};
+          const currentHarmonyUnderline = state.performance.harmonyUnderlineByProfile ?? {};
           const currentHarmonyIconVisible = state.performance.harmonyIconVisibleByProfile ?? {};
           const currentDocumentThemes = state.performance.documentThemesByProfile ?? {};
           const currentStageFontFamilies = state.performance.stageFontFamiliesByProfile ?? {};
@@ -363,6 +371,11 @@ export const useAppStore = create<AppStore>()(
             currentHarmonyItalic[activeProfile] ??
             state.performance.harmonyItalic ??
             defaultPerformanceState.harmonyItalic;
+          const nextHarmonyUnderline =
+            next.harmonyUnderline ??
+            currentHarmonyUnderline[activeProfile] ??
+            state.performance.harmonyUnderline ??
+            defaultPerformanceState.harmonyUnderline;
           const nextHarmonyIconVisible =
             next.harmonyIconVisible ??
             currentHarmonyIconVisible[activeProfile] ??
@@ -505,6 +518,12 @@ export const useAppStore = create<AppStore>()(
                 ...currentHarmonyItalic,
                 ...(next.harmonyItalicByProfile ?? {}),
                 [activeProfile]: nextHarmonyItalic
+              },
+              harmonyUnderline: nextHarmonyUnderline,
+              harmonyUnderlineByProfile: {
+                ...currentHarmonyUnderline,
+                ...(next.harmonyUnderlineByProfile ?? {}),
+                [activeProfile]: nextHarmonyUnderline
               },
               harmonyIconVisible: nextHarmonyIconVisible,
               harmonyIconVisibleByProfile: {

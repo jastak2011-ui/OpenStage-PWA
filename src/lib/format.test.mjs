@@ -27,7 +27,9 @@ import {
   clampChordFontSize,
   getEffectiveChordFontSize,
   getEffectiveChordVerticalOffset,
+  getEffectiveHarmonyUnderline,
   getEffectiveLineSpacing,
+  harmonyUnderlineUpdate,
   lineSpacingUpdate
 } from './displaySettings-test-target.mjs';
 import { isOnSongArchiveFileName, parseOnSongKeyedArchive } from './onsongArchive-test-target.mjs';
@@ -55,6 +57,9 @@ assert.equal(harmonyText.text, 'Take it easy');
 assert.deepEqual(harmonyText.ranges, [{ start: 8, end: 12 }]);
 assert.equal(stripHarmonyMarkup('[HARMONY]Full line[/HARMONY]'), 'Full line');
 assert.equal(markHarmonyRange('Take it easy', 8, 12), 'Take it [HARMONY]easy[/HARMONY]');
+assert.equal(markHarmonyRange('(ooh...ooh....ooh...ooh)', 0, 25), '[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]');
+const noSelectionHarmony = markHarmonyRange('Verse line\n(ooh...ooh....ooh...ooh)\nNext line', 12, 12);
+assert.equal(noSelectionHarmony, 'Verse line\n[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]\nNext line');
 assert.equal(removeHarmonyRange('Take it [HARMONY]easy[/HARMONY]', 0, 999), 'Take it easy');
 const harmonyCsvSong = parseCsvSongs('title,chart\n"Harmony Tune","[G]Take it [HARMONY]easy[/HARMONY]"')[0];
 assert.equal(harmonyCsvSong.chart, '[G]Take it [HARMONY]easy[/HARMONY]');
@@ -268,6 +273,13 @@ assert.deepEqual(chordFontSizeUpdate(displayState, 34), {
   }
 });
 assert.equal(getEffectiveChordVerticalOffset({ ...displayState, activeProfile: 'tablet' }), 4);
+assert.equal(getEffectiveHarmonyUnderline(displayState), true);
+assert.deepEqual(harmonyUnderlineUpdate(displayState, false), {
+  harmonyUnderline: false,
+  harmonyUnderlineByProfile: {
+    desktop: false
+  }
+});
 assert.deepEqual(chordVerticalOffsetUpdate(displayState, -6), {
   chordVerticalOffset: -6,
   chordVerticalOffsetsByProfile: {
