@@ -156,7 +156,7 @@ import {
   supportsPresentationApi,
   type ExternalDisplayPayload
 } from './services/externalDisplay';
-import { getRenderCacheSize, preloadSongs, renderSong, type RenderedLine } from './services/rendering/songRenderer';
+import { clearRenderCache, getRenderCacheSize, preloadSongs, renderSong, type RenderedLine } from './services/rendering/songRenderer';
 import { markStartupError } from './services/startupDiagnostics';
 import { cloudBackup, syncLibraryOfflineFirst } from './services/sync/syncEngine';
 import { getStageTheme, stageThemes } from './services/theme/themeEngine';
@@ -679,6 +679,7 @@ export default function App() {
         parsedChordPro: parseChordPro(song.chart),
         updatedAt: new Date().toISOString()
       };
+      clearRenderCache();
       await db.songs.put(nextSong);
       if ((options.clearCapoOverride || nextCapo !== previousCapo) && performanceState.capoOverrides?.[nextSong.id] !== undefined) {
         const capoOverrides = { ...performanceState.capoOverrides };
@@ -2728,6 +2729,11 @@ function SongEditorView({
                   onChange={(event) => setDraft({ ...draft, chart: event.target.value })}
                 />
               </label>
+              <RawCurrentSongDebugPanel
+                title="Show Raw Current Song"
+                song={song}
+                draftChart={draft.chart}
+              />
             </section>
             <div className="flex flex-wrap gap-2">
               <button className="primary-button" type="submit">
@@ -2749,6 +2755,50 @@ function SongEditorView({
           </form>
       </section>
     </main>
+  );
+}
+
+function RawCurrentSongDebugPanel({
+  title,
+  song,
+  draftChart
+}: {
+  title: string;
+  song: Song;
+  draftChart?: string;
+}) {
+  const savedChart = song.chart ?? '';
+  const savedParsed = song.parsedChordPro?.lines.length ?? parseChordPro(savedChart).lines.length;
+  const savedHasHarmony = /\[\/?HARMONY\]/i.test(savedChart);
+  const savedHasOohHarmony = /\[HARMONY\]\s*\(?ooh/i.test(savedChart);
+  const draftHasHarmony = draftChart === undefined ? undefined : /\[\/?HARMONY\]/i.test(draftChart);
+  const draftHasOohHarmony = draftChart === undefined ? undefined : /\[HARMONY\]\s*\(?ooh/i.test(draftChart);
+
+  return (
+    <details className="mt-3 rounded-md border border-fuchsia-300 bg-fuchsia-50 p-3 text-sm text-slate-950">
+      <summary className="cursor-pointer font-semibold text-fuchsia-900">{title}</summary>
+      <div className="mt-3 grid gap-2">
+        <div className="grid gap-1 rounded bg-white/70 p-2 font-mono text-xs">
+          <span>songId: {song.id}</span>
+          <span>updatedAt: {song.updatedAt}</span>
+          <span>saved chart has harmony tags: {savedHasHarmony ? 'yes' : 'no'}</span>
+          <span>saved chart has ooh harmony: {savedHasOohHarmony ? 'yes' : 'no'}</span>
+          <span>saved parsed line count: {savedParsed}</span>
+          {draftChart !== undefined && <span>draft chart has harmony tags: {draftHasHarmony ? 'yes' : 'no'}</span>}
+          {draftChart !== undefined && <span>draft chart has ooh harmony: {draftHasOohHarmony ? 'yes' : 'no'}</span>}
+        </div>
+        <label className="grid gap-1">
+          <span className="font-semibold">Saved chart</span>
+          <textarea className="min-h-40 rounded border border-fuchsia-200 bg-slate-950 p-2 font-mono text-xs text-slate-100" value={savedChart} readOnly />
+        </label>
+        {draftChart !== undefined && (
+          <label className="grid gap-1">
+            <span className="font-semibold">Current editor draft</span>
+            <textarea className="min-h-40 rounded border border-fuchsia-200 bg-slate-950 p-2 font-mono text-xs text-slate-100" value={draftChart} readOnly />
+          </label>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -3563,6 +3613,7 @@ function PerformanceView({
           className={`stage-chart mx-auto font-chart transition-opacity duration-200 ${state.portraitMode ? 'max-w-3xl' : 'max-w-5xl'} ${state.mirroredMode ? 'mirror-stage' : ''} ${state.splitScreen ? 'tablet-columns' : ''} ${isTransitioningSong ? 'opacity-35' : 'opacity-100'}`}
           style={{ fontSize: `${lyricFontSize}px`, lineHeight: state.portraitMode ? 1.62 : 1.52, color: documentTheme.text, fontFamily: stageFontFamily }}
         >
+          {state.showHarmonyDebug && <RawCurrentSongDebugPanel title="Show Raw Current Song" song={song} />}
           {visibleStageNotes && <p className="mb-8 text-[0.55em] italic opacity-80">{visibleStageNotes}</p>}
           {chartLines.map((line, index) => (
             <ChordProDisplayLine

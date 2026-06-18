@@ -82,9 +82,11 @@ function stripHarmonyMarkup(input) {
 var renderCache = /* @__PURE__ */ new Map();
 function renderSong(song, options) {
   const startedAt = performance.now();
+  const chartSignature = hashString(song.chart ?? "");
   const cacheKey = [
     song.id,
     song.updatedAt,
+    chartSignature,
     song.displayPreference ?? "inline",
     options.transpose,
     options.capo,
@@ -235,6 +237,13 @@ function isChordStructureToken(value) {
 }
 function isChordSymbol(value) {
   return /^[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*?(?:\/[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*)?$/i.test(value);
+}
+function hashString(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = hash * 31 + value.charCodeAt(index) | 0;
+  }
+  return hash.toString(36);
 }
 export {
   clearRenderCache,
