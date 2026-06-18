@@ -119,6 +119,7 @@ function renderLine(line: ParsedChordProLine, options: RenderOptions): RenderedL
     raw: line.raw,
     tokens: line.tokens.map((token) => {
       if (token.type === 'text') return { ...token, display: token.value };
+      if (isHarmonyTag(token.value)) return { type: 'text', value: `[${token.value}]`, display: `[${token.value}]` };
       const transposed = applyPerformanceChordTransform(token.value, options.transpose, options.capo);
       return {
         ...token,

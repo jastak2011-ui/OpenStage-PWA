@@ -451,6 +451,40 @@ assert.equal(chordOverCapoThree.lines[0].type, 'chord-over');
 assert.equal(chordOverCapoThree.lines[0].chordLine, 'D   A   Em   G');
 assert.equal(chordOverCapoThree.lines[0].lyricLine, 'This is the lyric line');
 
+const standaloneHarmonyLine = {
+  ...capoSong,
+  id: 'standalone-harmony-line',
+  chart: '[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]',
+  displayPreference: 'inline',
+  updatedAt: '2026-05-27T00:01:30.000Z'
+};
+const standaloneHarmonyRendered = renderSong(standaloneHarmonyLine, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G' });
+assert.equal(standaloneHarmonyRendered.lines[0].type, 'lyrics');
+assert.equal(standaloneHarmonyRendered.lines[0].tokens.map((token) => token.display).join(''), '[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]');
+const legacyHarmonyTokenSong = {
+  ...standaloneHarmonyLine,
+  id: 'legacy-harmony-token-song',
+  parsedChordPro: {
+    directives: {},
+    warnings: [],
+    lines: [
+      {
+        type: 'lyrics',
+        raw: '[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]',
+        tokens: [
+          { type: 'chord', value: 'HARMONY' },
+          { type: 'text', value: '(ooh...ooh....ooh...ooh)' },
+          { type: 'chord', value: '/HARMONY' }
+        ]
+      }
+    ]
+  },
+  updatedAt: '2026-05-27T00:01:31.000Z'
+};
+const legacyHarmonyRendered = renderSong(legacyHarmonyTokenSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G' });
+assert.equal(legacyHarmonyRendered.lines[0].type, 'lyrics');
+assert.equal(legacyHarmonyRendered.lines[0].tokens.map((token) => token.display).join(''), '[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]');
+
 const chordOverSlash = {
   ...chordOverSong,
   id: 'chord-over-slash-song',

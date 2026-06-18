@@ -4979,11 +4979,11 @@ function renderStageSectionLabel(label: string, lineIndex: number, style: React.
   );
 }
 
-function HarmonyCueIcon({ color }: { color: string }) {
+function HarmonyCueIcon({ color, top }: { color: string; top?: number | string }) {
   return (
     <Music2
-      className="pointer-events-none absolute top-[0.08em] -ml-[1.45em] h-[0.85em] w-[0.85em]"
-      style={{ color, filter: 'drop-shadow(0 0 0.35em rgba(99,102,241,0.28))' }}
+      className="pointer-events-none absolute -ml-[1.45em] h-[0.85em] w-[0.85em]"
+      style={{ color, top: top ?? '0.08em', filter: 'drop-shadow(0 0 0.35em rgba(99,102,241,0.28))' }}
       aria-hidden="true"
     />
   );
@@ -5152,7 +5152,7 @@ function AnchoredChordDisplayLine({
             ))}
           </div>
         )}
-        {showHarmonyCues && harmonyIconVisible && anchoredLine.harmonyRanges.length > 0 && <HarmonyCueIcon color={harmonyIconColor} />}
+        {showHarmonyCues && harmonyIconVisible && anchoredLine.harmonyRanges.length > 0 && <HarmonyCueIcon color={harmonyIconColor} top={lyricTop} />}
         <div ref={lyricRef} className="absolute left-0 whitespace-pre" style={{ top: `${lyricTop}px`, lineHeight: `${lyricLineHeight}px` }}>
           {renderLyricWithAnchorMarkers(anchoredLine.lyricLine, anchorIndexes, markerRefs, anchoredLine.harmonyRanges, showHarmonyCues, harmonyStyle)}
         </div>
