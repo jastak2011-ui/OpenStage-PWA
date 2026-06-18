@@ -243,7 +243,15 @@ export type PerformanceState = {
   externalDisplay: ExternalDisplaySettings;
 };
 
-export type DeviceProfile = 'desktop' | 'stage-device' | 'tablet' | 'portrait-prompter';
+export type DeviceProfile =
+  | 'desktop'
+  | 'ipad-portrait'
+  | 'ipad-landscape'
+  | 'iphone'
+  | 'prompter-display'
+  | 'stage-device'
+  | 'tablet'
+  | 'portrait-prompter';
 
 export type StageThemeName = 'standard-dark' | 'standard-light' | 'coffeehouse' | 'high-contrast' | 'outdoor';
 

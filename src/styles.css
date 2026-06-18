@@ -18,6 +18,7 @@ body {
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   background: #f1f5f9;
   color: #020617;
+  -webkit-text-size-adjust: 100%;
 }
 
 button,
@@ -72,6 +73,10 @@ label,
 
 .stage-menu-button {
   @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-md border border-slate-700 bg-white/5 px-4 py-3 text-sm font-semibold transition-colors duration-150 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35;
+}
+
+.stage-phone-only {
+  display: none;
 }
 
 .stage-autoscroll-float {
@@ -243,5 +248,183 @@ label,
   .stage-scroll {
     padding-left: 1rem;
     padding-right: 1rem;
+  }
+}
+
+@media (display-mode: standalone) {
+  body {
+    min-height: 100svh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@media (max-width: 600px) {
+  body {
+    min-width: 0;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .danger-button {
+    min-height: 2.75rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    font-size: 0.875rem;
+  }
+
+  .library-screen {
+    padding: 0.75rem;
+  }
+
+  .library-header {
+    display: none;
+  }
+
+  .library-row {
+    grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+    grid-template-areas:
+      "fav title key"
+      "fav artist meta"
+      "fav tags tags";
+    gap: 0.25rem 0.65rem;
+    padding: 0.75rem;
+  }
+
+  .library-row > :nth-child(1) {
+    grid-area: fav;
+  }
+
+  .library-row > :nth-child(2) {
+    grid-area: title;
+    white-space: normal;
+  }
+
+  .library-row > :nth-child(3) {
+    grid-area: artist;
+  }
+
+  .library-row > :nth-child(4) {
+    grid-area: key;
+    text-align: right;
+  }
+
+  .library-row > :nth-child(5) {
+    grid-area: meta;
+    text-align: right;
+    color: #64748b;
+  }
+
+  .library-row > :nth-child(6) {
+    grid-area: meta;
+    align-self: end;
+    justify-self: end;
+    transform: translateY(1.1rem);
+    color: #64748b;
+  }
+
+  .library-row > :nth-child(7) {
+    grid-area: tags;
+  }
+
+  .stage-top-toolbar {
+    padding-top: max(0.35rem, env(safe-area-inset-top)) !important;
+  }
+
+  .stage-toolbar-inner {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .stage-left-actions,
+  .stage-right-actions {
+    justify-self: center;
+  }
+
+  .stage-song-strip {
+    order: 3;
+    width: min(100%, 25rem);
+    justify-self: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.35rem;
+  }
+
+  .stage-secondary-action {
+    display: none;
+  }
+
+  .stage-phone-only {
+    display: inline-flex;
+  }
+
+  .stage-top-toolbar button[aria-label] {
+    height: 2.35rem;
+    width: 2.35rem;
+  }
+
+  .stage-scroll {
+    padding: 8.6rem 0.75rem 7rem !important;
+  }
+
+  .stage-chart {
+    max-width: none;
+  }
+
+  .stage-autoscroll-float {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .stage-popover {
+    left: 0.5rem !important;
+    right: 0.5rem !important;
+    top: auto !important;
+    bottom: max(0.5rem, env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    max-height: min(78svh, 38rem);
+    overflow: auto;
+    border-radius: 1rem;
+    padding: 0.75rem;
+  }
+
+  .stage-popover[data-stage-popover="library"],
+  .stage-popover[data-stage-popover="setlists"] {
+    inset: 0 !important;
+    width: auto !important;
+    max-height: none;
+    border-radius: 0;
+    padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  .stage-popover [class*="max-h-[60vh]"] {
+    max-height: calc(100svh - 9rem);
+  }
+
+  .stage-popover[data-stage-popover="format"] {
+    max-height: min(84svh, 42rem);
+  }
+
+  .stage-format-tabbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin-left: -0.75rem;
+    margin-right: -0.75rem;
+    padding: 0.5rem 0.75rem 0;
+    background: rgba(2, 6, 23, 0.92);
+    backdrop-filter: blur(10px);
+  }
+
+  .stage-menu-button {
+    min-height: 2.75rem;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.8125rem;
+  }
+
+  .portrait-prompter {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
   }
 }

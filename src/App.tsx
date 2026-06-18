@@ -315,6 +315,8 @@ const speedPresets: Record<Exclude<AutoscrollPreset, 'custom'>, number> = {
   fast: 30
 };
 
+const iphoneAutoProfileStorageKey = 'openstage-iphone-profile-auto-applied';
+
 const emptySong = (): Song => ({
   id: createId('song'),
   title: 'New Song',
@@ -514,6 +516,18 @@ export default function App() {
         reportError('Storage startup failed', error);
       });
   }, []);
+
+  useEffect(() => {
+    if (!isIPhoneViewport()) return;
+    if (performanceState.activeProfile !== 'desktop') return;
+    try {
+      if (window.localStorage.getItem(iphoneAutoProfileStorageKey)) return;
+      window.localStorage.setItem(iphoneAutoProfileStorageKey, 'true');
+    } catch {
+      // Continue without persistence if Safari private mode blocks localStorage.
+    }
+    updateStorePerformance({ activeProfile: 'iphone', splitScreen: false });
+  }, [performanceState.activeProfile, updateStorePerformance]);
 
   useEffect(() => {
     if (isStageSurface && !performanceState.recoverToStageMode) {
@@ -2174,6 +2188,9 @@ function SettingsView({
             </label>
           </div>
         </SettingsCard>
+        <SettingsCard title="Install App">
+          <p className="text-sm text-slate-600">On iPhone Safari, use Share, then Add to Home Screen. OpenStage will launch as a standalone PWA with phone-safe Stage spacing.</p>
+        </SettingsCard>
         <SettingsCard title="Sync Foundation">
           <p className="text-sm text-slate-600">Offline-first Supabase sync with conflict detection and cloud backup hooks.</p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -2360,7 +2377,7 @@ function LibraryView({
   useEffect(() => setVisibleCount(80), [query, smartFilter]);
 
   return (
-    <main className="min-h-[calc(100vh-105px)] bg-slate-100 p-4 text-slate-950">
+    <main className="library-screen min-h-[calc(100vh-105px)] bg-slate-100 p-4 text-slate-950">
       <section className="mx-auto grid max-w-7xl gap-3">
         <div className="flex flex-col gap-2 md:flex-row">
           <label className="flex h-11 flex-1 items-center gap-2 rounded-md border border-slate-300 bg-white px-3">
@@ -2386,7 +2403,7 @@ function LibraryView({
           </select>
         </div>
         <div className="overflow-hidden rounded-md border border-slate-300 bg-white">
-          <div className="grid grid-cols-[2.5rem_minmax(12rem,2fr)_minmax(9rem,1fr)_5rem_5rem_5rem_minmax(10rem,1fr)] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase text-slate-500">
+          <div className="library-header grid grid-cols-[2.5rem_minmax(12rem,2fr)_minmax(9rem,1fr)_5rem_5rem_5rem_minmax(10rem,1fr)] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase text-slate-500">
             <div>Fav</div>
             <div>Title</div>
             <div>Artist</div>
@@ -2407,7 +2424,7 @@ function LibraryView({
             {visibleSongs.map((song) => (
               <button
                 key={song.id}
-                className="grid w-full grid-cols-[2.5rem_minmax(12rem,2fr)_minmax(9rem,1fr)_5rem_5rem_5rem_minmax(10rem,1fr)] gap-3 border-b border-slate-100 px-3 py-2 text-left text-sm hover:bg-teal-50"
+                className="library-row grid w-full grid-cols-[2.5rem_minmax(12rem,2fr)_minmax(9rem,1fr)_5rem_5rem_5rem_minmax(10rem,1fr)] gap-3 border-b border-slate-100 px-3 py-2 text-left text-sm hover:bg-teal-50"
                 onClick={() => onSelect(song.id)}
               >
                 <span
@@ -3523,13 +3540,13 @@ function PerformanceView({
         className={`stage-top-toolbar fixed left-0 right-0 top-0 z-40 transition-opacity duration-300 ${toolbarVisible || activePopover ? 'opacity-100' : 'pointer-events-none opacity-0'} ${state.minimalStageMode ? 'opacity-0' : ''}`}
         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
       >
-        <div className={`mx-auto grid max-w-7xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 sm:px-5 ${headerText}`} style={{ fontSize: `${headerFontSize}px`, color: documentTheme.text, fontFamily: stageFontFamily }}>
-          <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/25 p-1 backdrop-blur-md">
+        <div className={`stage-toolbar-inner mx-auto grid max-w-7xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 sm:px-5 ${headerText}`} style={{ fontSize: `${headerFontSize}px`, color: documentTheme.text, fontFamily: stageFontFamily }}>
+          <div className="stage-left-actions flex items-center gap-1 rounded-full border border-white/10 bg-black/25 p-1 backdrop-blur-md">
             <StageIconButton icon={<Library size={19} />} label="Library" tone={toolbarButton} active={activePopover === 'library'} onClick={() => togglePopover('library')} />
             <StageIconButton icon={<ListMusic size={19} />} label="Setlists" tone={toolbarButton} active={activePopover === 'setlists'} onClick={() => togglePopover('setlists')} />
           </div>
 
-          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-full border border-white/10 bg-black/20 px-2 py-1.5 text-center backdrop-blur-md">
+          <div className="stage-song-strip grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-full border border-white/10 bg-black/20 px-2 py-1.5 text-center backdrop-blur-md">
             <StageIconButton
               icon={<ChevronLeft size={18} />}
               label="Previous Song"
@@ -3552,10 +3569,14 @@ function PerformanceView({
             />
           </div>
 
-          <div className="relative flex items-center gap-1 rounded-full border border-white/10 bg-black/25 p-1 backdrop-blur-md">
-            <StageIconButton icon={<Pencil size={19} />} label="Edit Song" tone={toolbarButton} onClick={onEdit} />
+          <div className="stage-right-actions relative flex items-center gap-1 rounded-full border border-white/10 bg-black/25 p-1 backdrop-blur-md">
+            <span className="stage-secondary-action inline-flex">
+              <StageIconButton icon={<Pencil size={19} />} label="Edit Song" tone={toolbarButton} onClick={onEdit} />
+            </span>
             <StageIconButton icon={<Settings size={19} />} label="Format" tone={toolbarButton} active={activePopover === 'format'} onClick={() => openFormatPopover('format')} />
-            <StageIconButton icon={<Monitor size={19} />} label="External Display" tone={toolbarButton} active={activePopover === 'format' && formatTab === 'external'} onClick={() => openFormatPopover('external')} />
+            <span className="stage-secondary-action inline-flex">
+              <StageIconButton icon={<Monitor size={19} />} label="External Display" tone={toolbarButton} active={activePopover === 'format' && formatTab === 'external'} onClick={() => openFormatPopover('external')} />
+            </span>
             <StageIconButton icon={<MoreHorizontal size={19} />} label="More" tone={toolbarButton} active={activePopover === 'more'} onClick={() => togglePopover('more')} />
           </div>
         </div>
@@ -3601,6 +3622,8 @@ function PerformanceView({
             displayPreference={song.displayPreference ?? 'inline'}
             chordFontSize={chordFontSize}
             externalDisplaySettings={externalDisplaySettings}
+            onEdit={onEdit}
+            onOpenExternalDisplay={() => openFormatPopover('external')}
             onStageMode={onStageMode}
             onSettings={onSettings}
             onDiagnostics={onDiagnostics}
@@ -3898,6 +3921,8 @@ function StageControlPopover({
   displayPreference,
   chordFontSize,
   externalDisplaySettings,
+  onEdit,
+  onOpenExternalDisplay,
   onStageMode,
   onSettings,
   onDiagnostics,
@@ -3928,6 +3953,8 @@ function StageControlPopover({
   displayPreference: Song['displayPreference'];
   chordFontSize: number;
   externalDisplaySettings: PerformanceState['externalDisplay'];
+  onEdit: () => void;
+  onOpenExternalDisplay: () => void;
   onStageMode: () => void;
   onSettings: () => void;
   onDiagnostics: () => void;
@@ -3963,6 +3990,7 @@ function StageControlPopover({
   return (
     <aside
       className={`stage-popover fixed ${popoverPosition} top-20 z-50 w-[min(24rem,calc(100vw-1.5rem))] rounded-lg border p-3 shadow-2xl backdrop-blur-md ${menuSurface}`}
+      data-stage-popover={active}
       onClick={(event) => event.stopPropagation()}
     >
       {active === 'library' && (
@@ -4288,7 +4316,7 @@ function StageControlPopover({
             )}
             {formatTab === 'external' && <ExternalDisplayControls state={{ ...state, externalDisplay: externalDisplaySettings }} setState={setState} />}
           </div>
-          <div className="mt-2 grid grid-cols-7 gap-1 border-t border-slate-700 pt-2">
+          <div className="stage-format-tabbar mt-2 grid grid-cols-4 gap-1 border-t border-slate-700 pt-2 sm:grid-cols-8">
             <StageTabButton icon={<FileJson size={16} />} label="Document" active={formatTab === 'document'} onClick={() => setFormatTab('document')} />
             <StageTabButton icon={<Settings size={16} />} label="Format" active={formatTab === 'format'} onClick={() => setFormatTab('format')} />
             <StageTabButton icon={<ListMusic size={16} />} label="Chords" active={formatTab === 'chords'} onClick={() => setFormatTab('chords')} />
@@ -4310,6 +4338,12 @@ function StageControlPopover({
               {currentStageSong.favorite ? 'Remove Favorite' : 'Add Favorite'}
             </button>
           )}
+          <button className="stage-menu-button stage-phone-only" type="button" onClick={onEdit}>
+            <Pencil size={18} /> Edit Song
+          </button>
+          <button className="stage-menu-button stage-phone-only" type="button" onClick={onOpenExternalDisplay}>
+            <Monitor size={18} /> External Display
+          </button>
           <button className="stage-menu-button" type="button" onClick={onSettings}>
             <Settings size={18} /> Settings
           </button>
@@ -4380,6 +4414,14 @@ function StagePopoverTitle({ title }: { title: string }) {
 
 function isInteractiveSwipeTarget(target: EventTarget | null) {
   return target instanceof HTMLElement && Boolean(target.closest('button, input, textarea, select, option, label, [role="button"], [data-stage-control]'));
+}
+
+function isIPhoneViewport() {
+  if (typeof window === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isIPhoneUa = /iPhone|iPod/i.test(ua);
+  const isNarrowTouchScreen = window.matchMedia('(max-width: 600px) and (pointer: coarse)').matches;
+  return isIPhoneUa || isNarrowTouchScreen;
 }
 
 function StageTabButton({
@@ -4822,9 +4864,10 @@ function PerformanceControlPanel({
           onChange={(event) => setState({ activeProfile: event.target.value as DeviceProfile })}
         >
           <option value="desktop">Desktop</option>
-          <option value="stage-device">Stage device</option>
-          <option value="tablet">Tablet</option>
-          <option value="portrait-prompter">Portrait prompter</option>
+          <option value="ipad-portrait">iPad Portrait</option>
+          <option value="ipad-landscape">iPad Landscape</option>
+          <option value="iphone">iPhone</option>
+          <option value="prompter-display">Prompter Display</option>
         </select>
       </label>
       <div className="flex flex-wrap gap-2">

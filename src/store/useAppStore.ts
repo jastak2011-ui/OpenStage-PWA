@@ -19,6 +19,10 @@ export const defaultPerformanceState: PerformanceState = {
   fontSize: 34,
   fontSizesByProfile: {
     desktop: 34,
+    'ipad-portrait': 32,
+    'ipad-landscape': 34,
+    iphone: 24,
+    'prompter-display': 38,
     'stage-device': 34,
     tablet: 34,
     'portrait-prompter': 34
@@ -26,6 +30,10 @@ export const defaultPerformanceState: PerformanceState = {
   headerFontSize: 16,
   headerFontSizesByProfile: {
     desktop: 16,
+    'ipad-portrait': 15,
+    'ipad-landscape': 16,
+    iphone: 12,
+    'prompter-display': 18,
     'stage-device': 16,
     tablet: 16,
     'portrait-prompter': 16
@@ -33,6 +41,10 @@ export const defaultPerformanceState: PerformanceState = {
   songTitleFontSize: 52,
   songTitleFontSizesByProfile: {
     desktop: 52,
+    'ipad-portrait': 44,
+    'ipad-landscape': 48,
+    iphone: 30,
+    'prompter-display': 58,
     'stage-device': 52,
     tablet: 52,
     'portrait-prompter': 52
@@ -61,6 +73,10 @@ export const defaultPerformanceState: PerformanceState = {
   songArtistFontSize: 30,
   songArtistFontSizesByProfile: {
     desktop: 30,
+    'ipad-portrait': 26,
+    'ipad-landscape': 28,
+    iphone: 18,
+    'prompter-display': 34,
     'stage-device': 30,
     tablet: 30,
     'portrait-prompter': 30
@@ -89,6 +105,10 @@ export const defaultPerformanceState: PerformanceState = {
   lineSpacing: 1,
   lineSpacingsByProfile: {
     desktop: 1,
+    'ipad-portrait': 1,
+    'ipad-landscape': 1,
+    iphone: 0.95,
+    'prompter-display': 1.1,
     'stage-device': 1,
     tablet: 1,
     'portrait-prompter': 1
@@ -96,6 +116,10 @@ export const defaultPerformanceState: PerformanceState = {
   chordFontSize: 18,
   chordFontSizesByProfile: {
     desktop: 18,
+    'ipad-portrait': 17,
+    'ipad-landscape': 18,
+    iphone: 14,
+    'prompter-display': 22,
     'stage-device': 18,
     tablet: 18,
     'portrait-prompter': 18
@@ -124,6 +148,10 @@ export const defaultPerformanceState: PerformanceState = {
   sectionFontSize: 36,
   sectionFontSizesByProfile: {
     desktop: 36,
+    'ipad-portrait': 32,
+    'ipad-landscape': 34,
+    iphone: 22,
+    'prompter-display': 40,
     'stage-device': 36,
     tablet: 36,
     'portrait-prompter': 36
@@ -159,6 +187,10 @@ export const defaultPerformanceState: PerformanceState = {
   sectionSpacingBefore: 28,
   sectionSpacingBeforeByProfile: {
     desktop: 28,
+    'ipad-portrait': 24,
+    'ipad-landscape': 26,
+    iphone: 16,
+    'prompter-display': 32,
     'stage-device': 28,
     tablet: 28,
     'portrait-prompter': 28
@@ -166,6 +198,10 @@ export const defaultPerformanceState: PerformanceState = {
   sectionSpacingAfter: 8,
   sectionSpacingAfterByProfile: {
     desktop: 8,
+    'ipad-portrait': 8,
+    'ipad-landscape': 8,
+    iphone: 5,
+    'prompter-display': 10,
     'stage-device': 8,
     tablet: 8,
     'portrait-prompter': 8
