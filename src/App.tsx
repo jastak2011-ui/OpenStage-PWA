@@ -3674,6 +3674,7 @@ function PerformanceView({
       className={`stage-shell stage-profile-${state.activeProfile} relative h-screen overflow-hidden transition-colors duration-300 ${stageBackground} ${cursorHidden && !activePopover ? 'cursor-none' : ''}`}
       data-stage-profile={state.activeProfile}
       data-mobile-reflow={mobileReflowMode ? 'true' : 'false'}
+      data-controls-visible={toolbarVisible || activePopover ? 'true' : 'false'}
       style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
       onPointerMove={revealMenu}
       onPointerDown={revealMenu}
@@ -3725,7 +3726,7 @@ function PerformanceView({
       </header>
 
       <div
-        className={`pointer-events-none fixed right-4 top-24 z-20 grid gap-1 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-right font-semibold leading-tight backdrop-blur-sm transition-opacity duration-300 sm:right-6 ${toolbarVisible || activePopover ? 'opacity-100' : 'opacity-0'} ${headerText}`}
+        className={`stage-keycapo-badge pointer-events-none fixed right-4 top-24 z-20 grid gap-1 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-right font-semibold leading-tight backdrop-blur-sm transition-opacity duration-300 sm:right-6 ${toolbarVisible || activePopover ? 'opacity-100' : 'opacity-0'} ${headerText}`}
         style={{ fontSize: `${headerFontSize}px`, color: documentTheme.text, fontFamily: stageFontFamily }}
       >
         <div style={{ fontSize: '0.78em' }}>Key {song.key || '-'}</div>
