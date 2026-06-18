@@ -9,6 +9,8 @@ export type RenderOptions = {
   songKey: string;
   lyricFontSize?: number;
   lineSpacing?: number;
+  songTitleFontSize?: number;
+  songArtistFontSize?: number;
   viewportWidth?: number;
   displayMode?: string;
 };
@@ -18,6 +20,8 @@ export type RenderedLine =
   | { type: 'comment'; raw: string; text: string }
   | { type: 'section'; raw: string; section: string; boundary: 'start' | 'end' }
   | { type: 'directive'; raw: string; name: string; value: string }
+  | { type: 'song-title'; raw: string; value: string }
+  | { type: 'song-artist'; raw: string; value: string }
   | { type: 'chord-over'; raw: string; chordLine: string; lyricLine: string }
   | { type: 'lyrics'; raw: string; tokens: Array<{ type: 'text' | 'chord'; value: string; display: string }> };
 
@@ -37,6 +41,8 @@ export function renderSong(song: Song, options: RenderOptions) {
     options.songKey,
     options.lyricFontSize ?? '',
     options.lineSpacing ?? '',
+    options.songTitleFontSize ?? '',
+    options.songArtistFontSize ?? '',
     options.viewportWidth ?? '',
     options.displayMode ?? ''
   ].join(':');
@@ -50,7 +56,8 @@ export function renderSong(song: Song, options: RenderOptions) {
 
   const sourceLines = getSongDisplayLines(song);
   const renderedLines = sourceLines.map((line) => renderLine(line, options));
-  const lines = song.displayPreference === 'chords-over' ? renderChordOverTextPairs(renderedLines, options) : renderedLines;
+  const metadataLines = classifySongMetadataLines(song, renderedLines);
+  const lines = song.displayPreference === 'chords-over' ? renderChordOverTextPairs(metadataLines, options) : metadataLines;
   renderCache.set(cacheKey, lines);
 
   if (renderCache.size > 80) {
@@ -95,6 +102,56 @@ function renderChordOverTextPairs(lines: RenderedLine[], options: RenderOptions)
 
     result.push(line);
   }
+
+  return result;
+}
+
+function classifySongMetadataLines(song: Song, lines: RenderedLine[]): RenderedLine[] {
+  const result: RenderedLine[] = [];
+  const title = song.title?.trim() ?? '';
+  const artist = song.artist?.trim() ?? '';
+  let titleRendered = false;
+  let artistRendered = false;
+  let leadingMetadataRegion = true;
+
+  lines.forEach((line) => {
+    if (line.type === 'directive' && line.name === 'title') {
+      if (!titleRendered && (title || line.value)) {
+        result.push({ type: 'song-title', raw: line.raw, value: title || line.value });
+        titleRendered = true;
+      }
+      return;
+    }
+
+    if (line.type === 'directive' && line.name === 'artist') {
+      if (!artistRendered && (artist || line.value)) {
+        result.push({ type: 'song-artist', raw: line.raw, value: artist || line.value });
+        artistRendered = true;
+      }
+      return;
+    }
+
+    if (leadingMetadataRegion && line.type === 'lyrics' && !line.tokens.some((token) => token.type === 'chord')) {
+      const text = plainText(line).trim();
+      if (!titleRendered && title && sameMetadataText(text, title)) {
+        result.push({ type: 'song-title', raw: line.raw, value: title });
+        titleRendered = true;
+        return;
+      }
+      if (titleRendered && !artistRendered && artist && sameMetadataText(text, artist)) {
+        result.push({ type: 'song-artist', raw: line.raw, value: artist });
+        artistRendered = true;
+        return;
+      }
+    }
+
+    if (leadingMetadataRegion && line.type !== 'blank' && line.type !== 'comment') {
+      const isVisibleMetadataDirective = line.type === 'directive' && ['subtitle', 'album'].includes(line.name);
+      if (!isVisibleMetadataDirective) leadingMetadataRegion = false;
+    }
+
+    result.push(line);
+  });
 
   return result;
 }
@@ -208,6 +265,18 @@ function isChordStructureToken(value: string) {
 
 function isChordSymbol(value: string) {
   return /^[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*?(?:\/[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*)?$/i.test(value);
+}
+
+function sameMetadataText(left: string, right: string) {
+  return normalizeMetadataText(left) === normalizeMetadataText(right);
+}
+
+function normalizeMetadataText(value: string) {
+  return stripHarmonyMarkup(value)
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
 function hashString(value: string) {

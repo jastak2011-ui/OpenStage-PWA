@@ -524,6 +524,43 @@ renderSong(capoSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songK
 renderSong(capoSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', lyricFontSize: 28 });
 renderSong(capoSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', lyricFontSize: 34 });
 assert.equal(getRenderCacheSize(), 3);
+clearRenderCache();
+renderSong(capoSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', songTitleFontSize: 42 });
+renderSong(capoSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', songTitleFontSize: 64 });
+assert.equal(getRenderCacheSize(), 2);
+
+const chordProMetadataSong = {
+  ...capoSong,
+  id: 'chordpro-metadata-song',
+  title: 'Take On Me',
+  artist: 'a-ha',
+  chart: '{title: TAKE ON ME}\n{artist: A-HA}\n[G]Talking away',
+  parsedChordPro: parseChordPro('{title: TAKE ON ME}\n{artist: A-HA}\n[G]Talking away'),
+  updatedAt: '2026-05-27T00:00:10.000Z'
+};
+const chordProMetadataRendered = renderSong(chordProMetadataSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G' });
+assert.equal(chordProMetadataRendered.lines[0].type, 'song-title');
+assert.equal(chordProMetadataRendered.lines[0].value, 'Take On Me');
+assert.equal(chordProMetadataRendered.lines[1].type, 'song-artist');
+assert.equal(chordProMetadataRendered.lines[1].value, 'a-ha');
+
+const onsongPlainMetadataSong = {
+  ...capoSong,
+  id: 'onsong-plain-metadata-song',
+  title: 'Take On Me',
+  artist: 'a-ha',
+  chart: 'TAKE ON ME\na-ha\nF#m        D\nTalking away',
+  parsedChordPro: parseChordPro('TAKE ON ME\na-ha\nF#m        D\nTalking away'),
+  displayPreference: 'chords-over',
+  updatedAt: '2026-05-27T00:00:11.000Z'
+};
+const onsongPlainMetadataRendered = renderSong(onsongPlainMetadataSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'F#m' });
+assert.equal(onsongPlainMetadataRendered.lines[0].type, 'song-title');
+assert.equal(onsongPlainMetadataRendered.lines[0].value, 'Take On Me');
+assert.equal(onsongPlainMetadataRendered.lines[1].type, 'song-artist');
+assert.equal(onsongPlainMetadataRendered.lines[1].value, 'a-ha');
+assert.equal(onsongPlainMetadataRendered.lines.filter((line) => line.type === 'lyrics' && line.tokens.map((token) => token.display).join('').trim().toLowerCase() === 'take on me').length, 0);
+assert.equal(onsongPlainMetadataRendered.lines.filter((line) => line.type === 'song-title').length, 1);
 
 const inlineCapoSong = {
   ...capoSong,

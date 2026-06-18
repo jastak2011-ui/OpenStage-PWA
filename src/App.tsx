@@ -576,6 +576,8 @@ export default function App() {
       songKey: selectedSong.performanceKey || selectedSong.key,
       lyricFontSize: performanceState.fontSize,
       lineSpacing: getEffectiveLineSpacing(performanceState),
+      songTitleFontSize: getEffectiveSongTitleFontSize(performanceState),
+      songArtistFontSize: getEffectiveSongArtistFontSize(performanceState),
       viewportWidth: window.innerWidth,
       displayMode: getDisplayModeLabel(performanceState)
     });
@@ -3391,6 +3393,8 @@ function PerformanceView({
     songKey: song.performanceKey || song.key,
     lyricFontSize,
     lineSpacing,
+    songTitleFontSize: getEffectiveSongTitleFontSize(state),
+    songArtistFontSize: getEffectiveSongArtistFontSize(state),
     viewportWidth: window.innerWidth,
     displayMode: getDisplayModeLabel(state)
   });
@@ -4528,6 +4532,8 @@ function ExternalPrompterApp() {
     songKey: payload.song.performanceKey || payload.song.key,
     lyricFontSize,
     lineSpacing,
+    songTitleFontSize: getEffectiveSongTitleFontSize(payload.performance),
+    songArtistFontSize: getEffectiveSongArtistFontSize(payload.performance),
     viewportWidth: window.innerWidth,
     displayMode: getDisplayModeLabel(payload.performance)
   });
@@ -5042,14 +5048,16 @@ function ChordProDisplayLine({
     return renderStageSectionLabel(line.section, lineIndex, sectionStyle);
   }
 
+  if (line.type === 'song-title') {
+    return <div data-line-index={lineIndex} className="mb-1 whitespace-normal leading-tight tracking-normal" style={songTitleStyle}>{line.value}</div>;
+  }
+
+  if (line.type === 'song-artist') {
+    return <div data-line-index={lineIndex} className="mb-6 whitespace-normal leading-snug tracking-normal" style={songArtistStyle}>{line.value}</div>;
+  }
+
   if (line.type === 'directive') {
     if (isHiddenStageDirective(line.name)) return null;
-    if (line.name === 'title' && line.value) {
-      return <div data-line-index={lineIndex} className="mb-1 whitespace-normal leading-tight tracking-normal" style={songTitleStyle}>{line.value}</div>;
-    }
-    if (line.name === 'artist' && line.value) {
-      return <div data-line-index={lineIndex} className="mb-6 whitespace-normal leading-snug tracking-normal" style={songArtistStyle}>{line.value}</div>;
-    }
     const visibleDirectives = new Set(['subtitle', 'album']);
     if (!visibleDirectives.has(line.name) || !line.value) return null;
     return <div data-line-index={lineIndex} className="text-[0.5em] uppercase tracking-normal text-slate-400">{line.value}</div>;
