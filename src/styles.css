@@ -150,6 +150,20 @@ label,
   text-wrap: pretty;
 }
 
+.stage-profile-iphone .stage-scroll {
+  padding-left: 0.75rem !important;
+  padding-right: 0.75rem !important;
+}
+
+.stage-profile-iphone .stage-chart {
+  max-width: none;
+}
+
+.stage-profile-prompter-display .stage-scroll {
+  padding-left: clamp(1.5rem, 6vw, 5rem);
+  padding-right: clamp(1.5rem, 6vw, 5rem);
+}
+
 .stage-chord {
   filter: saturate(1.05);
   text-shadow: 0 0 16px rgba(214, 168, 90, 0.08);

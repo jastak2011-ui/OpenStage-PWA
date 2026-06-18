@@ -7,10 +7,16 @@ export type RenderOptions = {
   capo: number;
   showNashvilleNumbers: boolean;
   songKey: string;
+  activeProfile?: string;
   lyricFontSize?: number;
   lineSpacing?: number;
+  chordFontSize?: number;
+  headerFontSize?: number;
   songTitleFontSize?: number;
   songArtistFontSize?: number;
+  sectionFontSize?: number;
+  sectionSpacingBefore?: number;
+  sectionSpacingAfter?: number;
   viewportWidth?: number;
   displayMode?: string;
 };
@@ -39,10 +45,16 @@ export function renderSong(song: Song, options: RenderOptions) {
     options.capo,
     options.showNashvilleNumbers,
     options.songKey,
+    options.activeProfile ?? '',
     options.lyricFontSize ?? '',
     options.lineSpacing ?? '',
+    options.chordFontSize ?? '',
+    options.headerFontSize ?? '',
     options.songTitleFontSize ?? '',
     options.songArtistFontSize ?? '',
+    options.sectionFontSize ?? '',
+    options.sectionSpacingBefore ?? '',
+    options.sectionSpacingAfter ?? '',
     options.viewportWidth ?? '',
     options.displayMode ?? ''
   ].join(':');

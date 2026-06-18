@@ -637,7 +637,7 @@ export default function App() {
     } catch {
       // Continue without persistence if Safari private mode blocks localStorage.
     }
-    updateStorePerformance({ activeProfile: 'iphone', splitScreen: false });
+    updateStorePerformance(applyDisplayProfilePatch(performanceState, 'iphone'));
   }, [performanceState.activeProfile, updateStorePerformance]);
 
   useEffect(() => {
@@ -699,10 +699,16 @@ export default function App() {
       capo: selectedEffectiveCapo,
       showNashvilleNumbers: performanceState.showNashvilleNumbers,
       songKey: selectedSong.performanceKey || selectedSong.key,
-      lyricFontSize: performanceState.fontSize,
+      activeProfile: performanceState.activeProfile,
+      lyricFontSize: getEffectiveLyricFontSize(performanceState),
       lineSpacing: getEffectiveLineSpacing(performanceState),
+      chordFontSize: getEffectiveChordFontSize(performanceState),
+      headerFontSize: getEffectiveHeaderFontSize(performanceState),
       songTitleFontSize: getEffectiveSongTitleFontSize(performanceState),
       songArtistFontSize: getEffectiveSongArtistFontSize(performanceState),
+      sectionFontSize: getEffectiveSectionFontSize(performanceState),
+      sectionSpacingBefore: getEffectiveSectionSpacingBefore(performanceState),
+      sectionSpacingAfter: getEffectiveSectionSpacingAfter(performanceState),
       viewportWidth: window.innerWidth,
       displayMode: getDisplayModeLabel(performanceState)
     });
@@ -710,12 +716,27 @@ export default function App() {
   }, [
     nextNavigationSong,
     performanceState.activeProfile,
+    performanceState.chordFontSize,
+    performanceState.chordFontSizesByProfile,
     performanceState.fontSize,
+    performanceState.fontSizesByProfile,
+    performanceState.headerFontSize,
+    performanceState.headerFontSizesByProfile,
     performanceState.lineSpacing,
     performanceState.lineSpacingsByProfile,
     performanceState.mirroredMode,
     performanceState.portraitMode,
+    performanceState.sectionFontSize,
+    performanceState.sectionFontSizesByProfile,
+    performanceState.sectionSpacingAfter,
+    performanceState.sectionSpacingAfterByProfile,
+    performanceState.sectionSpacingBefore,
+    performanceState.sectionSpacingBeforeByProfile,
     performanceState.showNashvilleNumbers,
+    performanceState.songArtistFontSize,
+    performanceState.songArtistFontSizesByProfile,
+    performanceState.songTitleFontSize,
+    performanceState.songTitleFontSizesByProfile,
     performanceState.splitScreen,
     performanceState.transpose,
     previousNavigationSong,
@@ -3514,15 +3535,23 @@ function PerformanceView({
   const externalDisplaySettings = getExternalDisplaySettings(state);
   const lyricFontSize = getEffectiveLyricFontSize(state);
   const lineSpacing = getEffectiveLineSpacing(state);
+  const headerFontSize = getEffectiveHeaderFontSize(state);
+  const chordFontSize = getEffectiveChordFontSize(state);
   const rendered = renderSong(song, {
     transpose: state.transpose,
     capo: effectiveCapo,
     showNashvilleNumbers: state.showNashvilleNumbers,
     songKey: song.performanceKey || song.key,
+    activeProfile: state.activeProfile,
     lyricFontSize,
     lineSpacing,
+    chordFontSize,
+    headerFontSize,
     songTitleFontSize: getEffectiveSongTitleFontSize(state),
     songArtistFontSize: getEffectiveSongArtistFontSize(state),
+    sectionFontSize: getEffectiveSectionFontSize(state),
+    sectionSpacingBefore: getEffectiveSectionSpacingBefore(state),
+    sectionSpacingAfter: getEffectiveSectionSpacingAfter(state),
     viewportWidth: window.innerWidth,
     displayMode: getDisplayModeLabel(state)
   });
@@ -3546,8 +3575,6 @@ function PerformanceView({
   const swipeStartRef = useRef<{ x: number; y: number; target: EventTarget | null } | null>(null);
   const stageTheme = getStageTheme(state.stageTheme);
   const stageBackground = stageTheme.className;
-  const headerFontSize = getEffectiveHeaderFontSize(state);
-  const chordFontSize = getEffectiveChordFontSize(state);
   const chordVerticalOffset = getEffectiveChordVerticalOffset(state);
   const chordFontColor = getEffectiveChordFontColor(state);
   const chordHighlightColor = getEffectiveChordHighlightColor(state);
@@ -3642,7 +3669,8 @@ function PerformanceView({
 
   return (
     <main
-      className={`stage-shell relative h-screen overflow-hidden transition-colors duration-300 ${stageBackground} ${cursorHidden && !activePopover ? 'cursor-none' : ''}`}
+      className={`stage-shell stage-profile-${state.activeProfile} relative h-screen overflow-hidden transition-colors duration-300 ${stageBackground} ${cursorHidden && !activePopover ? 'cursor-none' : ''}`}
+      data-stage-profile={state.activeProfile}
       style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
       onPointerMove={revealMenu}
       onPointerDown={revealMenu}
@@ -4075,6 +4103,7 @@ function StageControlPopover({
 }) {
   const [libraryQuery, setLibraryQuery] = useState('');
   const [selectedDisplayProfile, setSelectedDisplayProfile] = useState<DeviceProfile>(state.activeProfile);
+  const [profileMessage, setProfileMessage] = useState('');
   const popoverPosition = active === 'library' || active === 'setlists' ? 'left-3 sm:left-5' : 'right-3 sm:right-5';
   const documentTheme = getDocumentThemePreset(getEffectiveDocumentTheme(state));
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
@@ -4098,10 +4127,31 @@ function StageControlPopover({
   }, [libraryQuery, songs]);
   const favoriteStageSongs = filteredStageSongs.filter((song) => song.favorite);
   const regularStageSongs = filteredStageSongs.filter((song) => !song.favorite);
+  const activeProfileValues = {
+    lyric: getEffectiveLyricFontSize(state),
+    chord: getEffectiveChordFontSize(state),
+    title: getEffectiveSongTitleFontSize(state),
+    artist: getEffectiveSongArtistFontSize(state),
+    section: getEffectiveSectionFontSize(state),
+    header: getEffectiveHeaderFontSize(state),
+    lineSpacing: getEffectiveLineSpacing(state),
+    sectionBefore: getEffectiveSectionSpacingBefore(state),
+    sectionAfter: getEffectiveSectionSpacingAfter(state)
+  };
 
   useEffect(() => {
     setSelectedDisplayProfile(state.activeProfile);
   }, [state.activeProfile]);
+
+  function applySelectedProfile() {
+    setState(applyDisplayProfilePatch(state, selectedDisplayProfile));
+    setProfileMessage(`Applied ${displayProfileLabel(selectedDisplayProfile)} profile`);
+  }
+
+  function saveSelectedProfile() {
+    setState(saveCurrentSettingsAsDisplayProfilePatch(state, selectedDisplayProfile));
+    setProfileMessage(`Saved current settings as ${displayProfileLabel(selectedDisplayProfile)} profile`);
+  }
 
   return (
     <aside
@@ -4196,17 +4246,28 @@ function StageControlPopover({
                     <button
                       className="stage-menu-button"
                       type="button"
-                      onClick={() => setState(applyDisplayProfilePatch(state, selectedDisplayProfile))}
+                      onClick={applySelectedProfile}
                     >
                       Apply Profile
                     </button>
                     <button
                       className="stage-menu-button"
                       type="button"
-                      onClick={() => setState(saveCurrentSettingsAsDisplayProfilePatch(state, selectedDisplayProfile))}
+                      onClick={saveSelectedProfile}
                     >
                       Save Current Settings as This Profile
                     </button>
+                  </div>
+                  {profileMessage && <div className="rounded-md border border-teal-300/40 bg-teal-300/10 px-3 py-2 text-sm font-semibold text-teal-100">{profileMessage}</div>}
+                  <div className="grid grid-cols-2 gap-2 rounded-md border border-slate-700/70 bg-black/20 p-2 text-[0.72rem] text-slate-200">
+                    <div>Active Profile: <span className="font-semibold text-white">{displayProfileLabel(state.activeProfile)}</span></div>
+                    <div>Lyric Font Size: <span className="font-semibold text-white">{activeProfileValues.lyric}px</span></div>
+                    <div>Chord Font Size: <span className="font-semibold text-white">{activeProfileValues.chord}px</span></div>
+                    <div>Title Font Size: <span className="font-semibold text-white">{activeProfileValues.title}px</span></div>
+                    <div>Artist Font Size: <span className="font-semibold text-white">{activeProfileValues.artist}px</span></div>
+                    <div>Header Font Size: <span className="font-semibold text-white">{activeProfileValues.header}px</span></div>
+                    <div>Line Spacing: <span className="font-semibold text-white">{activeProfileValues.lineSpacing.toFixed(2)}</span></div>
+                    <div>Section Spacing: <span className="font-semibold text-white">{activeProfileValues.sectionBefore}/{activeProfileValues.sectionAfter}</span></div>
                   </div>
                 </div>
                 <div className="grid gap-2">
@@ -4775,10 +4836,16 @@ function ExternalPrompterApp() {
     capo: payload.effectiveCapo,
     showNashvilleNumbers: payload.performance.showNashvilleNumbers,
     songKey: payload.song.performanceKey || payload.song.key,
+    activeProfile: payload.performance.activeProfile,
     lyricFontSize,
     lineSpacing,
+    chordFontSize,
+    headerFontSize: getEffectiveHeaderFontSize(payload.performance),
     songTitleFontSize: getEffectiveSongTitleFontSize(payload.performance),
     songArtistFontSize: getEffectiveSongArtistFontSize(payload.performance),
+    sectionFontSize: getEffectiveSectionFontSize(payload.performance),
+    sectionSpacingBefore: getEffectiveSectionSpacingBefore(payload.performance),
+    sectionSpacingAfter: getEffectiveSectionSpacingAfter(payload.performance),
     viewportWidth: window.innerWidth,
     displayMode: getDisplayModeLabel(payload.performance)
   });

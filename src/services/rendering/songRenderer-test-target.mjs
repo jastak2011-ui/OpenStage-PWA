@@ -92,10 +92,16 @@ function renderSong(song, options) {
     options.capo,
     options.showNashvilleNumbers,
     options.songKey,
+    options.activeProfile ?? "",
     options.lyricFontSize ?? "",
     options.lineSpacing ?? "",
+    options.chordFontSize ?? "",
+    options.headerFontSize ?? "",
     options.songTitleFontSize ?? "",
     options.songArtistFontSize ?? "",
+    options.sectionFontSize ?? "",
+    options.sectionSpacingBefore ?? "",
+    options.sectionSpacingAfter ?? "",
     options.viewportWidth ?? "",
     options.displayMode ?? ""
   ].join(":");
