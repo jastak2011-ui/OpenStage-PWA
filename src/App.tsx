@@ -317,6 +317,117 @@ const speedPresets: Record<Exclude<AutoscrollPreset, 'custom'>, number> = {
 
 const iphoneAutoProfileStorageKey = 'openstage-iphone-profile-auto-applied';
 
+type DisplayProfileSizing = {
+  lyricFontSize: number;
+  chordFontSize: number;
+  titleFontSize: number;
+  artistFontSize: number;
+  sectionFontSize: number;
+  headerFontSize: number;
+  lineSpacing: number;
+  sectionSpacingBefore: number;
+  sectionSpacingAfter: number;
+};
+
+const displayProfileOptions: Array<{ value: DeviceProfile; label: string }> = [
+  { value: 'desktop', label: 'Desktop' },
+  { value: 'ipad-portrait', label: 'iPad Portrait' },
+  { value: 'ipad-landscape', label: 'iPad Landscape' },
+  { value: 'iphone', label: 'iPhone' },
+  { value: 'prompter-display', label: 'Prompter Display' }
+];
+
+const displayProfileDefaults: Record<DeviceProfile, DisplayProfileSizing> = {
+  desktop: {
+    lyricFontSize: 34,
+    chordFontSize: 18,
+    titleFontSize: 52,
+    artistFontSize: 30,
+    sectionFontSize: 36,
+    headerFontSize: 16,
+    lineSpacing: 1,
+    sectionSpacingBefore: 28,
+    sectionSpacingAfter: 8
+  },
+  'ipad-portrait': {
+    lyricFontSize: 32,
+    chordFontSize: 17,
+    titleFontSize: 44,
+    artistFontSize: 26,
+    sectionFontSize: 32,
+    headerFontSize: 15,
+    lineSpacing: 1,
+    sectionSpacingBefore: 24,
+    sectionSpacingAfter: 8
+  },
+  'ipad-landscape': {
+    lyricFontSize: 34,
+    chordFontSize: 18,
+    titleFontSize: 48,
+    artistFontSize: 28,
+    sectionFontSize: 34,
+    headerFontSize: 16,
+    lineSpacing: 1,
+    sectionSpacingBefore: 26,
+    sectionSpacingAfter: 8
+  },
+  iphone: {
+    lyricFontSize: 24,
+    chordFontSize: 14,
+    titleFontSize: 30,
+    artistFontSize: 18,
+    sectionFontSize: 22,
+    headerFontSize: 12,
+    lineSpacing: 0.95,
+    sectionSpacingBefore: 16,
+    sectionSpacingAfter: 5
+  },
+  'prompter-display': {
+    lyricFontSize: 38,
+    chordFontSize: 22,
+    titleFontSize: 58,
+    artistFontSize: 34,
+    sectionFontSize: 40,
+    headerFontSize: 18,
+    lineSpacing: 1.1,
+    sectionSpacingBefore: 32,
+    sectionSpacingAfter: 10
+  },
+  'stage-device': {
+    lyricFontSize: 34,
+    chordFontSize: 18,
+    titleFontSize: 52,
+    artistFontSize: 30,
+    sectionFontSize: 36,
+    headerFontSize: 16,
+    lineSpacing: 1,
+    sectionSpacingBefore: 28,
+    sectionSpacingAfter: 8
+  },
+  tablet: {
+    lyricFontSize: 34,
+    chordFontSize: 18,
+    titleFontSize: 52,
+    artistFontSize: 30,
+    sectionFontSize: 36,
+    headerFontSize: 16,
+    lineSpacing: 1,
+    sectionSpacingBefore: 28,
+    sectionSpacingAfter: 8
+  },
+  'portrait-prompter': {
+    lyricFontSize: 34,
+    chordFontSize: 18,
+    titleFontSize: 52,
+    artistFontSize: 30,
+    sectionFontSize: 36,
+    headerFontSize: 16,
+    lineSpacing: 1,
+    sectionSpacingBefore: 28,
+    sectionSpacingAfter: 8
+  }
+};
+
 const emptySong = (): Song => ({
   id: createId('song'),
   title: 'New Song',
@@ -3963,6 +4074,7 @@ function StageControlPopover({
   onSync: () => void;
 }) {
   const [libraryQuery, setLibraryQuery] = useState('');
+  const [selectedDisplayProfile, setSelectedDisplayProfile] = useState<DeviceProfile>(state.activeProfile);
   const popoverPosition = active === 'library' || active === 'setlists' ? 'left-3 sm:left-5' : 'right-3 sm:right-5';
   const documentTheme = getDocumentThemePreset(getEffectiveDocumentTheme(state));
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
@@ -3986,6 +4098,10 @@ function StageControlPopover({
   }, [libraryQuery, songs]);
   const favoriteStageSongs = filteredStageSongs.filter((song) => song.favorite);
   const regularStageSongs = filteredStageSongs.filter((song) => !song.favorite);
+
+  useEffect(() => {
+    setSelectedDisplayProfile(state.activeProfile);
+  }, [state.activeProfile]);
 
   return (
     <aside
@@ -4057,6 +4173,42 @@ function StageControlPopover({
           <div className="min-h-72">
             {formatTab === 'document' && (
               <div className="grid gap-3">
+                <div className="grid gap-3 rounded-md border border-amber-300/30 bg-amber-300/10 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <StagePopoverTitle title="Display Profile" />
+                    <span className="rounded-full border border-amber-200/30 bg-black/20 px-2 py-1 text-[0.7rem] font-semibold text-amber-100">
+                      Active Profile: {displayProfileLabel(state.activeProfile)}
+                    </span>
+                  </div>
+                  <label className="grid gap-1 text-sm">
+                    <span className="font-semibold text-slate-300">Profile</span>
+                    <select
+                      className="input bg-slate-900 text-white"
+                      value={selectedDisplayProfile}
+                      onChange={(event) => setSelectedDisplayProfile(event.target.value as DeviceProfile)}
+                    >
+                      {displayProfileOptions.map((profile) => (
+                        <option key={profile.value} value={profile.value}>{profile.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <button
+                      className="stage-menu-button"
+                      type="button"
+                      onClick={() => setState(applyDisplayProfilePatch(state, selectedDisplayProfile))}
+                    >
+                      Apply Profile
+                    </button>
+                    <button
+                      className="stage-menu-button"
+                      type="button"
+                      onClick={() => setState(saveCurrentSettingsAsDisplayProfilePatch(state, selectedDisplayProfile))}
+                    >
+                      Save Current Settings as This Profile
+                    </button>
+                  </div>
+                </div>
                 <div className="grid gap-2">
                   <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Document Appearance</div>
                   <div className="grid grid-cols-2 gap-2">
@@ -4422,6 +4574,57 @@ function isIPhoneViewport() {
   const isIPhoneUa = /iPhone|iPod/i.test(ua);
   const isNarrowTouchScreen = window.matchMedia('(max-width: 600px) and (pointer: coarse)').matches;
   return isIPhoneUa || isNarrowTouchScreen;
+}
+
+function displayProfileLabel(profile: DeviceProfile) {
+  return displayProfileOptions.find((option) => option.value === profile)?.label ?? profile;
+}
+
+function profileSettingsPatch(
+  state: PerformanceState,
+  profile: DeviceProfile,
+  values: DisplayProfileSizing
+): Partial<PerformanceState> {
+  return {
+    activeProfile: profile,
+    fontSize: values.lyricFontSize,
+    fontSizesByProfile: { ...(state.fontSizesByProfile ?? {}), [profile]: values.lyricFontSize },
+    chordFontSize: values.chordFontSize,
+    chordFontSizesByProfile: { ...(state.chordFontSizesByProfile ?? {}), [profile]: values.chordFontSize },
+    songTitleFontSize: values.titleFontSize,
+    songTitleFontSizesByProfile: { ...(state.songTitleFontSizesByProfile ?? {}), [profile]: values.titleFontSize },
+    songArtistFontSize: values.artistFontSize,
+    songArtistFontSizesByProfile: { ...(state.songArtistFontSizesByProfile ?? {}), [profile]: values.artistFontSize },
+    sectionFontSize: values.sectionFontSize,
+    sectionFontSizesByProfile: { ...(state.sectionFontSizesByProfile ?? {}), [profile]: values.sectionFontSize },
+    headerFontSize: values.headerFontSize,
+    headerFontSizesByProfile: { ...(state.headerFontSizesByProfile ?? {}), [profile]: values.headerFontSize },
+    lineSpacing: values.lineSpacing,
+    lineSpacingsByProfile: { ...(state.lineSpacingsByProfile ?? {}), [profile]: values.lineSpacing },
+    sectionSpacingBefore: values.sectionSpacingBefore,
+    sectionSpacingBeforeByProfile: { ...(state.sectionSpacingBeforeByProfile ?? {}), [profile]: values.sectionSpacingBefore },
+    sectionSpacingAfter: values.sectionSpacingAfter,
+    sectionSpacingAfterByProfile: { ...(state.sectionSpacingAfterByProfile ?? {}), [profile]: values.sectionSpacingAfter },
+    splitScreen: profile === 'ipad-landscape' ? state.splitScreen : false
+  };
+}
+
+function applyDisplayProfilePatch(state: PerformanceState, profile: DeviceProfile): Partial<PerformanceState> {
+  return profileSettingsPatch(state, profile, displayProfileDefaults[profile]);
+}
+
+function saveCurrentSettingsAsDisplayProfilePatch(state: PerformanceState, profile: DeviceProfile): Partial<PerformanceState> {
+  return profileSettingsPatch(state, profile, {
+    lyricFontSize: getEffectiveLyricFontSize(state),
+    chordFontSize: getEffectiveChordFontSize(state),
+    titleFontSize: getEffectiveSongTitleFontSize(state),
+    artistFontSize: getEffectiveSongArtistFontSize(state),
+    sectionFontSize: getEffectiveSectionFontSize(state),
+    headerFontSize: getEffectiveHeaderFontSize(state),
+    lineSpacing: getEffectiveLineSpacing(state),
+    sectionSpacingBefore: getEffectiveSectionSpacingBefore(state),
+    sectionSpacingAfter: getEffectiveSectionSpacingAfter(state)
+  });
 }
 
 function StageTabButton({
