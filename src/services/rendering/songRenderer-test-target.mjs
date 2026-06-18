@@ -42,6 +42,42 @@ function suffixToNashville(suffix) {
   return suffix.replace(/^maj/i, "maj").replace(/^m(?!aj)/, "m");
 }
 
+// src/lib/harmony.ts
+var harmonyStartTag = "[HARMONY]";
+var harmonyTagPattern = /\[\/?HARMONY\]/gi;
+function isHarmonyTag(value) {
+  return /^\/?HARMONY$/i.test(value.trim());
+}
+function parseHarmonyText(input) {
+  const ranges = [];
+  let text = "";
+  let cursor = 0;
+  let activeStart = null;
+  let match;
+  harmonyTagPattern.lastIndex = 0;
+  while ((match = harmonyTagPattern.exec(input)) !== null) {
+    text += input.slice(cursor, match.index);
+    const tag = match[0].toUpperCase();
+    if (tag === harmonyStartTag) {
+      if (activeStart === null) activeStart = text.length;
+    } else if (activeStart !== null) {
+      ranges.push({ start: activeStart, end: text.length });
+      activeStart = null;
+    }
+    cursor = harmonyTagPattern.lastIndex;
+  }
+  text += input.slice(cursor);
+  if (activeStart !== null) ranges.push({ start: activeStart, end: text.length });
+  return {
+    text,
+    ranges: ranges.filter((range) => range.end > range.start),
+    hasHarmony: ranges.some((range) => range.end > range.start)
+  };
+}
+function stripHarmonyMarkup(input) {
+  return parseHarmonyText(input).text;
+}
+
 // src/services/rendering/songRenderer.ts
 var renderCache = /* @__PURE__ */ new Map();
 function renderSong(song, options) {
@@ -91,7 +127,7 @@ function renderChordOverTextPairs(lines, options) {
         raw: `${line.raw}
 ${nextLine.raw}`,
         chordLine: transformChordTextLine(text, options),
-        lyricLine: plainText(nextLine)
+        lyricLine: markupText(nextLine)
       });
       index += 1;
       continue;
@@ -155,6 +191,11 @@ function parseFallbackTokens(line) {
   let match;
   while ((match = regex.exec(line)) !== null) {
     if (match.index > lastIndex) tokens.push({ type: "text", value: line.slice(lastIndex, match.index) });
+    if (isHarmonyTag(match[1])) {
+      tokens.push({ type: "text", value: match[0] });
+      lastIndex = regex.lastIndex;
+      continue;
+    }
     tokens.push({ type: "chord", value: match[1] });
     lastIndex = regex.lastIndex;
   }
@@ -162,6 +203,9 @@ function parseFallbackTokens(line) {
   return tokens.length > 0 ? tokens : [{ type: "text", value: line }];
 }
 function plainText(line) {
+  return stripHarmonyMarkup(line.tokens.map((token) => token.display).join(""));
+}
+function markupText(line) {
   return line.tokens.map((token) => token.display).join("");
 }
 function isStandaloneChordLine(line) {

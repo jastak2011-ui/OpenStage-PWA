@@ -1,5 +1,6 @@
 import type { ParsedChordPro, ParsedChordProLine, ParsedChordToken, Song } from '../types';
 import { createId } from './ids';
+import { isHarmonyTag } from './harmony';
 
 const supportedChordProExtensions = ['.cho', '.crd', '.chordpro', '.chopro', '.pro', '.txt'];
 const knownDirectives = new Set([
@@ -183,6 +184,11 @@ function parseInlineChordTokens(line: string, warnings: string[], lineIndex: num
 
     const chord = match[1].trim();
     if (!chord) warnings.push(`${lineLabel(lineIndex)} Empty chord marker preserved.`);
+    if (isHarmonyTag(chord)) {
+      tokens.push({ type: 'text', value: match[0] });
+      lastIndex = regex.lastIndex;
+      continue;
+    }
     tokens.push({ type: 'chord', value: chord });
     lastIndex = regex.lastIndex;
   }

@@ -1,4 +1,5 @@
 import { applyPerformanceChordTransform, chordToNashville } from '../../lib/chords';
+import { isHarmonyTag, stripHarmonyMarkup } from '../../lib/harmony';
 import type { ParsedChordProLine, RenderDiagnostics, Song } from '../../types';
 
 export type RenderOptions = {
@@ -74,7 +75,7 @@ function renderChordOverTextPairs(lines: RenderedLine[], options: RenderOptions)
         type: 'chord-over',
         raw: `${line.raw}\n${nextLine.raw}`,
         chordLine: transformChordTextLine(text, options),
-        lyricLine: plainText(nextLine)
+        lyricLine: markupText(nextLine)
       });
       index += 1;
       continue;
@@ -153,6 +154,11 @@ function parseFallbackTokens(line: string): Extract<ParsedChordProLine, { type: 
 
   while ((match = regex.exec(line)) !== null) {
     if (match.index > lastIndex) tokens.push({ type: 'text', value: line.slice(lastIndex, match.index) });
+    if (isHarmonyTag(match[1])) {
+      tokens.push({ type: 'text', value: match[0] });
+      lastIndex = regex.lastIndex;
+      continue;
+    }
     tokens.push({ type: 'chord', value: match[1] });
     lastIndex = regex.lastIndex;
   }
@@ -162,6 +168,10 @@ function parseFallbackTokens(line: string): Extract<ParsedChordProLine, { type: 
 }
 
 function plainText(line: Extract<RenderedLine, { type: 'lyrics' }>) {
+  return stripHarmonyMarkup(line.tokens.map((token) => token.display).join(''));
+}
+
+function markupText(line: Extract<RenderedLine, { type: 'lyrics' }>) {
   return line.tokens.map((token) => token.display).join('');
 }
 

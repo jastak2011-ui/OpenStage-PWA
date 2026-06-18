@@ -114,6 +114,41 @@ export const defaultPerformanceState: PerformanceState = {
     tablet: 8,
     'portrait-prompter': 8
   },
+  showHarmonyCues: true,
+  showHarmonyCuesByProfile: {
+    desktop: true,
+    'stage-device': true,
+    tablet: true,
+    'portrait-prompter': true
+  },
+  harmonyTextColor: 'dark-blue',
+  harmonyTextColorsByProfile: {
+    desktop: 'dark-blue',
+    'stage-device': 'dark-blue',
+    tablet: 'dark-blue',
+    'portrait-prompter': 'dark-blue'
+  },
+  harmonyIconColor: 'blue-purple',
+  harmonyIconColorsByProfile: {
+    desktop: 'blue-purple',
+    'stage-device': 'blue-purple',
+    tablet: 'blue-purple',
+    'portrait-prompter': 'blue-purple'
+  },
+  harmonyItalic: true,
+  harmonyItalicByProfile: {
+    desktop: true,
+    'stage-device': true,
+    tablet: true,
+    'portrait-prompter': true
+  },
+  harmonyIconVisible: true,
+  harmonyIconVisibleByProfile: {
+    desktop: true,
+    'stage-device': true,
+    tablet: true,
+    'portrait-prompter': true
+  },
   documentTheme: 'standard-white',
   documentThemesByProfile: {
     desktop: 'standard-white',
@@ -228,6 +263,11 @@ export const useAppStore = create<AppStore>()(
           const currentSectionUppercase = state.performance.sectionUppercaseByProfile ?? {};
           const currentSectionSpacingBefore = state.performance.sectionSpacingBeforeByProfile ?? {};
           const currentSectionSpacingAfter = state.performance.sectionSpacingAfterByProfile ?? {};
+          const currentShowHarmonyCues = state.performance.showHarmonyCuesByProfile ?? {};
+          const currentHarmonyTextColors = state.performance.harmonyTextColorsByProfile ?? {};
+          const currentHarmonyIconColors = state.performance.harmonyIconColorsByProfile ?? {};
+          const currentHarmonyItalic = state.performance.harmonyItalicByProfile ?? {};
+          const currentHarmonyIconVisible = state.performance.harmonyIconVisibleByProfile ?? {};
           const currentDocumentThemes = state.performance.documentThemesByProfile ?? {};
           const currentStageFontFamilies = state.performance.stageFontFamiliesByProfile ?? {};
           const currentUseMonospaceChords = state.performance.useMonospaceChordsByProfile ?? {};
@@ -303,6 +343,31 @@ export const useAppStore = create<AppStore>()(
             currentSectionSpacingAfter[activeProfile] ??
             state.performance.sectionSpacingAfter ??
             defaultPerformanceState.sectionSpacingAfter;
+          const nextShowHarmonyCues =
+            next.showHarmonyCues ??
+            currentShowHarmonyCues[activeProfile] ??
+            state.performance.showHarmonyCues ??
+            defaultPerformanceState.showHarmonyCues;
+          const nextHarmonyTextColor =
+            next.harmonyTextColor ??
+            currentHarmonyTextColors[activeProfile] ??
+            state.performance.harmonyTextColor ??
+            defaultPerformanceState.harmonyTextColor;
+          const nextHarmonyIconColor =
+            next.harmonyIconColor ??
+            currentHarmonyIconColors[activeProfile] ??
+            state.performance.harmonyIconColor ??
+            defaultPerformanceState.harmonyIconColor;
+          const nextHarmonyItalic =
+            next.harmonyItalic ??
+            currentHarmonyItalic[activeProfile] ??
+            state.performance.harmonyItalic ??
+            defaultPerformanceState.harmonyItalic;
+          const nextHarmonyIconVisible =
+            next.harmonyIconVisible ??
+            currentHarmonyIconVisible[activeProfile] ??
+            state.performance.harmonyIconVisible ??
+            defaultPerformanceState.harmonyIconVisible;
           const nextDocumentTheme =
             next.documentTheme ??
             currentDocumentThemes[activeProfile] ??
@@ -416,6 +481,36 @@ export const useAppStore = create<AppStore>()(
                 ...currentSectionSpacingAfter,
                 ...(next.sectionSpacingAfterByProfile ?? {}),
                 [activeProfile]: nextSectionSpacingAfter
+              },
+              showHarmonyCues: nextShowHarmonyCues,
+              showHarmonyCuesByProfile: {
+                ...currentShowHarmonyCues,
+                ...(next.showHarmonyCuesByProfile ?? {}),
+                [activeProfile]: nextShowHarmonyCues
+              },
+              harmonyTextColor: nextHarmonyTextColor,
+              harmonyTextColorsByProfile: {
+                ...currentHarmonyTextColors,
+                ...(next.harmonyTextColorsByProfile ?? {}),
+                [activeProfile]: nextHarmonyTextColor
+              },
+              harmonyIconColor: nextHarmonyIconColor,
+              harmonyIconColorsByProfile: {
+                ...currentHarmonyIconColors,
+                ...(next.harmonyIconColorsByProfile ?? {}),
+                [activeProfile]: nextHarmonyIconColor
+              },
+              harmonyItalic: nextHarmonyItalic,
+              harmonyItalicByProfile: {
+                ...currentHarmonyItalic,
+                ...(next.harmonyItalicByProfile ?? {}),
+                [activeProfile]: nextHarmonyItalic
+              },
+              harmonyIconVisible: nextHarmonyIconVisible,
+              harmonyIconVisibleByProfile: {
+                ...currentHarmonyIconVisible,
+                ...(next.harmonyIconVisibleByProfile ?? {}),
+                [activeProfile]: nextHarmonyIconVisible
               },
               documentTheme: nextDocumentTheme,
               documentThemesByProfile: {

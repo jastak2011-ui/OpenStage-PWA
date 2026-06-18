@@ -29,6 +29,16 @@ export const sectionFontColorOptions = [
   { value: 'green', label: 'Green', color: '#a9d18e' },
   { value: 'gray', label: 'Gray', color: '#94a3b8' }
 ];
+export const harmonyColorOptions = [
+  { value: 'dark-blue', label: 'Dark blue', color: '#1e3a8a' },
+  { value: 'blue-purple', label: 'Blue / purple', color: '#6366f1' },
+  { value: 'gold', label: 'Gold', color: '#d9ad65' },
+  { value: 'teal', label: 'Teal', color: '#0f766e' },
+  { value: 'pink', label: 'Pink', color: '#be185d' },
+  { value: 'white', label: 'White', color: '#f8fafc' },
+  { value: 'black', label: 'Black', color: '#020617' },
+  { value: 'gray', label: 'Gray', color: '#64748b' }
+];
 export const documentThemeOptions: Array<{
   value: StageDocumentThemeName;
   label: string;
@@ -308,6 +318,76 @@ export function sectionSpacingAfterUpdate(state: PerformanceState, sectionSpacin
   };
 }
 
+export function getEffectiveShowHarmonyCues(state: PerformanceState) {
+  return state.showHarmonyCuesByProfile?.[state.activeProfile] ?? state.showHarmonyCues ?? true;
+}
+
+export function showHarmonyCuesUpdate(state: PerformanceState, showHarmonyCues: boolean): Partial<PerformanceState> {
+  return {
+    showHarmonyCues,
+    showHarmonyCuesByProfile: {
+      ...(state.showHarmonyCuesByProfile ?? {}),
+      [state.activeProfile]: showHarmonyCues
+    }
+  };
+}
+
+export function getEffectiveHarmonyTextColor(state: PerformanceState) {
+  return state.harmonyTextColorsByProfile?.[state.activeProfile] ?? state.harmonyTextColor ?? 'dark-blue';
+}
+
+export function harmonyTextColorUpdate(state: PerformanceState, harmonyTextColor: string): Partial<PerformanceState> {
+  return {
+    harmonyTextColor,
+    harmonyTextColorsByProfile: {
+      ...(state.harmonyTextColorsByProfile ?? {}),
+      [state.activeProfile]: harmonyTextColor
+    }
+  };
+}
+
+export function getEffectiveHarmonyIconColor(state: PerformanceState) {
+  return state.harmonyIconColorsByProfile?.[state.activeProfile] ?? state.harmonyIconColor ?? 'blue-purple';
+}
+
+export function harmonyIconColorUpdate(state: PerformanceState, harmonyIconColor: string): Partial<PerformanceState> {
+  return {
+    harmonyIconColor,
+    harmonyIconColorsByProfile: {
+      ...(state.harmonyIconColorsByProfile ?? {}),
+      [state.activeProfile]: harmonyIconColor
+    }
+  };
+}
+
+export function getEffectiveHarmonyItalic(state: PerformanceState) {
+  return state.harmonyItalicByProfile?.[state.activeProfile] ?? state.harmonyItalic ?? true;
+}
+
+export function harmonyItalicUpdate(state: PerformanceState, harmonyItalic: boolean): Partial<PerformanceState> {
+  return {
+    harmonyItalic,
+    harmonyItalicByProfile: {
+      ...(state.harmonyItalicByProfile ?? {}),
+      [state.activeProfile]: harmonyItalic
+    }
+  };
+}
+
+export function getEffectiveHarmonyIconVisible(state: PerformanceState) {
+  return state.harmonyIconVisibleByProfile?.[state.activeProfile] ?? state.harmonyIconVisible ?? true;
+}
+
+export function harmonyIconVisibleUpdate(state: PerformanceState, harmonyIconVisible: boolean): Partial<PerformanceState> {
+  return {
+    harmonyIconVisible,
+    harmonyIconVisibleByProfile: {
+      ...(state.harmonyIconVisibleByProfile ?? {}),
+      [state.activeProfile]: harmonyIconVisible
+    }
+  };
+}
+
 export function getEffectiveDocumentTheme(state: PerformanceState) {
   return state.documentThemesByProfile?.[state.activeProfile] ?? state.documentTheme ?? 'standard-white';
 }
@@ -371,6 +451,11 @@ export function resolveChordFontColor(value: string) {
 export function resolveSectionFontColor(value: string) {
   if (value.startsWith('#')) return value;
   return sectionFontColorOptions.find((option) => option.value === value)?.color ?? '#f2c66d';
+}
+
+export function resolveHarmonyColor(value: string) {
+  if (value.startsWith('#')) return value;
+  return harmonyColorOptions.find((option) => option.value === value)?.color ?? '#1e3a8a';
 }
 
 function clampRange(value: number, min: number, max: number, fallback: number) {

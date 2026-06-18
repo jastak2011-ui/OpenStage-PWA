@@ -1,4 +1,5 @@
 import type { ParsedChordProLine, ParsedChordToken } from '../types';
+import { parseHarmonyText, type HarmonyRange } from './harmony';
 
 export type ChordAnchor = {
   chord: string;
@@ -8,6 +9,7 @@ export type ChordAnchor = {
 export type AnchoredChordLine = {
   lyricLine: string;
   anchors: ChordAnchor[];
+  harmonyRanges: HarmonyRange[];
 };
 
 export function inlineChordsToChordOverLyrics(rawText: string) {
@@ -67,10 +69,14 @@ export function chordTokensToChordOverLines(tokens: Array<ParsedChordToken | { t
 export function chordTokensToAnchoredLine(tokens: Array<ParsedChordToken | { type: 'text' | 'chord'; value: string; display: string }>): AnchoredChordLine {
   const lyricLine: string[] = [];
   const anchors: ChordAnchor[] = [];
+  const harmonyRanges: HarmonyRange[] = [];
 
   tokens.forEach((token) => {
     if (token.type === 'text') {
-      appendText(lyricLine, 'display' in token ? token.display : token.value);
+      const parsed = parseHarmonyText('display' in token ? token.display : token.value);
+      const offset = lyricLine.length;
+      appendText(lyricLine, parsed.text);
+      parsed.ranges.forEach((range) => harmonyRanges.push({ start: offset + range.start, end: offset + range.end }));
       return;
     }
 
@@ -82,11 +88,13 @@ export function chordTokensToAnchoredLine(tokens: Array<ParsedChordToken | { typ
 
   return {
     lyricLine: lyricLine.join(''),
-    anchors
+    anchors,
+    harmonyRanges
   };
 }
 
 export function chordOverTextToAnchoredLine(chordLine: string, lyricLine: string): AnchoredChordLine {
+  const parsedLyric = parseHarmonyText(lyricLine);
   const anchors = Array.from(chordLine.matchAll(/\S+/g))
     .filter((match) => isChordAnchorToken(match[0]))
     .map((match) => ({
@@ -95,8 +103,9 @@ export function chordOverTextToAnchoredLine(chordLine: string, lyricLine: string
     }));
 
   return {
-    lyricLine,
-    anchors
+    lyricLine: parsedLyric.text,
+    anchors,
+    harmonyRanges: parsedLyric.ranges
   };
 }
 

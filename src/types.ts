@@ -181,6 +181,16 @@ export type PerformanceState = {
   sectionSpacingBeforeByProfile: Partial<Record<DeviceProfile, number>>;
   sectionSpacingAfter: number;
   sectionSpacingAfterByProfile: Partial<Record<DeviceProfile, number>>;
+  showHarmonyCues: boolean;
+  showHarmonyCuesByProfile: Partial<Record<DeviceProfile, boolean>>;
+  harmonyTextColor: string;
+  harmonyTextColorsByProfile: Partial<Record<DeviceProfile, string>>;
+  harmonyIconColor: string;
+  harmonyIconColorsByProfile: Partial<Record<DeviceProfile, string>>;
+  harmonyItalic: boolean;
+  harmonyItalicByProfile: Partial<Record<DeviceProfile, boolean>>;
+  harmonyIconVisible: boolean;
+  harmonyIconVisibleByProfile: Partial<Record<DeviceProfile, boolean>>;
   documentTheme: StageDocumentThemeName;
   documentThemesByProfile: Partial<Record<DeviceProfile, StageDocumentThemeName>>;
   stageFontFamily: StageFontFamilyName;

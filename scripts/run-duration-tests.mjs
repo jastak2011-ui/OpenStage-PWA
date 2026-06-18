@@ -37,6 +37,14 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/lib/harmony.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/harmony-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/lib/ids.ts')],
   bundle: true,
   platform: 'node',

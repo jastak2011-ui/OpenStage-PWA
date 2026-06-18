@@ -13,6 +13,7 @@ import {
   convertInlineChordLine,
   inlineChordsToChordOverLyrics
 } from './chordLayout-test-target.mjs';
+import { markHarmonyRange, parseHarmonyText, removeHarmonyRange, stripHarmonyMarkup } from './harmony-test-target.mjs';
 import { createId } from './ids-test-target.mjs';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './importExport-test-target.mjs';
 import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
@@ -49,6 +50,15 @@ const favoriteJsonSong = parseJsonSongs(songsToJson([favoriteCsvSong]))[0];
 assert.equal(favoriteJsonSong.favorite, true);
 const legacyJsonSong = parseJsonSongs('[{"title":"Legacy Tune","chart":"[C]Old"}]')[0];
 assert.equal(legacyJsonSong.favorite, false);
+const harmonyText = parseHarmonyText('Take it [HARMONY]easy[/HARMONY]');
+assert.equal(harmonyText.text, 'Take it easy');
+assert.deepEqual(harmonyText.ranges, [{ start: 8, end: 12 }]);
+assert.equal(stripHarmonyMarkup('[HARMONY]Full line[/HARMONY]'), 'Full line');
+assert.equal(markHarmonyRange('Take it easy', 8, 12), 'Take it [HARMONY]easy[/HARMONY]');
+assert.equal(removeHarmonyRange('Take it [HARMONY]easy[/HARMONY]', 0, 999), 'Take it easy');
+const harmonyCsvSong = parseCsvSongs('title,chart\n"Harmony Tune","[G]Take it [HARMONY]easy[/HARMONY]"')[0];
+assert.equal(harmonyCsvSong.chart, '[G]Take it [HARMONY]easy[/HARMONY]');
+assert.equal(songsToJson([harmonyCsvSong]).includes('[HARMONY]easy[/HARMONY]'), true);
 assert.equal(getStageSwipeDirection({ startX: 240, startY: 200, endX: 120, endY: 210 }), 1);
 assert.equal(getStageSwipeDirection({ startX: 120, startY: 200, endX: 240, endY: 210 }), -1);
 assert.equal(getStageSwipeDirection({ startX: 120, startY: 200, endX: 155, endY: 205 }), 0);
@@ -202,6 +212,13 @@ assert.deepEqual(anchoredInline.anchors, [
   { chord: 'C', index: 'Sirens ring, the shots ring '.length },
   { chord: 'Gm', index: 'Sirens ring, the shots ring out, A stranger '.length }
 ]);
+const harmonyAnchored = chordTokensToAnchoredLine([
+  { type: 'chord', value: 'G', display: 'G' },
+  { type: 'text', value: 'Take it [HARMONY]easy[/HARMONY]', display: 'Take it [HARMONY]easy[/HARMONY]' }
+]);
+assert.equal(harmonyAnchored.lyricLine, 'Take it easy');
+assert.deepEqual(harmonyAnchored.anchors, [{ chord: 'G', index: 0 }]);
+assert.deepEqual(harmonyAnchored.harmonyRanges, [{ start: 8, end: 12 }]);
 [14, 24, 36].forEach((fontSize) => {
   assert.deepEqual(
     anchoredInline.anchors.map((anchor) => anchor.index),
@@ -216,6 +233,9 @@ assert.deepEqual(anchoredChordOver.anchors, [
   { chord: 'C', index: 30 },
   { chord: 'Gm', index: 46 }
 ]);
+const harmonyChordOver = chordOverTextToAnchoredLine('G        C', 'Take it [HARMONY]easy[/HARMONY]');
+assert.equal(harmonyChordOver.lyricLine, 'Take it easy');
+assert.deepEqual(harmonyChordOver.harmonyRanges, [{ start: 8, end: 12 }]);
 
 const displayState = {
   activeProfile: 'desktop',
