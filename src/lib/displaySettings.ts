@@ -29,6 +29,11 @@ export const sectionFontColorOptions = [
   { value: 'green', label: 'Green', color: '#a9d18e' },
   { value: 'gray', label: 'Gray', color: '#94a3b8' }
 ];
+export const songDocumentColorOptions = [
+  { value: 'document', label: 'Document text', color: 'currentColor' },
+  { value: 'muted', label: 'Document muted', color: 'currentColor' },
+  ...sectionFontColorOptions
+];
 export const harmonyColorOptions = [
   { value: 'dark-blue', label: 'Dark blue', color: '#1e3a8a' },
   { value: 'blue-purple', label: 'Blue / purple', color: '#6366f1' },
@@ -98,6 +103,122 @@ export function headerFontSizeUpdate(state: PerformanceState, headerFontSize: nu
     headerFontSizesByProfile: {
       ...(state.headerFontSizesByProfile ?? {}),
       [state.activeProfile]: nextSize
+    }
+  };
+}
+
+export function getEffectiveSongTitleFontSize(state: PerformanceState) {
+  const profileSize = state.songTitleFontSizesByProfile?.[state.activeProfile];
+  return clampRange(profileSize ?? state.songTitleFontSize ?? 52, 20, 96, 52);
+}
+
+export function songTitleFontSizeUpdate(state: PerformanceState, songTitleFontSize: number): Partial<PerformanceState> {
+  const nextSize = clampRange(songTitleFontSize, 20, 96, 52);
+  return {
+    songTitleFontSize: nextSize,
+    songTitleFontSizesByProfile: {
+      ...(state.songTitleFontSizesByProfile ?? {}),
+      [state.activeProfile]: nextSize
+    }
+  };
+}
+
+export function getEffectiveSongTitleColor(state: PerformanceState) {
+  return state.songTitleColorsByProfile?.[state.activeProfile] ?? state.songTitleColor ?? 'document';
+}
+
+export function songTitleColorUpdate(state: PerformanceState, songTitleColor: string): Partial<PerformanceState> {
+  return {
+    songTitleColor,
+    songTitleColorsByProfile: {
+      ...(state.songTitleColorsByProfile ?? {}),
+      [state.activeProfile]: songTitleColor
+    }
+  };
+}
+
+export function getEffectiveSongTitleBold(state: PerformanceState) {
+  return state.songTitleBoldByProfile?.[state.activeProfile] ?? state.songTitleBold ?? true;
+}
+
+export function songTitleBoldUpdate(state: PerformanceState, songTitleBold: boolean): Partial<PerformanceState> {
+  return {
+    songTitleBold,
+    songTitleBoldByProfile: {
+      ...(state.songTitleBoldByProfile ?? {}),
+      [state.activeProfile]: songTitleBold
+    }
+  };
+}
+
+export function getEffectiveSongTitleItalic(state: PerformanceState) {
+  return state.songTitleItalicByProfile?.[state.activeProfile] ?? state.songTitleItalic ?? false;
+}
+
+export function songTitleItalicUpdate(state: PerformanceState, songTitleItalic: boolean): Partial<PerformanceState> {
+  return {
+    songTitleItalic,
+    songTitleItalicByProfile: {
+      ...(state.songTitleItalicByProfile ?? {}),
+      [state.activeProfile]: songTitleItalic
+    }
+  };
+}
+
+export function getEffectiveSongArtistFontSize(state: PerformanceState) {
+  const profileSize = state.songArtistFontSizesByProfile?.[state.activeProfile];
+  return clampRange(profileSize ?? state.songArtistFontSize ?? 30, 14, 72, 30);
+}
+
+export function songArtistFontSizeUpdate(state: PerformanceState, songArtistFontSize: number): Partial<PerformanceState> {
+  const nextSize = clampRange(songArtistFontSize, 14, 72, 30);
+  return {
+    songArtistFontSize: nextSize,
+    songArtistFontSizesByProfile: {
+      ...(state.songArtistFontSizesByProfile ?? {}),
+      [state.activeProfile]: nextSize
+    }
+  };
+}
+
+export function getEffectiveSongArtistColor(state: PerformanceState) {
+  return state.songArtistColorsByProfile?.[state.activeProfile] ?? state.songArtistColor ?? 'muted';
+}
+
+export function songArtistColorUpdate(state: PerformanceState, songArtistColor: string): Partial<PerformanceState> {
+  return {
+    songArtistColor,
+    songArtistColorsByProfile: {
+      ...(state.songArtistColorsByProfile ?? {}),
+      [state.activeProfile]: songArtistColor
+    }
+  };
+}
+
+export function getEffectiveSongArtistBold(state: PerformanceState) {
+  return state.songArtistBoldByProfile?.[state.activeProfile] ?? state.songArtistBold ?? false;
+}
+
+export function songArtistBoldUpdate(state: PerformanceState, songArtistBold: boolean): Partial<PerformanceState> {
+  return {
+    songArtistBold,
+    songArtistBoldByProfile: {
+      ...(state.songArtistBoldByProfile ?? {}),
+      [state.activeProfile]: songArtistBold
+    }
+  };
+}
+
+export function getEffectiveSongArtistItalic(state: PerformanceState) {
+  return state.songArtistItalicByProfile?.[state.activeProfile] ?? state.songArtistItalic ?? false;
+}
+
+export function songArtistItalicUpdate(state: PerformanceState, songArtistItalic: boolean): Partial<PerformanceState> {
+  return {
+    songArtistItalic,
+    songArtistItalicByProfile: {
+      ...(state.songArtistItalicByProfile ?? {}),
+      [state.activeProfile]: songArtistItalic
     }
   };
 }

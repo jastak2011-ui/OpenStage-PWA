@@ -30,6 +30,62 @@ export const defaultPerformanceState: PerformanceState = {
     tablet: 16,
     'portrait-prompter': 16
   },
+  songTitleFontSize: 52,
+  songTitleFontSizesByProfile: {
+    desktop: 52,
+    'stage-device': 52,
+    tablet: 52,
+    'portrait-prompter': 52
+  },
+  songTitleColor: 'document',
+  songTitleColorsByProfile: {
+    desktop: 'document',
+    'stage-device': 'document',
+    tablet: 'document',
+    'portrait-prompter': 'document'
+  },
+  songTitleBold: true,
+  songTitleBoldByProfile: {
+    desktop: true,
+    'stage-device': true,
+    tablet: true,
+    'portrait-prompter': true
+  },
+  songTitleItalic: false,
+  songTitleItalicByProfile: {
+    desktop: false,
+    'stage-device': false,
+    tablet: false,
+    'portrait-prompter': false
+  },
+  songArtistFontSize: 30,
+  songArtistFontSizesByProfile: {
+    desktop: 30,
+    'stage-device': 30,
+    tablet: 30,
+    'portrait-prompter': 30
+  },
+  songArtistColor: 'muted',
+  songArtistColorsByProfile: {
+    desktop: 'muted',
+    'stage-device': 'muted',
+    tablet: 'muted',
+    'portrait-prompter': 'muted'
+  },
+  songArtistBold: false,
+  songArtistBoldByProfile: {
+    desktop: false,
+    'stage-device': false,
+    tablet: false,
+    'portrait-prompter': false
+  },
+  songArtistItalic: false,
+  songArtistItalicByProfile: {
+    desktop: false,
+    'stage-device': false,
+    tablet: false,
+    'portrait-prompter': false
+  },
   lineSpacing: 1,
   lineSpacingsByProfile: {
     desktop: 1,
@@ -259,6 +315,14 @@ export const useAppStore = create<AppStore>()(
           const activeProfile = next.activeProfile ?? state.performance.activeProfile;
           const currentLyricSizes = state.performance.fontSizesByProfile ?? {};
           const currentHeaderSizes = state.performance.headerFontSizesByProfile ?? {};
+          const currentSongTitleSizes = state.performance.songTitleFontSizesByProfile ?? {};
+          const currentSongTitleColors = state.performance.songTitleColorsByProfile ?? {};
+          const currentSongTitleBold = state.performance.songTitleBoldByProfile ?? {};
+          const currentSongTitleItalic = state.performance.songTitleItalicByProfile ?? {};
+          const currentSongArtistSizes = state.performance.songArtistFontSizesByProfile ?? {};
+          const currentSongArtistColors = state.performance.songArtistColorsByProfile ?? {};
+          const currentSongArtistBold = state.performance.songArtistBoldByProfile ?? {};
+          const currentSongArtistItalic = state.performance.songArtistItalicByProfile ?? {};
           const currentLineSpacings = state.performance.lineSpacingsByProfile ?? {};
           const currentChordSizes = state.performance.chordFontSizesByProfile ?? {};
           const currentChordOffsets = state.performance.chordVerticalOffsetsByProfile ?? {};
@@ -292,6 +356,46 @@ export const useAppStore = create<AppStore>()(
             currentHeaderSizes[activeProfile] ??
             state.performance.headerFontSize ??
             defaultPerformanceState.headerFontSize;
+          const nextSongTitleFontSize =
+            next.songTitleFontSize ??
+            currentSongTitleSizes[activeProfile] ??
+            state.performance.songTitleFontSize ??
+            defaultPerformanceState.songTitleFontSize;
+          const nextSongTitleColor =
+            next.songTitleColor ??
+            currentSongTitleColors[activeProfile] ??
+            state.performance.songTitleColor ??
+            defaultPerformanceState.songTitleColor;
+          const nextSongTitleBold =
+            next.songTitleBold ??
+            currentSongTitleBold[activeProfile] ??
+            state.performance.songTitleBold ??
+            defaultPerformanceState.songTitleBold;
+          const nextSongTitleItalic =
+            next.songTitleItalic ??
+            currentSongTitleItalic[activeProfile] ??
+            state.performance.songTitleItalic ??
+            defaultPerformanceState.songTitleItalic;
+          const nextSongArtistFontSize =
+            next.songArtistFontSize ??
+            currentSongArtistSizes[activeProfile] ??
+            state.performance.songArtistFontSize ??
+            defaultPerformanceState.songArtistFontSize;
+          const nextSongArtistColor =
+            next.songArtistColor ??
+            currentSongArtistColors[activeProfile] ??
+            state.performance.songArtistColor ??
+            defaultPerformanceState.songArtistColor;
+          const nextSongArtistBold =
+            next.songArtistBold ??
+            currentSongArtistBold[activeProfile] ??
+            state.performance.songArtistBold ??
+            defaultPerformanceState.songArtistBold;
+          const nextSongArtistItalic =
+            next.songArtistItalic ??
+            currentSongArtistItalic[activeProfile] ??
+            state.performance.songArtistItalic ??
+            defaultPerformanceState.songArtistItalic;
           const nextLineSpacing =
             next.lineSpacing ??
             currentLineSpacings[activeProfile] ??
@@ -423,6 +527,54 @@ export const useAppStore = create<AppStore>()(
                 ...currentHeaderSizes,
                 ...(next.headerFontSizesByProfile ?? {}),
                 [activeProfile]: nextHeaderFontSize
+              },
+              songTitleFontSize: nextSongTitleFontSize,
+              songTitleFontSizesByProfile: {
+                ...currentSongTitleSizes,
+                ...(next.songTitleFontSizesByProfile ?? {}),
+                [activeProfile]: nextSongTitleFontSize
+              },
+              songTitleColor: nextSongTitleColor,
+              songTitleColorsByProfile: {
+                ...currentSongTitleColors,
+                ...(next.songTitleColorsByProfile ?? {}),
+                [activeProfile]: nextSongTitleColor
+              },
+              songTitleBold: nextSongTitleBold,
+              songTitleBoldByProfile: {
+                ...currentSongTitleBold,
+                ...(next.songTitleBoldByProfile ?? {}),
+                [activeProfile]: nextSongTitleBold
+              },
+              songTitleItalic: nextSongTitleItalic,
+              songTitleItalicByProfile: {
+                ...currentSongTitleItalic,
+                ...(next.songTitleItalicByProfile ?? {}),
+                [activeProfile]: nextSongTitleItalic
+              },
+              songArtistFontSize: nextSongArtistFontSize,
+              songArtistFontSizesByProfile: {
+                ...currentSongArtistSizes,
+                ...(next.songArtistFontSizesByProfile ?? {}),
+                [activeProfile]: nextSongArtistFontSize
+              },
+              songArtistColor: nextSongArtistColor,
+              songArtistColorsByProfile: {
+                ...currentSongArtistColors,
+                ...(next.songArtistColorsByProfile ?? {}),
+                [activeProfile]: nextSongArtistColor
+              },
+              songArtistBold: nextSongArtistBold,
+              songArtistBoldByProfile: {
+                ...currentSongArtistBold,
+                ...(next.songArtistBoldByProfile ?? {}),
+                [activeProfile]: nextSongArtistBold
+              },
+              songArtistItalic: nextSongArtistItalic,
+              songArtistItalicByProfile: {
+                ...currentSongArtistItalic,
+                ...(next.songArtistItalicByProfile ?? {}),
+                [activeProfile]: nextSongArtistItalic
               },
               lineSpacing: nextLineSpacing,
               lineSpacingsByProfile: {

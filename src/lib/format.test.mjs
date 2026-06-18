@@ -30,8 +30,16 @@ import {
   getEffectiveChordVerticalOffset,
   getEffectiveHarmonyUnderline,
   getEffectiveLineSpacing,
+  getEffectiveSongArtistBold,
+  getEffectiveSongArtistFontSize,
+  getEffectiveSongTitleBold,
+  getEffectiveSongTitleFontSize,
   harmonyUnderlineUpdate,
-  lineSpacingUpdate
+  lineSpacingUpdate,
+  songArtistBoldUpdate,
+  songArtistFontSizeUpdate,
+  songTitleBoldUpdate,
+  songTitleFontSizeUpdate
 } from './displaySettings-test-target.mjs';
 import { isOnSongArchiveFileName, parseOnSongKeyedArchive } from './onsongArchive-test-target.mjs';
 import { addSongToSetlist, createNamedSetlist, getStageSongAt, removeSongFromSetlist, sortSetlistSongIds } from './setlists-test-target.mjs';
@@ -296,6 +304,26 @@ const displayState = {
   lineSpacingsByProfile: {
     desktop: 1,
     tablet: 1.25
+  },
+  songTitleFontSize: 52,
+  songTitleFontSizesByProfile: {
+    desktop: 56,
+    tablet: 64
+  },
+  songTitleBold: true,
+  songTitleBoldByProfile: {
+    desktop: true,
+    tablet: false
+  },
+  songArtistFontSize: 30,
+  songArtistFontSizesByProfile: {
+    desktop: 32,
+    tablet: 40
+  },
+  songArtistBold: false,
+  songArtistBoldByProfile: {
+    desktop: false,
+    tablet: true
   }
 };
 assert.equal(getEffectiveChordFontSize(displayState), 22);
@@ -332,6 +360,39 @@ assert.deepEqual(lineSpacingUpdate(displayState, 1.5), {
   lineSpacingsByProfile: {
     desktop: 1.5,
     tablet: 1.25
+  }
+});
+assert.equal(getEffectiveSongTitleFontSize(displayState), 56);
+assert.equal(getEffectiveSongTitleFontSize({ ...displayState, activeProfile: 'tablet' }), 64);
+assert.deepEqual(songTitleFontSizeUpdate(displayState, 72), {
+  songTitleFontSize: 72,
+  songTitleFontSizesByProfile: {
+    desktop: 72,
+    tablet: 64
+  }
+});
+assert.equal(getEffectiveSongTitleBold(displayState), true);
+assert.deepEqual(songTitleBoldUpdate(displayState, false), {
+  songTitleBold: false,
+  songTitleBoldByProfile: {
+    desktop: false,
+    tablet: false
+  }
+});
+assert.equal(getEffectiveSongArtistFontSize(displayState), 32);
+assert.deepEqual(songArtistFontSizeUpdate(displayState, 44), {
+  songArtistFontSize: 44,
+  songArtistFontSizesByProfile: {
+    desktop: 44,
+    tablet: 40
+  }
+});
+assert.equal(getEffectiveSongArtistBold({ ...displayState, activeProfile: 'tablet' }), true);
+assert.deepEqual(songArtistBoldUpdate(displayState, true), {
+  songArtistBold: true,
+  songArtistBoldByProfile: {
+    desktop: true,
+    tablet: true
   }
 });
 assert.equal(getEffectiveLineSpacing({ ...displayState, lineSpacing: 3, lineSpacingsByProfile: {} }), 2);

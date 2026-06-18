@@ -103,6 +103,14 @@ import {
   getEffectiveSectionSpacingBefore,
   getEffectiveSectionUppercase,
   getEffectiveShowHarmonyCues,
+  getEffectiveSongArtistBold,
+  getEffectiveSongArtistColor,
+  getEffectiveSongArtistFontSize,
+  getEffectiveSongArtistItalic,
+  getEffectiveSongTitleBold,
+  getEffectiveSongTitleColor,
+  getEffectiveSongTitleFontSize,
+  getEffectiveSongTitleItalic,
   getEffectiveStageFontFamily,
   getEffectiveUseMonospaceChords,
   headerFontSizeUpdate,
@@ -129,6 +137,15 @@ import {
   sectionSpacingBeforeUpdate,
   sectionUppercaseUpdate,
   showHarmonyCuesUpdate,
+  songArtistBoldUpdate,
+  songArtistColorUpdate,
+  songArtistFontSizeUpdate,
+  songArtistItalicUpdate,
+  songDocumentColorOptions,
+  songTitleBoldUpdate,
+  songTitleColorUpdate,
+  songTitleFontSizeUpdate,
+  songTitleItalicUpdate,
   stageFontFamilyOptions,
   stageFontFamilyUpdate,
   useMonospaceChordsUpdate
@@ -3407,6 +3424,22 @@ function PerformanceView({
   const documentTheme = getDocumentThemePreset(getEffectiveDocumentTheme(state));
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
   const chordFontFamily = getEffectiveUseMonospaceChords(state) ? 'Consolas, "Courier New", monospace' : stageFontFamily;
+  const songTitleStyle = buildSongDocumentTextStyle({
+    size: getEffectiveSongTitleFontSize(state),
+    color: getEffectiveSongTitleColor(state),
+    bold: getEffectiveSongTitleBold(state),
+    italic: getEffectiveSongTitleItalic(state),
+    documentTheme,
+    fallbackColor: documentTheme.text
+  });
+  const songArtistStyle = buildSongDocumentTextStyle({
+    size: getEffectiveSongArtistFontSize(state),
+    color: getEffectiveSongArtistColor(state),
+    bold: getEffectiveSongArtistBold(state),
+    italic: getEffectiveSongArtistItalic(state),
+    documentTheme,
+    fallbackColor: documentTheme.muted
+  });
   const sectionFontSize = getEffectiveSectionFontSize(state);
   const sectionFontColor = getEffectiveSectionFontColor(state);
   const sectionBold = getEffectiveSectionBold(state);
@@ -3613,6 +3646,7 @@ function PerformanceView({
           className={`stage-chart mx-auto font-chart transition-opacity duration-200 ${state.portraitMode ? 'max-w-3xl' : 'max-w-5xl'} ${state.mirroredMode ? 'mirror-stage' : ''} ${state.splitScreen ? 'tablet-columns' : ''} ${isTransitioningSong ? 'opacity-35' : 'opacity-100'}`}
           style={{ fontSize: `${lyricFontSize}px`, lineHeight: state.portraitMode ? 1.62 : 1.52, color: documentTheme.text, fontFamily: stageFontFamily }}
         >
+          <SongDocumentHeader song={song} titleStyle={songTitleStyle} artistStyle={songArtistStyle} />
           {state.showHarmonyDebug && <RawCurrentSongDebugPanel title="Show Raw Current Song" song={song} />}
           {visibleStageNotes && <p className="mb-8 text-[0.55em] italic opacity-80">{visibleStageNotes}</p>}
           {chartLines.map((line, index) => (
@@ -4069,6 +4103,42 @@ function StageControlPopover({
               <div className="grid gap-3">
                 <Stepper label="Lyric Font Size" value={getEffectiveLyricFontSize(state)} min={24} max={76} onChange={(fontSize) => setState(lyricFontSizeUpdate(state, fontSize))} />
                 <Stepper label="Header Font Size" value={getEffectiveHeaderFontSize(state)} min={12} max={34} onChange={(fontSize) => setState(headerFontSizeUpdate(state, fontSize))} />
+                <div className="grid gap-2 rounded-md border border-slate-700/70 bg-black/20 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Song Title</div>
+                  <Stepper label="Title Font Size" value={getEffectiveSongTitleFontSize(state)} min={20} max={96} onChange={(fontSize) => setState(songTitleFontSizeUpdate(state, fontSize))} />
+                  <ColorSwatchGroup
+                    title="Title Color"
+                    options={songDocumentColorOptions}
+                    value={getEffectiveSongTitleColor(state)}
+                    onChange={(value) => setState(songTitleColorUpdate(state, value))}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button className="stage-menu-button" type="button" onClick={() => setState(songTitleBoldUpdate(state, !getEffectiveSongTitleBold(state)))}>
+                      Title Bold {getEffectiveSongTitleBold(state) ? 'On' : 'Off'}
+                    </button>
+                    <button className="stage-menu-button" type="button" onClick={() => setState(songTitleItalicUpdate(state, !getEffectiveSongTitleItalic(state)))}>
+                      Title Italic {getEffectiveSongTitleItalic(state) ? 'On' : 'Off'}
+                    </button>
+                  </div>
+                </div>
+                <div className="grid gap-2 rounded-md border border-slate-700/70 bg-black/20 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Artist</div>
+                  <Stepper label="Artist Font Size" value={getEffectiveSongArtistFontSize(state)} min={14} max={72} onChange={(fontSize) => setState(songArtistFontSizeUpdate(state, fontSize))} />
+                  <ColorSwatchGroup
+                    title="Artist Color"
+                    options={songDocumentColorOptions}
+                    value={getEffectiveSongArtistColor(state)}
+                    onChange={(value) => setState(songArtistColorUpdate(state, value))}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button className="stage-menu-button" type="button" onClick={() => setState(songArtistBoldUpdate(state, !getEffectiveSongArtistBold(state)))}>
+                      Artist Bold {getEffectiveSongArtistBold(state) ? 'On' : 'Off'}
+                    </button>
+                    <button className="stage-menu-button" type="button" onClick={() => setState(songArtistItalicUpdate(state, !getEffectiveSongArtistItalic(state)))}>
+                      Artist Italic {getEffectiveSongArtistItalic(state) ? 'On' : 'Off'}
+                    </button>
+                  </div>
+                </div>
                 <Stepper label="Chord Font Size" value={chordFontSize} min={10} max={48} onChange={(nextSize) => updateChordFontSize(setState, state, nextSize)} />
                 <DecimalStepper label="Line Spacing" value={getEffectiveLineSpacing(state)} min={0.75} max={2} step={0.05} onChange={(spacing) => setState(lineSpacingUpdate(state, spacing))} />
               </div>
@@ -4416,6 +4486,22 @@ function ExternalPrompterApp() {
   const documentTheme = getDocumentThemePreset(getEffectiveDocumentTheme(payload.performance));
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(payload.performance));
   const chordFontFamily = getEffectiveUseMonospaceChords(payload.performance) ? 'Consolas, "Courier New", monospace' : stageFontFamily;
+  const songTitleStyle = buildSongDocumentTextStyle({
+    size: getEffectiveSongTitleFontSize(payload.performance),
+    color: getEffectiveSongTitleColor(payload.performance),
+    bold: getEffectiveSongTitleBold(payload.performance),
+    italic: getEffectiveSongTitleItalic(payload.performance),
+    documentTheme,
+    fallbackColor: documentTheme.text
+  });
+  const songArtistStyle = buildSongDocumentTextStyle({
+    size: getEffectiveSongArtistFontSize(payload.performance),
+    color: getEffectiveSongArtistColor(payload.performance),
+    bold: getEffectiveSongArtistBold(payload.performance),
+    italic: getEffectiveSongArtistItalic(payload.performance),
+    documentTheme,
+    fallbackColor: documentTheme.muted
+  });
   const chordVerticalOffset = getEffectiveChordVerticalOffset(payload.performance);
   const chordFontColor = getEffectiveChordFontColor(payload.performance);
   const chordHighlightColor = getEffectiveChordHighlightColor(payload.performance);
@@ -4487,6 +4573,7 @@ function ExternalPrompterApp() {
                   overflow: 'hidden'
                 }}
               >
+                <SongDocumentHeader song={payload.song} titleStyle={songTitleStyle} artistStyle={songArtistStyle} />
                 {rendered.lines.map((line, index) => (
                   <ChordProDisplayLine
                     key={`${line.raw}-${index}`}
@@ -4581,6 +4668,58 @@ function ExternalFillScreenTest({
       </div>
     </div>
   );
+}
+
+function SongDocumentHeader({
+  song,
+  titleStyle,
+  artistStyle
+}: {
+  song: Song;
+  titleStyle: React.CSSProperties;
+  artistStyle: React.CSSProperties;
+}) {
+  return (
+    <header className="mb-8 whitespace-normal">
+      <h1 className="leading-tight tracking-normal" style={titleStyle}>
+        {song.title || 'Untitled Song'}
+      </h1>
+      {song.artist && (
+        <div className="mt-1 leading-snug tracking-normal" style={artistStyle}>
+          {song.artist}
+        </div>
+      )}
+    </header>
+  );
+}
+
+function buildSongDocumentTextStyle({
+  size,
+  color,
+  bold,
+  italic,
+  documentTheme,
+  fallbackColor
+}: {
+  size: number;
+  color: string;
+  bold: boolean;
+  italic: boolean;
+  documentTheme: { text: string; muted: string };
+  fallbackColor: string;
+}): React.CSSProperties {
+  return {
+    fontSize: `${size}px`,
+    color: resolveSongDocumentColor(color, documentTheme, fallbackColor),
+    fontWeight: bold ? 800 : 500,
+    fontStyle: italic ? 'italic' : undefined
+  };
+}
+
+function resolveSongDocumentColor(value: string, documentTheme: { text: string; muted: string }, fallbackColor: string) {
+  if (value === 'document') return documentTheme.text;
+  if (value === 'muted') return documentTheme.muted;
+  return resolveSectionFontColor(value) || fallbackColor;
 }
 
 function AutoscrollDebugPanel({ debug }: { debug: AutoscrollDebugInfo }) {
