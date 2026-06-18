@@ -235,6 +235,7 @@ export type PerformanceState = {
   boldChordsByProfile: Partial<Record<DeviceProfile, boolean>>;
   italicChords: boolean;
   italicChordsByProfile: Partial<Record<DeviceProfile, boolean>>;
+  inlineChordsOnPhone: boolean;
   splitScreen: boolean;
   countdownSeconds: number;
   activeProfile: DeviceProfile;

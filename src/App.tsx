@@ -372,13 +372,13 @@ const displayProfileDefaults: Record<DeviceProfile, DisplayProfileSizing> = {
     sectionSpacingAfter: 8
   },
   iphone: {
-    lyricFontSize: 24,
+    lyricFontSize: 16,
     chordFontSize: 14,
-    titleFontSize: 30,
+    titleFontSize: 24,
     artistFontSize: 18,
-    sectionFontSize: 22,
+    sectionFontSize: 18,
     headerFontSize: 12,
-    lineSpacing: 0.95,
+    lineSpacing: 1,
     sectionSpacingBefore: 16,
     sectionSpacingAfter: 5
   },
@@ -3537,6 +3537,8 @@ function PerformanceView({
   const lineSpacing = getEffectiveLineSpacing(state);
   const headerFontSize = getEffectiveHeaderFontSize(state);
   const chordFontSize = getEffectiveChordFontSize(state);
+  const isPhoneWidth = typeof window !== 'undefined' && window.innerWidth < 600;
+  const mobileReflowMode = (state.inlineChordsOnPhone ?? true) && (state.activeProfile === 'iphone' || isPhoneWidth);
   const rendered = renderSong(song, {
     transpose: state.transpose,
     capo: effectiveCapo,
@@ -3671,6 +3673,7 @@ function PerformanceView({
     <main
       className={`stage-shell stage-profile-${state.activeProfile} relative h-screen overflow-hidden transition-colors duration-300 ${stageBackground} ${cursorHidden && !activePopover ? 'cursor-none' : ''}`}
       data-stage-profile={state.activeProfile}
+      data-mobile-reflow={mobileReflowMode ? 'true' : 'false'}
       style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
       onPointerMove={revealMenu}
       onPointerDown={revealMenu}
@@ -3773,7 +3776,7 @@ function PerformanceView({
         </div>
       )}
 
-      <div className={`pointer-events-none absolute bottom-5 left-5 z-20 rounded-full px-3 py-1 text-xs font-semibold transition-opacity duration-300 ${isAutoscrolling ? 'bg-teal-500/15 text-teal-200' : 'bg-black/20 text-slate-300'}`}>
+      <div className={`stage-autoscroll-status pointer-events-none absolute bottom-5 left-5 z-20 rounded-full px-3 py-1 text-xs font-semibold transition-opacity duration-300 ${isAutoscrolling ? 'bg-teal-500/15 text-teal-200' : 'bg-black/20 text-slate-300'}`}>
         Autoscroll {autoscrollStatus}
       </div>
       <div
@@ -3847,6 +3850,7 @@ function PerformanceView({
               lyricFontSize={lyricFontSize}
               lineSpacing={lineSpacing}
               chordVerticalOffset={chordVerticalOffset}
+              mobileReflowMode={mobileReflowMode}
               showAnchorDebug={Boolean(state.showChordAnchorDebug)}
               showHarmonyDebug={Boolean(state.showHarmonyDebug)}
             />
@@ -4269,6 +4273,17 @@ function StageControlPopover({
                     <div>Line Spacing: <span className="font-semibold text-white">{activeProfileValues.lineSpacing.toFixed(2)}</span></div>
                     <div>Section Spacing: <span className="font-semibold text-white">{activeProfileValues.sectionBefore}/{activeProfileValues.sectionAfter}</span></div>
                   </div>
+                  <label className="flex items-center justify-between gap-3 rounded-md border border-slate-700/70 bg-black/20 px-3 py-2 text-sm">
+                    <span>
+                      <span className="block font-semibold text-white">Inline Chords on Phone</span>
+                      <span className="block text-xs text-slate-400">Wraps long iPhone chart lines inside the screen.</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={state.inlineChordsOnPhone ?? true}
+                      onChange={(event) => setState({ inlineChordsOnPhone: event.target.checked })}
+                    />
+                  </label>
                 </div>
                 <div className="grid gap-2">
                   <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Document Appearance</div>
@@ -4925,6 +4940,7 @@ function ExternalPrompterApp() {
                     lyricFontSize={lyricFontSize}
                     lineSpacing={lineSpacing}
                     chordVerticalOffset={chordVerticalOffset}
+                    mobileReflowMode={viewport.width < 600}
                     showAnchorDebug={Boolean(payload.performance.showChordAnchorDebug)}
                     showHarmonyDebug={Boolean(payload.performance.showHarmonyDebug)}
                   />
@@ -5277,6 +5293,7 @@ function ChordProDisplayLine({
   lyricFontSize,
   lineSpacing,
   chordVerticalOffset,
+  mobileReflowMode,
   showAnchorDebug
 }: {
   line: RenderedLine;
@@ -5310,6 +5327,7 @@ function ChordProDisplayLine({
   lyricFontSize: number;
   lineSpacing: number;
   chordVerticalOffset: number;
+  mobileReflowMode: boolean;
   showAnchorDebug: boolean;
 }) {
   const resolvedChordColor = resolveChordFontColor(chordFontColor);
@@ -5400,6 +5418,13 @@ function ChordProDisplayLine({
     if (isHiddenStageTextLine(`${line.chordLine}\n${line.lyricLine}`)) return null;
     if (!line.lyricLine) {
       const chordRowHeight = Math.ceil(chordFontSize * 1.25);
+      if (mobileReflowMode) {
+        return (
+          <div data-line-index={lineIndex} className="stage-mobile-chord-row font-mono" style={{ minHeight: `${chordRowHeight}px`, lineHeight: `${chordRowHeight}px`, ...rowSpacingStyle }}>
+            {line.chordLine && <div>{renderMobileStandaloneChordRow(line.chordLine, chordClassName, chordStyle)}</div>}
+          </div>
+        );
+      }
       return (
         <div data-line-index={lineIndex} className="whitespace-pre font-mono" style={{ minHeight: `${chordRowHeight}px`, lineHeight: `${chordRowHeight}px`, ...rowSpacingStyle }}>
           {line.chordLine && <div>{renderStandaloneChordRow(line.chordLine, chordClassName, chordStyle)}</div>}
@@ -5407,6 +5432,23 @@ function ChordProDisplayLine({
       );
     }
     const anchoredLine = chordOverTextToAnchoredLine(line.chordLine, line.lyricLine);
+    if (mobileReflowMode) {
+      return (
+        <MobileReflowChordLine
+          anchoredLine={anchoredLine}
+          lineIndex={lineIndex}
+          chordClassName={chordClassName}
+          chordStyle={chordStyle}
+          lyricLineStyle={lyricLineStyle}
+          rowSpacingStyle={rowSpacingStyle}
+          showHarmonyCues={showHarmonyCues}
+          harmonyStyle={harmonyStyle}
+          harmonyIconColor={resolvedHarmonyIconColor}
+          harmonyIconVisible={harmonyIconVisible}
+          showHarmonyDebug={showHarmonyDebug}
+        />
+      );
+    }
     return (
       <AnchoredChordDisplayLine
         anchoredLine={anchoredLine}
@@ -5438,6 +5480,23 @@ function ChordProDisplayLine({
 
   if (displayPreference === 'chords-over') {
     const anchoredLine = chordTokensToAnchoredLine(line.tokens);
+    if (mobileReflowMode) {
+      return (
+        <MobileReflowChordLine
+          anchoredLine={anchoredLine}
+          lineIndex={lineIndex}
+          chordClassName={chordClassName}
+          chordStyle={chordStyle}
+          lyricLineStyle={lyricLineStyle}
+          rowSpacingStyle={rowSpacingStyle}
+          showHarmonyCues={showHarmonyCues}
+          harmonyStyle={harmonyStyle}
+          harmonyIconColor={resolvedHarmonyIconColor}
+          harmonyIconVisible={harmonyIconVisible}
+          showHarmonyDebug={showHarmonyDebug}
+        />
+      );
+    }
     return (
       <AnchoredChordDisplayLine
         anchoredLine={anchoredLine}
@@ -5460,6 +5519,23 @@ function ChordProDisplayLine({
 
   const inlineAnchoredLine = chordTokensToAnchoredLine(line.tokens);
   if (inlineAnchoredLine.anchors.length > 0) {
+    if (mobileReflowMode) {
+      return (
+        <MobileReflowChordLine
+          anchoredLine={inlineAnchoredLine}
+          lineIndex={lineIndex}
+          chordClassName={chordClassName}
+          chordStyle={chordStyle}
+          lyricLineStyle={lyricLineStyle}
+          rowSpacingStyle={rowSpacingStyle}
+          showHarmonyCues={showHarmonyCues}
+          harmonyStyle={harmonyStyle}
+          harmonyIconColor={resolvedHarmonyIconColor}
+          harmonyIconVisible={harmonyIconVisible}
+          showHarmonyDebug={showHarmonyDebug}
+        />
+      );
+    }
     return (
       <AnchoredChordDisplayLine
         anchoredLine={inlineAnchoredLine}
@@ -5503,6 +5579,91 @@ function renderStandaloneChordRow(line: string, chordClassName: string, chordSty
       </span>
     );
   });
+}
+
+function renderMobileStandaloneChordRow(line: string, chordClassName: string, chordStyle: React.CSSProperties) {
+  return line.trim().split(/\s+/).filter(Boolean).map((part, index) => {
+    if (!isStageChordToken(part)) return <span key={`${part}-${index}`}>{part}</span>;
+    return (
+      <span key={`${part}-${index}`} className={chordClassName} style={chordStyle}>
+        {part}
+      </span>
+    );
+  });
+}
+
+function MobileReflowChordLine({
+  anchoredLine,
+  lineIndex,
+  chordClassName,
+  chordStyle,
+  lyricLineStyle,
+  rowSpacingStyle,
+  showHarmonyCues,
+  harmonyStyle,
+  harmonyIconColor,
+  harmonyIconVisible,
+  showHarmonyDebug
+}: {
+  anchoredLine: AnchoredChordLine;
+  lineIndex: number;
+  chordClassName: string;
+  chordStyle: React.CSSProperties;
+  lyricLineStyle: React.CSSProperties;
+  rowSpacingStyle: React.CSSProperties;
+  showHarmonyCues: boolean;
+  harmonyStyle: React.CSSProperties;
+  harmonyIconColor: string;
+  harmonyIconVisible: boolean;
+  showHarmonyDebug: boolean;
+}) {
+  const lyricState = lyricTextHarmonyState(anchoredLine.lyricLine, anchoredLine.harmonyRanges);
+  const groupedAnchors = new Map<number, string[]>();
+  anchoredLine.anchors.forEach((anchor) => {
+    const index = Math.max(0, Math.min(anchoredLine.lyricLine.length, anchor.index));
+    groupedAnchors.set(index, [...(groupedAnchors.get(index) ?? []), anchor.chord]);
+  });
+
+  const boundaries = Array.from(new Set([
+    0,
+    anchoredLine.lyricLine.length,
+    ...groupedAnchors.keys(),
+    ...lyricState.ranges.flatMap((range) => [range.start, range.end])
+  ])).sort((left, right) => left - right);
+  const nodes: React.ReactNode[] = [];
+
+  boundaries.forEach((boundary, index) => {
+    const chords = groupedAnchors.get(boundary) ?? [];
+    chords.forEach((chord, chordIndex) => {
+      nodes.push(
+        <span key={`chord-${boundary}-${chord}-${chordIndex}`} className={`stage-mobile-inline-chord ${chordClassName}`} style={chordStyle}>
+          {chord}
+        </span>
+      );
+    });
+
+    const nextBoundary = boundaries[index + 1];
+    if (nextBoundary === undefined || boundary >= nextBoundary) return;
+    nodes.push(
+      <span key={`text-${boundary}-${nextBoundary}`}>
+        {renderLyricTextWithHarmony(anchoredLine.lyricLine.slice(boundary, nextBoundary), {
+          harmonyRanges: sliceHarmonyRanges(lyricState.ranges, boundary, nextBoundary),
+          showHarmonyCues,
+          harmonyStyle,
+          showHarmonyDebug
+        })}
+      </span>
+    );
+  });
+
+  if (nodes.length === 0) nodes.push(<span key="empty">&nbsp;</span>);
+
+  return (
+    <div data-line-index={lineIndex} className="stage-mobile-reflow-line relative min-w-0 max-w-full break-words" style={{ ...lyricLineStyle, ...rowSpacingStyle }}>
+      {showHarmonyCues && harmonyIconVisible && lyricState.hasHarmony && <HarmonyCueIcon color={harmonyIconColor} />}
+      {nodes}
+    </div>
+  );
 }
 
 function renderStageSectionLabel(label: string, lineIndex: number, style: React.CSSProperties) {
