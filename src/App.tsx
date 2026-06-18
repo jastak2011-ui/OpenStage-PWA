@@ -53,6 +53,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { db, ensureSeedData } from './data/db';
+import { lyricTextHarmonyState, renderLyricTextWithHarmony } from './components/LyricTextWithHarmony';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './lib/importExport';
 import { chordOverTextToAnchoredLine, chordTokensToAnchoredLine, inlineChordsToChordOverLyrics, type AnchoredChordLine } from './lib/chordLayout';
 import { isChordProFileName, parseChordPro, parseChordProBundle } from './lib/chordpro';
@@ -132,7 +133,7 @@ import {
   stageFontFamilyUpdate,
   useMonospaceChordsUpdate
 } from './lib/displaySettings';
-import { harmonyRunsFromParsed, markHarmonyRange, parseHarmonyText, removeHarmonyRange, type HarmonyRange } from './lib/harmony';
+import { markHarmonyRange, removeHarmonyRange, type HarmonyRange } from './lib/harmony';
 import { isOnSongArchiveFileName, parseOnSongArchive } from './lib/onsongArchive';
 import { createPortableBackup, restorePortableBackup, saveLocalCheckpoint } from './services/backup/backupService';
 import { reportError } from './services/errors/errorService';
@@ -3595,6 +3596,7 @@ function PerformanceView({
               lineSpacing={lineSpacing}
               chordVerticalOffset={chordVerticalOffset}
               showAnchorDebug={Boolean(state.showChordAnchorDebug)}
+              showHarmonyDebug={Boolean(state.showHarmonyDebug)}
             />
           ))}
         </article>
@@ -3991,18 +3993,17 @@ function StageControlPopover({
                 </div>
                 <div className="relative mt-2 whitespace-pre">
                   {getEffectiveShowHarmonyCues(state) && getEffectiveHarmonyIconVisible(state) && <HarmonyCueIcon color={resolveHarmonyColor(getEffectiveHarmonyIconColor(state))} />}
-                  {'Lead line with '}
-                  <span
-                    style={{
+                  {renderLyricTextWithHarmony('Lead line with [HARMONY]harmony phrase[/HARMONY]', {
+                    showHarmonyCues: getEffectiveShowHarmonyCues(state),
+                    harmonyStyle: {
                       color: resolveHarmonyColor(getEffectiveHarmonyTextColor(state)),
                       fontStyle: getEffectiveHarmonyItalic(state) ? 'italic' : undefined,
                       textDecorationLine: getEffectiveHarmonyUnderline(state) ? 'underline' : undefined,
                       textDecorationThickness: getEffectiveHarmonyUnderline(state) ? '0.08em' : undefined,
                       textUnderlineOffset: getEffectiveHarmonyUnderline(state) ? '0.16em' : undefined
-                    }}
-                  >
-                    harmony phrase
-                  </span>
+                    },
+                    showHarmonyDebug: Boolean(state.showHarmonyDebug)
+                  })}
                 </div>
                 </div>
                 <button className="stage-menu-button" type="button" onClick={() => setState({ minimalStageMode: !state.minimalStageMode })}>
@@ -4076,6 +4077,9 @@ function StageControlPopover({
                 </button>
                 <button className="stage-menu-button" type="button" onClick={() => setState(harmonyIconVisibleUpdate(state, !getEffectiveHarmonyIconVisible(state)))}>
                   Harmony Icon {getEffectiveHarmonyIconVisible(state) ? 'On' : 'Off'}
+                </button>
+                <button className="stage-menu-button" type="button" onClick={() => setState({ showHarmonyDebug: !state.showHarmonyDebug })}>
+                  Harmony Debug {state.showHarmonyDebug ? 'On' : 'Off'}
                 </button>
               </div>
             )}
@@ -4464,6 +4468,7 @@ function ExternalPrompterApp() {
                     lineSpacing={lineSpacing}
                     chordVerticalOffset={chordVerticalOffset}
                     showAnchorDebug={Boolean(payload.performance.showChordAnchorDebug)}
+                    showHarmonyDebug={Boolean(payload.performance.showHarmonyDebug)}
                   />
                 ))}
               </article>
@@ -4774,6 +4779,7 @@ function ChordProDisplayLine({
   harmonyItalic,
   harmonyUnderline,
   harmonyIconVisible,
+  showHarmonyDebug,
   displayPreference,
   lineIndex,
   chordFontSize,
@@ -4804,6 +4810,7 @@ function ChordProDisplayLine({
   harmonyItalic: boolean;
   harmonyUnderline: boolean;
   harmonyIconVisible: boolean;
+  showHarmonyDebug: boolean;
   displayPreference: Song['displayPreference'];
   lineIndex: number;
   chordFontSize: number;
@@ -4895,13 +4902,14 @@ function ChordProDisplayLine({
         harmonyStyle={harmonyStyle}
         harmonyIconColor={resolvedHarmonyIconColor}
         harmonyIconVisible={harmonyIconVisible}
+        showHarmonyDebug={showHarmonyDebug}
       />
     );
   }
 
   const rawLineText = line.tokens.map((token) => token.display).join('');
-  const parsedPlainLine = parseHarmonyText(rawLineText);
-  const plainLineText = parsedPlainLine.text;
+  const plainLineState = lyricTextHarmonyState(rawLineText);
+  const plainLineText = plainLineState.text;
   const hasChordTokens = line.tokens.some((token) => token.type === 'chord');
   if (isHiddenStageTextLine(plainLineText)) return null;
   if (!hasChordTokens && isStageSectionLabelText(plainLineText)) {
@@ -4925,6 +4933,7 @@ function ChordProDisplayLine({
         harmonyStyle={harmonyStyle}
         harmonyIconColor={resolvedHarmonyIconColor}
         harmonyIconVisible={harmonyIconVisible}
+        showHarmonyDebug={showHarmonyDebug}
       />
     );
   }
@@ -4946,14 +4955,19 @@ function ChordProDisplayLine({
         harmonyStyle={harmonyStyle}
         harmonyIconColor={resolvedHarmonyIconColor}
         harmonyIconVisible={harmonyIconVisible}
+        showHarmonyDebug={showHarmonyDebug}
       />
     );
   }
 
   return (
     <div data-line-index={lineIndex} className="relative whitespace-pre-wrap" style={lyricLineStyle}>
-      {showHarmonyCues && harmonyIconVisible && parsedPlainLine.hasHarmony && <HarmonyCueIcon color={resolvedHarmonyIconColor} />}
-      {renderLyricTextRuns(parsedPlainLine.text, parsedPlainLine.ranges, showHarmonyCues, harmonyStyle)}
+      {showHarmonyCues && harmonyIconVisible && plainLineState.hasHarmony && <HarmonyCueIcon color={resolvedHarmonyIconColor} />}
+      {renderLyricTextWithHarmony(rawLineText, {
+        showHarmonyCues,
+        harmonyStyle,
+        showHarmonyDebug
+      })}
     </div>
   );
 }
@@ -4992,16 +5006,6 @@ function HarmonyCueIcon({ color, top }: { color: string; top?: number | string }
       aria-hidden="true"
     />
   );
-}
-
-function renderLyricTextRuns(text: string, ranges: HarmonyRange[], enabled: boolean, harmonyStyle: React.CSSProperties) {
-  const runs = harmonyRunsFromParsed(text, ranges);
-  if (runs.length === 0) return text;
-  return runs.map((run, index) => (
-    <span key={`${run.start}-${run.end}-${index}`} style={enabled && run.harmony ? harmonyStyle : undefined}>
-      {run.text}
-    </span>
-  ));
 }
 
 function isHiddenStageDirective(name: string) {
@@ -5049,7 +5053,8 @@ function AnchoredChordDisplayLine({
   showHarmonyCues,
   harmonyStyle,
   harmonyIconColor,
-  harmonyIconVisible
+  harmonyIconVisible,
+  showHarmonyDebug
 }: {
   anchoredLine: AnchoredChordLine;
   lineIndex: number;
@@ -5064,6 +5069,7 @@ function AnchoredChordDisplayLine({
   harmonyStyle: React.CSSProperties;
   harmonyIconColor: string;
   harmonyIconVisible: boolean;
+  showHarmonyDebug: boolean;
 }) {
   const { lyricLineHeight, lyricTop, rowSpacing, totalLineHeight } = anchoredChordLineLayout(lyricFontSize, chordFontSize, lineSpacing);
   const markerRefs = useRef(new Map<number, HTMLSpanElement>());
@@ -5154,7 +5160,7 @@ function AnchoredChordDisplayLine({
         )}
         {showHarmonyCues && harmonyIconVisible && anchoredLine.harmonyRanges.length > 0 && <HarmonyCueIcon color={harmonyIconColor} top={lyricTop + lyricLineHeight / 2} />}
         <div ref={lyricRef} className="absolute left-0 whitespace-pre" style={{ top: `${lyricTop}px`, lineHeight: `${lyricLineHeight}px` }}>
-          {renderLyricWithAnchorMarkers(anchoredLine.lyricLine, anchorIndexes, markerRefs, anchoredLine.harmonyRanges, showHarmonyCues, harmonyStyle)}
+          {renderLyricWithAnchorMarkers(anchoredLine.lyricLine, anchorIndexes, markerRefs, anchoredLine.harmonyRanges, showHarmonyCues, harmonyStyle, showHarmonyDebug)}
         </div>
       </div>
     </div>
@@ -5177,16 +5183,17 @@ function renderLyricWithAnchorMarkers(
   markerRefs: React.MutableRefObject<Map<number, HTMLSpanElement>>,
   harmonyRanges: HarmonyRange[] = [],
   showHarmonyCues = true,
-  harmonyStyle: React.CSSProperties = {}
+  harmonyStyle: React.CSSProperties = {},
+  showHarmonyDebug = false
 ) {
   const nodes: React.ReactNode[] = [];
   const safeAnchors = anchorIndexes.map((index) => Math.max(0, Math.min(lyricLine.length, index)));
-  const harmonyRuns = harmonyRunsFromParsed(lyricLine, harmonyRanges);
+  const lyricState = lyricTextHarmonyState(lyricLine, harmonyRanges);
   const boundaries = Array.from(new Set([
     0,
     lyricLine.length,
     ...safeAnchors,
-    ...harmonyRuns.flatMap((run) => [run.start, run.end])
+    ...lyricState.ranges.flatMap((range) => [range.start, range.end])
   ])).sort((left, right) => left - right);
 
   for (let index = 0; index < boundaries.length; index += 1) {
@@ -5207,16 +5214,29 @@ function renderLyricWithAnchorMarkers(
 
     const nextBoundary = boundaries[index + 1];
     if (nextBoundary === undefined || boundary >= nextBoundary) continue;
-    const isHarmony = showHarmonyCues && harmonyRuns.some((run) => run.harmony && boundary >= run.start && boundary < run.end);
     nodes.push(
-      <span key={`text-${boundary}-${nextBoundary}`} style={isHarmony ? harmonyStyle : undefined}>
-        {lyricLine.slice(boundary, nextBoundary)}
+      <span key={`text-${boundary}-${nextBoundary}`}>
+        {renderLyricTextWithHarmony(lyricLine.slice(boundary, nextBoundary), {
+          harmonyRanges: sliceHarmonyRanges(lyricState.ranges, boundary, nextBoundary),
+          showHarmonyCues,
+          harmonyStyle,
+          showHarmonyDebug
+        })}
       </span>
     );
   }
 
   if (nodes.length === 0) nodes.push(<span key="empty">&nbsp;</span>);
   return nodes;
+}
+
+function sliceHarmonyRanges(ranges: HarmonyRange[], start: number, end: number) {
+  return ranges
+    .map((range) => ({
+      start: Math.max(start, range.start) - start,
+      end: Math.min(end, range.end) - start
+    }))
+    .filter((range) => range.end > range.start);
 }
 
 function Stepper({

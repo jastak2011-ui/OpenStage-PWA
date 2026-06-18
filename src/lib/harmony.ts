@@ -19,6 +19,17 @@ export type HarmonyTextRun = {
   end: number;
 };
 
+export type HarmonyRenderRun = HarmonyTextRun & {
+  styled: boolean;
+};
+
+export type HarmonyRenderModel = {
+  text: string;
+  runs: HarmonyRenderRun[];
+  hasHarmony: boolean;
+  showIcon: boolean;
+};
+
 const harmonyTagPattern = /\[\/?HARMONY\]/gi;
 
 export function isHarmonyTag(value: string) {
@@ -88,6 +99,32 @@ export function harmonyRunsFromParsed(text: string, ranges: HarmonyRange[]): Har
   }
 
   return runs;
+}
+
+export function lyricHarmonyRenderModel(
+  input: string,
+  options: { showHarmonyCues: boolean; harmonyIconVisible?: boolean } = { showHarmonyCues: true, harmonyIconVisible: true }
+): HarmonyRenderModel {
+  const parsed = parseHarmonyText(input);
+  return lyricHarmonyRenderModelFromParsed(parsed.text, parsed.ranges, options);
+}
+
+export function lyricHarmonyRenderModelFromParsed(
+  text: string,
+  ranges: HarmonyRange[],
+  options: { showHarmonyCues: boolean; harmonyIconVisible?: boolean } = { showHarmonyCues: true, harmonyIconVisible: true }
+): HarmonyRenderModel {
+  const runs = harmonyRunsFromParsed(text, ranges).map((run) => ({
+    ...run,
+    styled: options.showHarmonyCues && run.harmony
+  }));
+  const hasHarmony = ranges.some((range) => range.end > range.start);
+  return {
+    text,
+    runs,
+    hasHarmony,
+    showIcon: options.showHarmonyCues && (options.harmonyIconVisible ?? true) && hasHarmony
+  };
 }
 
 export function hasHarmonyMarkup(input: string) {

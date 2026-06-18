@@ -213,6 +213,7 @@ export type PerformanceState = {
   showSectionSidebar: boolean;
   showReadingGuide: boolean;
   showChordAnchorDebug: boolean;
+  showHarmonyDebug: boolean;
   minimalStageMode: boolean;
   boldChords: boolean;
   boldChordsByProfile: Partial<Record<DeviceProfile, boolean>>;

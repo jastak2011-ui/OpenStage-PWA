@@ -13,7 +13,7 @@ import {
   convertInlineChordLine,
   inlineChordsToChordOverLyrics
 } from './chordLayout-test-target.mjs';
-import { harmonyTextRuns, markHarmonyRange, parseHarmonyText, removeHarmonyRange, stripHarmonyMarkup } from './harmony-test-target.mjs';
+import { harmonyTextRuns, lyricHarmonyRenderModel, markHarmonyRange, parseHarmonyText, removeHarmonyRange, stripHarmonyMarkup } from './harmony-test-target.mjs';
 import { createId } from './ids-test-target.mjs';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './importExport-test-target.mjs';
 import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
@@ -58,12 +58,35 @@ assert.deepEqual(harmonyText.ranges, [{ start: 8, end: 12 }]);
 const standalonePlainHarmony = parseHarmonyText('[HARMONY]ooh ooh ooh, ooh ooh ooh[/HARMONY]');
 assert.equal(standalonePlainHarmony.text, 'ooh ooh ooh, ooh ooh ooh');
 assert.deepEqual(standalonePlainHarmony.ranges, [{ start: 0, end: 'ooh ooh ooh, ooh ooh ooh'.length }]);
+const exactStandaloneHarmony = lyricHarmonyRenderModel('[HARMONY]ooh...ooh....ooh...ooh[/HARMONY]', { showHarmonyCues: true, harmonyIconVisible: true });
+assert.equal(exactStandaloneHarmony.text, 'ooh...ooh....ooh...ooh');
+assert.equal(exactStandaloneHarmony.showIcon, true);
+assert.deepEqual(exactStandaloneHarmony.runs.map((run) => ({ text: run.text, styled: run.styled })), [
+  { text: 'ooh...ooh....ooh...ooh', styled: true }
+]);
+const parentheticalHarmony = lyricHarmonyRenderModel('[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]', { showHarmonyCues: true, harmonyIconVisible: true });
+assert.deepEqual(parentheticalHarmony.runs.map((run) => ({ text: run.text, styled: run.styled })), [
+  { text: '(ooh...ooh....ooh...ooh)', styled: true }
+]);
+const harmonyCuesOff = lyricHarmonyRenderModel('[HARMONY]ooh...ooh....ooh...ooh[/HARMONY]', { showHarmonyCues: false, harmonyIconVisible: true });
+assert.equal(harmonyCuesOff.text, 'ooh...ooh....ooh...ooh');
+assert.equal(harmonyCuesOff.showIcon, false);
+assert.equal(harmonyCuesOff.runs.every((run) => !run.styled), true);
 assert.deepEqual(
   harmonyTextRuns('Lead lyric [HARMONY]backup phrase[/HARMONY] rest of line').map((run) => ({ text: run.text, harmony: run.harmony })),
   [
     { text: 'Lead lyric ', harmony: false },
     { text: 'backup phrase', harmony: true },
     { text: ' rest of line', harmony: false }
+  ]
+);
+assert.deepEqual(
+  lyricHarmonyRenderModel('Take it [HARMONY]EASY[/HARMONY], take it [HARMONY]EASY[/HARMONY]').runs.map((run) => ({ text: run.text, styled: run.styled })),
+  [
+    { text: 'Take it ', styled: false },
+    { text: 'EASY', styled: true },
+    { text: ', take it ', styled: false },
+    { text: 'EASY', styled: true }
   ]
 );
 assert.equal(stripHarmonyMarkup('[HARMONY]Full line[/HARMONY]'), 'Full line');
@@ -475,14 +498,14 @@ assert.equal(standaloneHarmonyRendered.lines[0].tokens.map((token) => token.disp
 const plainHarmonyLine = {
   ...standaloneHarmonyLine,
   id: 'plain-harmony-line',
-  chart: '[HARMONY]ooh ooh ooh, ooh ooh ooh[/HARMONY]',
+  chart: '[HARMONY]ooh...ooh....ooh...ooh[/HARMONY]',
   updatedAt: '2026-05-27T00:01:32.000Z'
 };
 const plainHarmonyRendered = renderSong(plainHarmonyLine, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G' });
 assert.equal(plainHarmonyRendered.lines[0].type, 'lyrics');
 const plainHarmonyDisplay = plainHarmonyRendered.lines[0].tokens.map((token) => token.display).join('');
-assert.equal(plainHarmonyDisplay, '[HARMONY]ooh ooh ooh, ooh ooh ooh[/HARMONY]');
-assert.equal(parseHarmonyText(plainHarmonyDisplay).text, 'ooh ooh ooh, ooh ooh ooh');
+assert.equal(plainHarmonyDisplay, '[HARMONY]ooh...ooh....ooh...ooh[/HARMONY]');
+assert.equal(parseHarmonyText(plainHarmonyDisplay).text, 'ooh...ooh....ooh...ooh');
 const mixedHarmonyLine = {
   ...standaloneHarmonyLine,
   id: 'mixed-harmony-line',

@@ -191,6 +191,7 @@ export const defaultPerformanceState: PerformanceState = {
   showSectionSidebar: true,
   showReadingGuide: false,
   showChordAnchorDebug: false,
+  showHarmonyDebug: false,
   minimalStageMode: false,
   boldChords: true,
   boldChordsByProfile: {
