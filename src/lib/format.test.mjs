@@ -639,6 +639,23 @@ assert.equal(onsongPlainMetadataRendered.lines[1].value, 'a-ha');
 assert.equal(onsongPlainMetadataRendered.lines.filter((line) => line.type === 'lyrics' && line.tokens.map((token) => token.display).join('').trim().toLowerCase() === 'take on me').length, 0);
 assert.equal(onsongPlainMetadataRendered.lines.filter((line) => line.type === 'song-title').length, 1);
 
+const plainOnSongHeaderSong = {
+  ...capoSong,
+  id: 'plain-onsong-header-song',
+  title: 'Stuck In The Middle With You',
+  artist: 'Stealers Wheel',
+  chart: 'Stuck In The Middle With You\nStealers Wheel\nD#   G#   Fm   D#   D#',
+  parsedChordPro: undefined,
+  displayPreference: 'chords-over',
+  updatedAt: '2026-05-27T00:00:17.000Z'
+};
+const plainOnSongHeaderRendered = renderSong(plainOnSongHeaderSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'D#', songArtistFontSize: 45 });
+assert.equal(plainOnSongHeaderRendered.lines[0].type, 'song-title');
+assert.equal(plainOnSongHeaderRendered.lines[0].value, 'Stuck In The Middle With You');
+assert.equal(plainOnSongHeaderRendered.lines[1].type, 'song-artist');
+assert.equal(plainOnSongHeaderRendered.lines[1].value, 'Stealers Wheel');
+assert.equal(plainOnSongHeaderRendered.lines.filter((line) => line.type === 'lyrics' && line.tokens.map((token) => token.display).join('').trim() === 'Stealers Wheel').length, 0);
+
 const inlineCapoSong = {
   ...capoSong,
   id: 'inline-capo-song',

@@ -154,10 +154,15 @@ function classifySongMetadataLines(song, lines) {
   const result = [];
   const title = song.title?.trim() ?? "";
   const artist = song.artist?.trim() ?? "";
+  const subtitle = song.subtitle?.trim() ?? "";
+  const hasTitleDirective = lines.some((line) => line.type === "directive" && line.name === "title" && line.value.trim().length > 0);
   const hasArtistDirective = lines.some((line) => line.type === "directive" && line.name === "artist" && line.value.trim().length > 0);
+  const leadingPlainHeaderTexts = collectLeadingPlainHeaderTexts(lines);
+  const hasPlainHeaderPair = leadingPlainHeaderTexts.length >= 2;
   let titleRendered = false;
   let artistRendered = false;
   let leadingMetadataRegion = true;
+  let leadingPlainHeaderLineCount = 0;
   lines.forEach((line) => {
     if (line.type === "directive" && line.name === "title") {
       if (!titleRendered && (title || line.value)) {
@@ -182,15 +187,19 @@ function classifySongMetadataLines(song, lines) {
     }
     if (leadingMetadataRegion && line.type === "lyrics" && !line.tokens.some((token) => token.type === "chord")) {
       const text = plainText(line).trim();
-      if (!titleRendered && title && sameMetadataText(text, title)) {
-        result.push({ type: "song-title", raw: line.raw, value: title });
-        titleRendered = true;
-        return;
-      }
-      if (titleRendered && !artistRendered && artist && sameMetadataText(text, artist)) {
-        result.push({ type: "song-artist", raw: line.raw, value: artist });
-        artistRendered = true;
-        return;
+      const isChordOnlyHeaderCandidate = isStandaloneChordLine(text);
+      if (text && !isChordOnlyHeaderCandidate && !isStageMetadataLabelText(text)) {
+        leadingPlainHeaderLineCount += 1;
+        if (!titleRendered && leadingPlainHeaderLineCount === 1 && (sameMetadataText(text, title) || !hasTitleDirective && hasPlainHeaderPair)) {
+          result.push({ type: "song-title", raw: line.raw, value: title || text });
+          titleRendered = true;
+          return;
+        }
+        if (titleRendered && !artistRendered && leadingPlainHeaderLineCount === 2 && (sameMetadataText(text, artist) || sameMetadataText(text, subtitle) || !hasArtistDirective && hasPlainHeaderPair)) {
+          result.push({ type: "song-artist", raw: line.raw, value: artist || subtitle || text });
+          artistRendered = true;
+          return;
+        }
       }
     }
     if (leadingMetadataRegion && line.type !== "blank" && line.type !== "comment") {
@@ -200,6 +209,21 @@ function classifySongMetadataLines(song, lines) {
     result.push(line);
   });
   return result;
+}
+function collectLeadingPlainHeaderTexts(lines) {
+  const texts = [];
+  for (const line of lines) {
+    if (line.type === "blank" || line.type === "comment") continue;
+    if (line.type !== "lyrics" || line.tokens.some((token) => token.type === "chord")) break;
+    const text = plainText(line).trim();
+    if (!text || isStandaloneChordLine(text) || isStageMetadataLabelText(text)) break;
+    texts.push(text);
+    if (texts.length >= 2) break;
+  }
+  return texts;
+}
+function isStageMetadataLabelText(text) {
+  return /^(?:midi(?:-index)?|key|capo|source file|tempo|bpm)\s*:/i.test(text.trim());
 }
 function preloadSongs(songs, options) {
   const startedAt = performance.now();
