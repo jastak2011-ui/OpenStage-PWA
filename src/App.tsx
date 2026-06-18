@@ -3646,7 +3646,6 @@ function PerformanceView({
           className={`stage-chart mx-auto font-chart transition-opacity duration-200 ${state.portraitMode ? 'max-w-3xl' : 'max-w-5xl'} ${state.mirroredMode ? 'mirror-stage' : ''} ${state.splitScreen ? 'tablet-columns' : ''} ${isTransitioningSong ? 'opacity-35' : 'opacity-100'}`}
           style={{ fontSize: `${lyricFontSize}px`, lineHeight: state.portraitMode ? 1.62 : 1.52, color: documentTheme.text, fontFamily: stageFontFamily }}
         >
-          <SongDocumentHeader song={song} titleStyle={songTitleStyle} artistStyle={songArtistStyle} />
           {state.showHarmonyDebug && <RawCurrentSongDebugPanel title="Show Raw Current Song" song={song} />}
           {visibleStageNotes && <p className="mb-8 text-[0.55em] italic opacity-80">{visibleStageNotes}</p>}
           {chartLines.map((line, index) => (
@@ -3667,6 +3666,8 @@ function PerformanceView({
               sectionUppercase={sectionUppercase}
               sectionSpacingBefore={sectionSpacingBefore}
               sectionSpacingAfter={sectionSpacingAfter}
+              songTitleStyle={songTitleStyle}
+              songArtistStyle={songArtistStyle}
               showHarmonyCues={showHarmonyCues}
               harmonyTextColor={harmonyTextColor}
               harmonyIconColor={harmonyIconColor}
@@ -4573,7 +4574,6 @@ function ExternalPrompterApp() {
                   overflow: 'hidden'
                 }}
               >
-                <SongDocumentHeader song={payload.song} titleStyle={songTitleStyle} artistStyle={songArtistStyle} />
                 {rendered.lines.map((line, index) => (
                   <ChordProDisplayLine
                     key={`${line.raw}-${index}`}
@@ -4592,6 +4592,8 @@ function ExternalPrompterApp() {
                     sectionUppercase={sectionUppercase}
                     sectionSpacingBefore={sectionSpacingBefore}
                     sectionSpacingAfter={sectionSpacingAfter}
+                    songTitleStyle={songTitleStyle}
+                    songArtistStyle={songArtistStyle}
                     showHarmonyCues={showHarmonyCues}
                     harmonyTextColor={harmonyTextColor}
                     harmonyIconColor={harmonyIconColor}
@@ -4667,29 +4669,6 @@ function ExternalFillScreenTest({
         </div>
       </div>
     </div>
-  );
-}
-
-function SongDocumentHeader({
-  song,
-  titleStyle,
-  artistStyle
-}: {
-  song: Song;
-  titleStyle: React.CSSProperties;
-  artistStyle: React.CSSProperties;
-}) {
-  return (
-    <header className="mb-8 whitespace-normal">
-      <h1 className="leading-tight tracking-normal" style={titleStyle}>
-        {song.title || 'Untitled Song'}
-      </h1>
-      {song.artist && (
-        <div className="mt-1 leading-snug tracking-normal" style={artistStyle}>
-          {song.artist}
-        </div>
-      )}
-    </header>
   );
 }
 
@@ -4963,6 +4942,8 @@ function ChordProDisplayLine({
   sectionUppercase,
   sectionSpacingBefore,
   sectionSpacingAfter,
+  songTitleStyle,
+  songArtistStyle,
   showHarmonyCues,
   harmonyTextColor,
   harmonyIconColor,
@@ -4994,6 +4975,8 @@ function ChordProDisplayLine({
   sectionUppercase: boolean;
   sectionSpacingBefore: number;
   sectionSpacingAfter: number;
+  songTitleStyle: React.CSSProperties;
+  songArtistStyle: React.CSSProperties;
   showHarmonyCues: boolean;
   harmonyTextColor: string;
   harmonyIconColor: string;
@@ -5061,6 +5044,12 @@ function ChordProDisplayLine({
 
   if (line.type === 'directive') {
     if (isHiddenStageDirective(line.name)) return null;
+    if (line.name === 'title' && line.value) {
+      return <div data-line-index={lineIndex} className="mb-1 whitespace-normal leading-tight tracking-normal" style={songTitleStyle}>{line.value}</div>;
+    }
+    if (line.name === 'artist' && line.value) {
+      return <div data-line-index={lineIndex} className="mb-6 whitespace-normal leading-snug tracking-normal" style={songArtistStyle}>{line.value}</div>;
+    }
     const visibleDirectives = new Set(['subtitle', 'album']);
     if (!visibleDirectives.has(line.name) || !line.value) return null;
     return <div data-line-index={lineIndex} className="text-[0.5em] uppercase tracking-normal text-slate-400">{line.value}</div>;
