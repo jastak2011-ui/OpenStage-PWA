@@ -98,6 +98,7 @@ function CastReceiverTestPage() {
   const params = new URLSearchParams(window.location.search);
   const title = params.get('title')?.trim() || 'Take It Easy';
   const artist = params.get('artist')?.trim() || 'Eagles';
+  const chart = params.get('chart')?.trim() || "Well I'm running down the road\nTryin' to loosen my load";
 
   React.useEffect(() => {
     window.OpenStageReactMounted = true;
@@ -121,6 +122,7 @@ function CastReceiverTestPage() {
             <div className="mt-2 text-5xl font-bold">{artist}</div>
           </div>
         </div>
+        <pre className="whitespace-pre-wrap text-left text-4xl font-semibold leading-relaxed">{chart}</pre>
         <p className="fixed bottom-8 left-0 right-0 text-xl font-semibold">Receiver page loaded successfully</p>
       </section>
     </main>

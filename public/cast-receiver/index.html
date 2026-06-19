@@ -57,6 +57,15 @@
         font-weight: 800;
       }
 
+      .chart {
+        margin: 0;
+        white-space: pre-wrap;
+        text-align: left;
+        font-size: clamp(30px, 4vw, 58px);
+        font-weight: 700;
+        line-height: 1.35;
+      }
+
       .diagnostic {
         position: fixed;
         right: 0;
@@ -82,6 +91,8 @@
           <p class="label">Artist:</p>
           <p class="value" id="song-artist">Eagles</p>
         </div>
+        <pre class="chart" id="song-chart">Well I'm running down the road
+Tryin' to loosen my load</pre>
       </section>
     </main>
     <p class="diagnostic">Receiver page loaded successfully</p>
@@ -89,10 +100,13 @@
       const params = new URLSearchParams(window.location.search);
       const rawTitle = params.get('title');
       const rawArtist = params.get('artist');
+      const rawChart = params.get('chart');
       const title = rawTitle && rawTitle.trim() ? rawTitle.trim() : 'Take It Easy';
       const artist = rawArtist && rawArtist.trim() ? rawArtist.trim() : 'Eagles';
+      const chart = rawChart && rawChart.trim() ? rawChart.trim() : "Well I'm running down the road\nTryin' to loosen my load";
       document.getElementById('song-title').textContent = title;
       document.getElementById('song-artist').textContent = artist;
+      document.getElementById('song-chart').textContent = chart;
     </script>
   </body>
 </html>
