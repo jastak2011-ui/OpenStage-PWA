@@ -78,6 +78,7 @@ import { formatDuration, isValidDurationInput, parseDurationInput } from './lib/
 import { getStageSwipeDirection } from './lib/stageGestures';
 import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/stageHarmonyEdit';
 import { createId } from './lib/ids';
+import { castStateFromSong, publishCastState } from './services/castState';
 import {
   anchoredChordLineLayout,
   boldChordsUpdate,
@@ -754,6 +755,23 @@ export default function App() {
       if (isAutoscrolling) stopAutoscroll('route-change');
     }
   }, [selectedSongId]);
+
+  useEffect(() => {
+    if (!isStageSurface || !selectedSong || !performanceState.castReceiverEnabled) return;
+    const updatedAt = new Date().toISOString();
+    const published = publishCastState(castStateFromSong(selectedSong, updatedAt));
+    if (published) updateStorePerformance({ castReceiverLastSync: updatedAt });
+  }, [
+    isStageSurface,
+    performanceState.castReceiverEnabled,
+    selectedSong?.id,
+    selectedSong?.title,
+    selectedSong?.artist,
+    selectedSong?.subtitle,
+    selectedSong?.chart,
+    selectedSong?.rawChordPro,
+    updateStorePerformance
+  ]);
 
   useEffect(() => {
     const element = stageRef.current;
@@ -4121,6 +4139,12 @@ function PerformanceView({
       <div className={`stage-autoscroll-status pointer-events-none absolute bottom-5 left-5 z-20 rounded-full px-3 py-1 text-xs font-semibold transition-opacity duration-300 ${isAutoscrolling ? 'bg-teal-500/15 text-teal-200' : 'bg-black/20 text-slate-300'}`}>
         Autoscroll {autoscrollStatus}
       </div>
+      {state.castReceiverEnabled && (
+        <div className="pointer-events-none absolute bottom-14 left-5 z-20 rounded-lg border border-teal-300/30 bg-black/25 px-3 py-2 text-xs font-semibold text-teal-100 backdrop-blur-sm">
+          <div>External Display Connected</div>
+          <div>Last Sync: {state.castReceiverLastSync || 'waiting'}</div>
+        </div>
+      )}
       <div
         className={`fixed z-40 transition-opacity duration-300 ${toolbarVisible || activePopover || speedPopoverOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
         style={{
@@ -4384,6 +4408,21 @@ function ExternalDisplayControls({
           </div>
           <div className={`rounded-full border px-2 py-1 text-[0.65rem] font-semibold ${settings.enabled ? 'border-teal-400/50 bg-teal-400/10 text-teal-100' : 'border-amber-300/40 bg-amber-300/10 text-amber-100'}`}>
             {outputStatus}
+          </div>
+        </div>
+        <div className="grid gap-2 rounded-md border border-teal-300/30 bg-teal-300/10 p-3 text-teal-50">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold">Cast Receiver Test</div>
+              <div className="text-slate-300">Publishes the current Stage song for /cast-receiver polling.</div>
+            </div>
+            <button className="stage-menu-button" type="button" onClick={() => setState({ castReceiverEnabled: !state.castReceiverEnabled })}>
+              External Display {state.castReceiverEnabled ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <div className="rounded-md border border-teal-200/20 bg-black/20 p-2">
+            <div>{state.castReceiverEnabled ? 'External Display Connected' : 'External Display Off'}</div>
+            <div>Last Sync: {state.castReceiverLastSync || 'waiting'}</div>
           </div>
         </div>
         <div className="rounded-md border border-slate-700 bg-black/20 p-3 text-slate-300">

@@ -5,6 +5,7 @@ import App from './App';
 import './styles.css';
 import { installGlobalErrorHandlers } from './services/errors/errorService';
 import { getStartupDiagnostics, markStartupError, shouldShowStartupDebug } from './services/startupDiagnostics';
+import { fallbackCastState, fetchStaticCastState, loadLocalCastState, normalizeCastState } from './services/castState';
 
 declare global {
   interface Window {
@@ -110,6 +111,7 @@ function CastReceiverTestPage() {
     },
   };
   const demoSong = demoSongs[demo];
+  const isDemoMode = Boolean(demoSong);
   const initialTitle = demoSong?.title || params.get('title')?.trim() || 'Take It Easy';
   const initialArtist = demoSong?.artist || params.get('artist')?.trim() || 'Eagles';
   const initialChart = demoSong?.chart || params.get('chart')?.trim() || "Well I'm running down the road\nTryin' to loosen my load";
@@ -130,20 +132,9 @@ function CastReceiverTestPage() {
   React.useEffect(() => {
     let cancelled = false;
     const poll = async () => {
-      try {
-        const response = await fetch(`/cast-state.json?ts=${Date.now()}`, { cache: 'no-store' });
-        if (!response.ok) return;
-        const data = (await response.json()) as Partial<{ title: string; artist: string; chart: string; updatedAt: string }>;
-        if (cancelled || demoSong) return;
-        setReceiverState({
-          title: typeof data.title === 'string' && data.title.trim() ? data.title : 'Take It Easy',
-          artist: typeof data.artist === 'string' && data.artist.trim() ? data.artist : 'Eagles',
-          chart: typeof data.chart === 'string' && data.chart.trim() ? data.chart : "Well I'm running down the road\nTryin' to loosen my load",
-          updatedAt: typeof data.updatedAt === 'string' && data.updatedAt.trim() ? data.updatedAt : 'unknown',
-        });
-      } catch {
-        // Keep the last visible receiver state if the test state file is unavailable.
-      }
+      if (cancelled || isDemoMode) return;
+      const nextState = loadLocalCastState() ?? (await fetchStaticCastState()) ?? normalizeCastState(fallbackCastState);
+      if (!cancelled) setReceiverState(nextState);
     };
     void poll();
     const intervalId = window.setInterval(() => void poll(), 1000);
@@ -151,7 +142,7 @@ function CastReceiverTestPage() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [demoSong]);
+  }, [isDemoMode]);
 
   return (
     <main className="flex min-h-screen w-screen items-center justify-center bg-white p-8 text-center text-black">

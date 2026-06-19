@@ -244,6 +244,8 @@ export type PerformanceState = {
   activeProfile: DeviceProfile;
   stageTheme: StageThemeName;
   showAutoscrollDebug: boolean;
+  castReceiverEnabled: boolean;
+  castReceiverLastSync?: string;
   externalDisplay: ExternalDisplaySettings;
 };
 

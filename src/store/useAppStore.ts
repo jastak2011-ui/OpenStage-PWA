@@ -326,6 +326,8 @@ export const defaultPerformanceState: PerformanceState = {
   activeProfile: 'desktop',
   stageTheme: 'standard-dark',
   showAutoscrollDebug: false,
+  castReceiverEnabled: false,
+  castReceiverLastSync: '',
   externalDisplay: {
     enabled: false,
     outputMode: 'standard',
