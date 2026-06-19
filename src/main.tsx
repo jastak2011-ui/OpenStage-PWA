@@ -94,13 +94,49 @@ function MountMarker() {
   return null;
 }
 
+function CastReceiverTestPage() {
+  React.useEffect(() => {
+    window.OpenStageReactMounted = true;
+    window.OpenStageStartup?.markMounted();
+  }, []);
+
+  return (
+    <main className="flex min-h-screen w-screen items-center justify-center bg-white p-8 text-center text-black">
+      <section className="grid max-w-4xl gap-10">
+        <div>
+          <h1 className="text-6xl font-bold leading-tight">OpenStage Cast Receiver</h1>
+          <p className="mt-5 text-4xl font-semibold">Receiver Online</p>
+        </div>
+        <div className="grid gap-6 text-4xl">
+          <div>
+            <div className="text-2xl font-semibold uppercase tracking-wide">Current Song:</div>
+            <div className="mt-2 text-5xl font-bold">Take It Easy</div>
+          </div>
+          <div>
+            <div className="text-2xl font-semibold uppercase tracking-wide">Artist:</div>
+            <div className="mt-2 text-5xl font-bold">Eagles</div>
+          </div>
+        </div>
+        <p className="fixed bottom-8 left-0 right-0 text-xl font-semibold">Receiver page loaded successfully</p>
+      </section>
+    </main>
+  );
+}
+
 window.OpenStageStartup?.checkpoint('React render started');
+const isCastReceiverRoute = window.location.pathname.replace(/\/+$/, '') === '/cast-receiver';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <MountMarker />
-      <App />
-      <StartupDebugPanel appStarted />
+      {isCastReceiverRoute ? (
+        <CastReceiverTestPage />
+      ) : (
+        <>
+          <MountMarker />
+          <App />
+          <StartupDebugPanel appStarted />
+        </>
+      )}
     </ErrorBoundary>
   </React.StrictMode>
 );
