@@ -96,9 +96,24 @@ function MountMarker() {
 
 function CastReceiverTestPage() {
   const params = new URLSearchParams(window.location.search);
-  const title = params.get('title')?.trim() || 'Take It Easy';
-  const artist = params.get('artist')?.trim() || 'Eagles';
-  const chart = params.get('chart')?.trim() || "Well I'm running down the road\nTryin' to loosen my load";
+  const demo = params.get('demo')?.trim().toLowerCase() || '';
+  const demoSongs: Record<string, { title: string; artist: string; chart: string }> = {
+    '3am': {
+      title: '3AM',
+      artist: 'Matchbox 20',
+      chart: 'Line1\nLine2',
+    },
+    takeiteasy: {
+      title: 'Take It Easy',
+      artist: 'Eagles',
+      chart: "Well I'm running down the road\nTrying to loosen my load",
+    },
+  };
+  const demoSong = demoSongs[demo];
+  const title = demoSong?.title || params.get('title')?.trim() || 'Take It Easy';
+  const artist = demoSong?.artist || params.get('artist')?.trim() || 'Eagles';
+  const chart = demoSong?.chart || params.get('chart')?.trim() || "Well I'm running down the road\nTryin' to loosen my load";
+  const chartLineCount = chart.split(/\r\n|\r|\n/).length;
 
   React.useEffect(() => {
     window.OpenStageReactMounted = true;
@@ -123,7 +138,11 @@ function CastReceiverTestPage() {
           </div>
         </div>
         <pre className="whitespace-pre-wrap text-left text-4xl font-semibold leading-relaxed">{chart}</pre>
-        <p className="fixed bottom-8 left-0 right-0 text-xl font-semibold">Receiver page loaded successfully</p>
+        <div className="fixed bottom-8 left-0 right-0 grid gap-1 text-xl font-semibold">
+          {demoSong ? <p>Demo mode: {demo}</p> : null}
+          <p>Chart lines: {chartLineCount}</p>
+          <p>Receiver page loaded successfully</p>
+        </div>
       </section>
     </main>
   );
