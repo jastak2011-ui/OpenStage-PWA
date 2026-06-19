@@ -110,15 +110,48 @@ function CastReceiverTestPage() {
     },
   };
   const demoSong = demoSongs[demo];
-  const title = demoSong?.title || params.get('title')?.trim() || 'Take It Easy';
-  const artist = demoSong?.artist || params.get('artist')?.trim() || 'Eagles';
-  const chart = demoSong?.chart || params.get('chart')?.trim() || "Well I'm running down the road\nTryin' to loosen my load";
+  const initialTitle = demoSong?.title || params.get('title')?.trim() || 'Take It Easy';
+  const initialArtist = demoSong?.artist || params.get('artist')?.trim() || 'Eagles';
+  const initialChart = demoSong?.chart || params.get('chart')?.trim() || "Well I'm running down the road\nTryin' to loosen my load";
+  const [receiverState, setReceiverState] = React.useState({
+    title: initialTitle,
+    artist: initialArtist,
+    chart: initialChart,
+    updatedAt: demoSong ? `Demo mode: ${demo}` : 'not yet',
+  });
+  const { title, artist, chart } = receiverState;
   const chartLineCount = chart.split(/\r\n|\r|\n/).length;
 
   React.useEffect(() => {
     window.OpenStageReactMounted = true;
     window.OpenStageStartup?.markMounted();
   }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/cast-state.json?ts=${Date.now()}`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = (await response.json()) as Partial<{ title: string; artist: string; chart: string; updatedAt: string }>;
+        if (cancelled || demoSong) return;
+        setReceiverState({
+          title: typeof data.title === 'string' && data.title.trim() ? data.title : 'Take It Easy',
+          artist: typeof data.artist === 'string' && data.artist.trim() ? data.artist : 'Eagles',
+          chart: typeof data.chart === 'string' && data.chart.trim() ? data.chart : "Well I'm running down the road\nTryin' to loosen my load",
+          updatedAt: typeof data.updatedAt === 'string' && data.updatedAt.trim() ? data.updatedAt : 'unknown',
+        });
+      } catch {
+        // Keep the last visible receiver state if the test state file is unavailable.
+      }
+    };
+    void poll();
+    const intervalId = window.setInterval(() => void poll(), 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [demoSong]);
 
   return (
     <main className="flex min-h-screen w-screen items-center justify-center bg-white p-8 text-center text-black">
@@ -141,6 +174,8 @@ function CastReceiverTestPage() {
         <div className="fixed bottom-8 left-0 right-0 grid gap-1 text-xl font-semibold">
           {demoSong ? <p>Demo mode: {demo}</p> : null}
           <p>Chart lines: {chartLineCount}</p>
+          <p>Receiver polling active</p>
+          <p>Last update: {receiverState.updatedAt}</p>
           <p>Receiver page loaded successfully</p>
         </div>
       </section>

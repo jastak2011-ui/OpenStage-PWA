@@ -98,6 +98,8 @@ Tryin' to loosen my load</pre>
     <div class="diagnostic">
       <p id="demo-mode"></p>
       <p id="chart-lines">Chart lines: 2</p>
+      <p>Receiver polling active</p>
+      <p id="last-update">Last update: not yet</p>
       <p>Receiver page loaded successfully</p>
     </div>
     <script>
@@ -123,12 +125,33 @@ Tryin' to loosen my load</pre>
       const title = demoSong ? demoSong.title : rawTitle && rawTitle.trim() ? rawTitle.trim() : 'Take It Easy';
       const artist = demoSong ? demoSong.artist : rawArtist && rawArtist.trim() ? rawArtist.trim() : 'Eagles';
       const chart = demoSong ? demoSong.chart : rawChart && rawChart.trim() ? rawChart.trim() : "Well I'm running down the road\nTryin' to loosen my load";
-      const chartLineCount = chart.split(/\r\n|\r|\n/).length;
-      document.getElementById('song-title').textContent = title;
-      document.getElementById('song-artist').textContent = artist;
-      document.getElementById('song-chart').textContent = chart;
+      let currentUpdatedAt = demoSong ? 'Demo mode: ' + demo : 'not yet';
+      function renderReceiverState(nextTitle, nextArtist, nextChart, nextUpdatedAt) {
+        const chartLineCount = nextChart.split(/\r\n|\r|\n/).length;
+        document.getElementById('song-title').textContent = nextTitle;
+        document.getElementById('song-artist').textContent = nextArtist;
+        document.getElementById('song-chart').textContent = nextChart;
+        document.getElementById('chart-lines').textContent = 'Chart lines: ' + chartLineCount;
+        document.getElementById('last-update').textContent = 'Last update: ' + nextUpdatedAt;
+      }
+      renderReceiverState(title, artist, chart, currentUpdatedAt);
       document.getElementById('demo-mode').textContent = demoSong ? 'Demo mode: ' + demo : '';
-      document.getElementById('chart-lines').textContent = 'Chart lines: ' + chartLineCount;
+      async function pollCastState() {
+        try {
+          const response = await fetch('/cast-state.json?ts=' + Date.now(), { cache: 'no-store' });
+          if (!response.ok || demoSong) return;
+          const data = await response.json();
+          const nextTitle = data.title && data.title.trim() ? data.title : 'Take It Easy';
+          const nextArtist = data.artist && data.artist.trim() ? data.artist : 'Eagles';
+          const nextChart = data.chart && data.chart.trim() ? data.chart : "Well I'm running down the road\nTryin' to loosen my load";
+          const nextUpdatedAt = data.updatedAt && data.updatedAt.trim() ? data.updatedAt : 'unknown';
+          renderReceiverState(nextTitle, nextArtist, nextChart, nextUpdatedAt);
+        } catch (error) {
+          // Keep the last visible receiver state if the test state file is unavailable.
+        }
+      }
+      pollCastState();
+      window.setInterval(pollCastState, 1000);
     </script>
   </body>
 </html>
