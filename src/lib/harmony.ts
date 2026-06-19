@@ -140,10 +140,35 @@ export function markHarmonyRange(input: string, selectionStart: number, selectio
 
 export function removeHarmonyRange(input: string, selectionStart: number, selectionEnd: number) {
   const range = normalizeHarmonyEditRange(input, selectionStart, selectionEnd);
+  const enclosing = findEnclosingHarmonyMarkup(input, range.start, range.end);
+  if (enclosing) {
+    return `${input.slice(0, enclosing.startTagStart)}${input.slice(enclosing.startTagEnd, enclosing.endTagStart)}${input.slice(enclosing.endTagEnd)}`;
+  }
   const before = input.slice(0, range.start);
   const target = input.slice(range.start, range.end);
   const after = input.slice(range.end);
   return `${before}${target.replace(harmonyTagPattern, '')}${after}`;
+}
+
+export function isRangeInsideHarmonyMarkup(input: string, selectionStart: number, selectionEnd: number) {
+  const range = normalizeHarmonyEditRange(input, selectionStart, selectionEnd);
+  return Boolean(findEnclosingHarmonyMarkup(input, range.start, range.end));
+}
+
+function findEnclosingHarmonyMarkup(input: string, selectionStart: number, selectionEnd: number) {
+  const startTagStart = input.toUpperCase().lastIndexOf(harmonyStartTag, selectionStart);
+  if (startTagStart < 0) return null;
+  const startTagEnd = startTagStart + harmonyStartTag.length;
+  const lastEndBeforeSelection = input.toUpperCase().lastIndexOf(harmonyEndTag, selectionStart);
+  if (lastEndBeforeSelection > startTagStart) return null;
+  const endTagStart = input.toUpperCase().indexOf(harmonyEndTag, selectionEnd);
+  if (endTagStart < 0) return null;
+  return {
+    startTagStart,
+    startTagEnd,
+    endTagStart,
+    endTagEnd: endTagStart + harmonyEndTag.length
+  };
 }
 
 export function normalizeHarmonyEditRange(input: string, selectionStart: number, selectionEnd: number) {

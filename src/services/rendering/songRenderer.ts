@@ -22,14 +22,14 @@ export type RenderOptions = {
 };
 
 export type RenderedLine =
-  | { type: 'blank'; raw: string }
-  | { type: 'comment'; raw: string; text: string }
-  | { type: 'section'; raw: string; section: string; boundary: 'start' | 'end' }
-  | { type: 'directive'; raw: string; name: string; value: string }
-  | { type: 'song-title'; raw: string; value: string }
-  | { type: 'song-artist'; raw: string; value: string }
-  | { type: 'chord-over'; raw: string; chordLine: string; lyricLine: string }
-  | { type: 'lyrics'; raw: string; tokens: Array<{ type: 'text' | 'chord'; value: string; display: string }> };
+  | { type: 'blank'; raw: string; sourceStart?: number }
+  | { type: 'comment'; raw: string; text: string; sourceStart?: number }
+  | { type: 'section'; raw: string; section: string; boundary: 'start' | 'end'; sourceStart?: number }
+  | { type: 'directive'; raw: string; name: string; value: string; sourceStart?: number }
+  | { type: 'song-title'; raw: string; value: string; sourceStart?: number }
+  | { type: 'song-artist'; raw: string; value: string; sourceStart?: number }
+  | { type: 'chord-over'; raw: string; chordLine: string; lyricLine: string; sourceStart?: number; chordSourceStart?: number; lyricSourceStart?: number }
+  | { type: 'lyrics'; raw: string; tokens: Array<{ type: 'text' | 'chord'; value: string; display: string; sourceStart?: number }>; sourceStart?: number };
 
 const renderCache = new Map<string, RenderedLine[]>();
 
@@ -95,6 +95,9 @@ function renderChordOverTextPairs(lines: RenderedLine[], options: RenderOptions)
       result.push({
         type: 'chord-over',
         raw: `${line.raw}\n${nextLine.raw}`,
+        sourceStart: line.sourceStart,
+        chordSourceStart: line.sourceStart,
+        lyricSourceStart: nextLine.sourceStart,
         chordLine: transformChordTextLine(text, options),
         lyricLine: markupText(nextLine)
       });
@@ -106,6 +109,8 @@ function renderChordOverTextPairs(lines: RenderedLine[], options: RenderOptions)
       result.push({
         type: 'chord-over',
         raw: line.raw,
+        sourceStart: line.sourceStart,
+        chordSourceStart: line.sourceStart,
         chordLine: transformChordTextLine(text, options),
         lyricLine: ''
       });
@@ -135,7 +140,7 @@ function classifySongMetadataLines(song: Song, lines: RenderedLine[]): RenderedL
   lines.forEach((line) => {
     if (line.type === 'directive' && line.name === 'title') {
       if (!titleRendered && (title || line.value)) {
-        result.push({ type: 'song-title', raw: line.raw, value: title || line.value });
+        result.push({ type: 'song-title', raw: line.raw, value: title || line.value, sourceStart: line.sourceStart });
         titleRendered = true;
       }
       return;
@@ -143,7 +148,7 @@ function classifySongMetadataLines(song: Song, lines: RenderedLine[]): RenderedL
 
     if (line.type === 'directive' && line.name === 'artist') {
       if (!artistRendered && (artist || line.value)) {
-        result.push({ type: 'song-artist', raw: line.raw, value: artist || line.value });
+        result.push({ type: 'song-artist', raw: line.raw, value: artist || line.value, sourceStart: line.sourceStart });
         artistRendered = true;
       }
       return;
@@ -151,7 +156,7 @@ function classifySongMetadataLines(song: Song, lines: RenderedLine[]): RenderedL
 
     if (line.type === 'directive' && line.name === 'subtitle' && !hasArtistDirective) {
       if (!artistRendered && (artist || line.value)) {
-        result.push({ type: 'song-artist', raw: line.raw, value: artist || line.value });
+        result.push({ type: 'song-artist', raw: line.raw, value: artist || line.value, sourceStart: line.sourceStart });
         artistRendered = true;
       }
       return;
@@ -163,7 +168,7 @@ function classifySongMetadataLines(song: Song, lines: RenderedLine[]): RenderedL
       if (text && !isChordOnlyHeaderCandidate && !isStageMetadataLabelText(text)) {
         leadingPlainHeaderLineCount += 1;
         if (!titleRendered && leadingPlainHeaderLineCount === 1 && (sameMetadataText(text, title) || (!hasTitleDirective && hasPlainHeaderPair))) {
-          result.push({ type: 'song-title', raw: line.raw, value: title || text });
+          result.push({ type: 'song-title', raw: line.raw, value: title || text, sourceStart: line.sourceStart });
           titleRendered = true;
           return;
         }
@@ -173,7 +178,7 @@ function classifySongMetadataLines(song: Song, lines: RenderedLine[]): RenderedL
           leadingPlainHeaderLineCount === 2 &&
           (sameMetadataText(text, artist) || sameMetadataText(text, subtitle) || (!hasArtistDirective && hasPlainHeaderPair))
         ) {
-          result.push({ type: 'song-artist', raw: line.raw, value: artist || subtitle || text });
+          result.push({ type: 'song-artist', raw: line.raw, value: artist || subtitle || text, sourceStart: line.sourceStart });
           artistRendered = true;
           return;
         }
@@ -227,15 +232,22 @@ function renderLine(line: ParsedChordProLine, options: RenderOptions): RenderedL
   if (line.type === 'directive') return { ...line, name: normalizeDisplayDirectiveName(line.name) };
   if (line.type !== 'lyrics') return line;
 
+  let tokenCursor = 0;
   return {
     type: 'lyrics',
     raw: line.raw,
+    sourceStart: line.sourceStart,
     tokens: line.tokens.map((token) => {
-      if (token.type === 'text') return { ...token, display: token.value };
-      if (isHarmonyTag(token.value)) return { type: 'text', value: `[${token.value}]`, display: `[${token.value}]` };
+      const needle = token.type === 'chord' ? `[${token.value}]` : token.value;
+      const tokenIndex = line.raw.indexOf(needle, tokenCursor);
+      if (tokenIndex >= 0) tokenCursor = tokenIndex + needle.length;
+      const sourceStart = typeof line.sourceStart === 'number' && tokenIndex >= 0 ? line.sourceStart + tokenIndex + (token.type === 'chord' ? 1 : 0) : undefined;
+      if (token.type === 'text') return { ...token, display: token.value, sourceStart };
+      if (isHarmonyTag(token.value)) return { type: 'text', value: `[${token.value}]`, display: `[${token.value}]`, sourceStart };
       const transposed = applyPerformanceChordTransform(token.value, options.transpose, options.capo);
       return {
         ...token,
+        sourceStart,
         display: options.showNashvilleNumbers ? chordToNashville(transposed, options.songKey) : transposed
       };
     })
@@ -252,10 +264,23 @@ function diagnostics(startedAt: number, parsedLineCount: number): RenderDiagnost
 }
 
 function getSongDisplayLines(song: Song): ParsedChordProLine[] {
-  return (
+  const lines = (
     song.parsedChordPro?.lines ??
     song.chart.split(/\r?\n/).map<ParsedChordProLine>((line) => parseFallbackDisplayLine(line))
   );
+  return attachSourceStarts(lines, song.chart ?? '');
+}
+
+function attachSourceStarts(lines: ParsedChordProLine[], chart: string): ParsedChordProLine[] {
+  let cursor = 0;
+  return lines.map((line) => {
+    const found = chart.indexOf(line.raw, cursor);
+    const sourceStart = found >= 0 ? found : cursor;
+    cursor = sourceStart + line.raw.length;
+    const breakMatch = chart.slice(cursor).match(/^\r?\n/);
+    if (breakMatch) cursor += breakMatch[0].length;
+    return { ...line, sourceStart };
+  });
 }
 
 function parseFallbackDisplayLine(line: string): ParsedChordProLine {

@@ -55,7 +55,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { db, ensureSeedData } from './data/db';
-import { lyricTextHarmonyState, renderLyricTextWithHarmony } from './components/LyricTextWithHarmony';
+import { lyricTextHarmonyState, renderLyricTextWithHarmony, type LyricTextWithHarmonyOptions } from './components/LyricTextWithHarmony';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './lib/importExport';
 import { chordOverTextToAnchoredLine, chordTokensToAnchoredLine, inlineChordsToChordOverLyrics, type AnchoredChordLine } from './lib/chordLayout';
 import { isChordProFileName, parseChordPro, parseChordProBundle } from './lib/chordpro';
@@ -76,6 +76,7 @@ import {
 } from './lib/autoscrollButton';
 import { formatDuration, isValidDurationInput, parseDurationInput } from './lib/format';
 import { getStageSwipeDirection } from './lib/stageGestures';
+import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/stageHarmonyEdit';
 import { createId } from './lib/ids';
 import {
   anchoredChordLineLayout,
@@ -163,7 +164,7 @@ import {
   stageFontFamilyUpdate,
   useMonospaceChordsUpdate
 } from './lib/displaySettings';
-import { markHarmonyRange, removeHarmonyRange, type HarmonyRange } from './lib/harmony';
+import { isRangeInsideHarmonyMarkup, markHarmonyRange, removeHarmonyRange, type HarmonyRange } from './lib/harmony';
 import { isOnSongArchiveFileName, parseOnSongArchive } from './lib/onsongArchive';
 import { createPortableBackup, restorePortableBackup, saveLocalCheckpoint } from './services/backup/backupService';
 import { reportError } from './services/errors/errorService';
@@ -245,10 +246,18 @@ type SetlistEntry = {
 type SetlistSortMode = 'manual' | 'title' | 'artist' | 'key' | 'bpm' | 'duration';
 type StagePopoverName = 'library' | 'setlists' | 'format' | 'more';
 type StageFormatTab = 'document' | 'format' | 'chords' | 'harmony' | 'sections' | 'display' | 'autoscroll' | 'external';
+type StageSelectionAction = {
+  start: number;
+  end: number;
+  rect: { left: number; top: number; width: number; height: number };
+  hasHarmony: boolean;
+};
 
 type ToastState = {
   message: string;
   type: 'success' | 'error' | 'info';
+  actionLabel?: string;
+  onAction?: () => void;
 } | null;
 
 type AutoscrollDebugInfo = {
@@ -917,6 +926,61 @@ export default function App() {
     } catch (error) {
       setToast({ message: 'Save failed', type: 'error' });
       reportError('Song save failed', error);
+    }
+  }
+
+  async function updateStageHarmony(songId: string, start: number, end: number, operation: StageHarmonyEditOperation) {
+    const song = songMap.get(songId);
+    if (!song) return;
+    const previousChart = song.chart;
+    const nextChart = applyStageHarmonyEdit(previousChart, start, end, operation);
+    if (nextChart === previousChart) {
+      setToast({ message: 'Select lyric text first', type: 'info' });
+      return;
+    }
+    try {
+      const nextSong = {
+        ...song,
+        chart: nextChart,
+        rawChordPro: nextChart,
+        parsedChordPro: parseChordPro(nextChart),
+        updatedAt: new Date().toISOString()
+      };
+      clearRenderCache();
+      await db.songs.put(nextSong);
+      await loadData();
+      setSelectedSongId(songId);
+      setToast({
+        message: operation === 'mark' ? 'Harmony marked' : 'Harmony removed',
+        type: 'success',
+        actionLabel: 'Undo',
+        onAction: () => {
+          void updateStageHarmonyChart(song, previousChart);
+        }
+      });
+    } catch (error) {
+      setToast({ message: 'Harmony save failed', type: 'error' });
+      reportError('Harmony save failed', error);
+    }
+  }
+
+  async function updateStageHarmonyChart(song: Song, chart: string) {
+    try {
+      const restoredSong = {
+        ...song,
+        chart,
+        rawChordPro: chart,
+        parsedChordPro: parseChordPro(chart),
+        updatedAt: new Date().toISOString()
+      };
+      clearRenderCache();
+      await db.songs.put(restoredSong);
+      await loadData();
+      setSelectedSongId(song.id);
+      setToast({ message: 'Harmony edit undone', type: 'info' });
+    } catch (error) {
+      setToast({ message: 'Undo failed', type: 'error' });
+      reportError('Harmony undo failed', error);
     }
   }
 
@@ -1929,6 +1993,7 @@ export default function App() {
               displayPreference: selectedSong.displayPreference === 'chords-over' ? 'inline' : 'chords-over'
             })
           }
+          onLiveHarmonyEdit={(operation, start, end) => updateStageHarmony(selectedSong.id, start, end, operation)}
           onScroll={(scrollTop) => saveStageScroll(selectedSong.id, scrollTop)}
           countdownRemaining={countdownRemaining}
         />
@@ -1999,6 +2064,7 @@ export default function App() {
               displayPreference: selectedSong.displayPreference === 'chords-over' ? 'inline' : 'chords-over'
             })
           }
+          onLiveHarmonyEdit={(operation, start, end) => updateStageHarmony(selectedSong.id, start, end, operation)}
           onScroll={(scrollTop) => saveStageScroll(selectedSong.id, scrollTop)}
           countdownRemaining={countdownRemaining}
           stageSetlistMode
@@ -2049,8 +2115,17 @@ function Toast({ toast }: { toast: Exclude<ToastState, null> }) {
         : 'border-slate-300 bg-slate-800 text-white';
 
   return (
-    <div className={`fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-md border px-4 py-3 text-sm font-semibold shadow-xl ${tone}`}>
+    <div className={`fixed bottom-5 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-md border px-4 py-3 text-sm font-semibold shadow-xl ${tone}`}>
       {toast.message}
+      {toast.actionLabel && toast.onAction && (
+        <button
+          className="rounded border border-white/40 px-2 py-1 text-xs uppercase tracking-normal hover:bg-white/15"
+          type="button"
+          onClick={toast.onAction}
+        >
+          {toast.actionLabel}
+        </button>
+      )}
     </div>
   );
 }
@@ -3646,6 +3721,7 @@ function PerformanceView({
   onExit,
   onChangeSongCapo,
   onToggleDisplayPreference,
+  onLiveHarmonyEdit,
   onScroll,
   countdownRemaining,
   stageSetlistMode = false
@@ -3684,6 +3760,7 @@ function PerformanceView({
   onExit: () => void;
   onChangeSongCapo: (capo: number) => void;
   onToggleDisplayPreference: () => void;
+  onLiveHarmonyEdit: (operation: StageHarmonyEditOperation, start: number, end: number) => void | Promise<void>;
   onScroll: (scrollTop: number) => void;
   countdownRemaining: number;
   stageSetlistMode?: boolean;
@@ -3732,6 +3809,7 @@ function PerformanceView({
   const [toolbarVisible, setToolbarVisible] = useState(true);
   const [cursorHidden, setCursorHidden] = useState(false);
   const [speedPopoverOpen, setSpeedPopoverOpen] = useState(false);
+  const [selectionAction, setSelectionAction] = useState<StageSelectionAction | null>(null);
   const autoscrollButtonRef = useRef<HTMLButtonElement | null>(null);
   const autoscrollLongPressTimerRef = useRef<number | null>(null);
   const autoscrollLongPressActivatedRef = useRef(false);
@@ -3848,17 +3926,18 @@ function PerformanceView({
     setActivePopover((current) => current === 'format' ? null : 'format');
   }, [closeSpeedPopover]);
   const handleStageTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    if (activePopover || isInteractiveSwipeTarget(event.target)) {
+    if (activePopover || selectionAction || isInteractiveSwipeTarget(event.target)) {
       swipeStartRef.current = null;
       return;
     }
     const touch = event.touches[0];
     swipeStartRef.current = touch ? { x: touch.clientX, y: touch.clientY, target: event.target } : null;
-  }, [activePopover]);
+  }, [activePopover, selectionAction]);
   const handleStageTouchEnd = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    window.setTimeout(() => updateStageSelectionFromBrowser(stageRef.current, song.chart, setSelectionAction), 0);
     const start = swipeStartRef.current;
     swipeStartRef.current = null;
-    if (!start || activePopover || isInteractiveSwipeTarget(start.target) || isInteractiveSwipeTarget(event.target)) return;
+    if (!start || activePopover || selectionAction || hasActiveStageLyricSelection(stageRef.current) || isInteractiveSwipeTarget(start.target) || isInteractiveSwipeTarget(event.target)) return;
 
     const touch = event.changedTouches[0];
     if (!touch) return;
@@ -3870,7 +3949,27 @@ function PerformanceView({
     });
     if (direction === 1) onNext();
     if (direction === -1) onPrevious();
-  }, [activePopover, onNext, onPrevious]);
+  }, [activePopover, onNext, onPrevious, selectionAction, song.chart, stageRef]);
+
+  const handleStageSelectionCommit = useCallback(() => {
+    window.setTimeout(() => updateStageSelectionFromBrowser(stageRef.current, song.chart, setSelectionAction), 0);
+  }, [song.chart, stageRef]);
+
+  const applyStageHarmonySelection = useCallback(async (operation: StageHarmonyEditOperation) => {
+    if (!selectionAction) return;
+    if (state.stageLocked && !window.confirm('Stage Lock is on. Save this harmony edit to the song chart?')) return;
+    await onLiveHarmonyEdit(operation, selectionAction.start, selectionAction.end);
+    setSelectionAction(null);
+    window.getSelection()?.removeAllRanges();
+  }, [onLiveHarmonyEdit, selectionAction, state.stageLocked]);
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      window.setTimeout(() => updateStageSelectionFromBrowser(stageRef.current, song.chart, setSelectionAction), 0);
+    };
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => document.removeEventListener('selectionchange', handleSelectionChange);
+  }, [song.chart, stageRef]);
 
   useEffect(() => {
     if (activePopover || speedPopoverOpen) return;
@@ -3906,6 +4005,7 @@ function PerformanceView({
       style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
       onPointerMove={revealMenu}
       onPointerDown={revealMenu}
+      onMouseUp={handleStageSelectionCommit}
     >
       <header
         className={`stage-top-toolbar fixed left-0 right-0 top-0 z-40 transition-opacity duration-300 ${toolbarVisible || activePopover ? 'opacity-100' : 'pointer-events-none opacity-0'} ${state.minimalStageMode ? 'opacity-0' : ''}`}
@@ -4102,6 +4202,30 @@ function PerformanceView({
               ))}
             </div>
           </div>
+        </div>
+      )}
+      {selectionAction && (
+        <div
+          className="stage-harmony-selection-popover fixed z-[60] flex gap-2 rounded-full border border-indigo-200/40 bg-slate-950/95 p-1.5 text-sm font-semibold text-white shadow-2xl backdrop-blur-md"
+          style={{
+            left: `min(max(0.75rem, ${selectionAction.rect.left + selectionAction.rect.width / 2}px), calc(100vw - 15rem))`,
+            top: `max(0.75rem, ${selectionAction.rect.top - 54}px)`
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {!selectionAction.hasHarmony && (
+            <button className="rounded-full px-3 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('mark')}>
+              Mark Harmony
+            </button>
+          )}
+          {selectionAction.hasHarmony && (
+            <button className="rounded-full px-3 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('remove')}>
+              Remove Harmony
+            </button>
+          )}
+          <button className="rounded-full px-3 py-2 text-slate-300 hover:bg-white/10" type="button" onClick={() => { setSelectionAction(null); window.getSelection()?.removeAllRanges(); }}>
+            <X size={16} />
+          </button>
         </div>
       )}
       {state.showReadingGuide && (
@@ -4953,6 +5077,80 @@ function isInteractiveSwipeTarget(target: EventTarget | null) {
   return target instanceof HTMLElement && Boolean(target.closest('button, input, textarea, select, option, label, [role="button"], [data-stage-control]'));
 }
 
+function hasActiveStageLyricSelection(stageElement: HTMLElement | null) {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !stageElement) return false;
+  return stageElement.contains(selection.anchorNode) && stageElement.contains(selection.focusNode);
+}
+
+function updateStageSelectionFromBrowser(
+  stageElement: HTMLElement | null,
+  chart: string,
+  setSelectionAction: React.Dispatch<React.SetStateAction<StageSelectionAction | null>>
+) {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !stageElement || !stageElement.contains(selection.anchorNode) || !stageElement.contains(selection.focusNode)) {
+    setSelectionAction(null);
+    return;
+  }
+
+  const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+  if (!range || !selection.toString().trim()) {
+    setSelectionAction(null);
+    return;
+  }
+
+  const start = sourcePointFromSelectionBoundary(range.startContainer, range.startOffset);
+  const end = sourcePointFromSelectionBoundary(range.endContainer, range.endOffset);
+  if (!start || !end) {
+    setSelectionAction(null);
+    return;
+  }
+
+  const sourceStart = Math.min(start, end);
+  const sourceEnd = Math.max(start, end);
+  if (sourceStart === sourceEnd) {
+    setSelectionAction(null);
+    return;
+  }
+
+  const rect = range.getBoundingClientRect();
+  setSelectionAction({
+    start: sourceStart,
+    end: sourceEnd,
+    rect: {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height
+    },
+    hasHarmony: isRangeInsideHarmonyMarkup(chart, sourceStart, sourceEnd)
+  });
+}
+
+function sourcePointFromSelectionBoundary(node: Node, offset: number) {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const element = node.parentElement?.closest<HTMLElement>('[data-stage-lyric="true"][data-source-start][data-source-end]');
+    if (!element) return null;
+    const sourceStart = Number(element.dataset.sourceStart);
+    const sourceEnd = Number(element.dataset.sourceEnd);
+    if (!Number.isFinite(sourceStart) || !Number.isFinite(sourceEnd)) return null;
+    return Math.max(sourceStart, Math.min(sourceEnd, sourceStart + offset));
+  }
+
+  if (node instanceof HTMLElement) {
+    const child = node.childNodes[Math.max(0, Math.min(offset, node.childNodes.length - 1))];
+    const element = (child instanceof HTMLElement ? child : child?.parentElement)?.closest<HTMLElement>('[data-stage-lyric="true"][data-source-start][data-source-end]');
+    if (!element) return null;
+    const sourceStart = Number(element.dataset.sourceStart);
+    const sourceEnd = Number(element.dataset.sourceEnd);
+    if (!Number.isFinite(sourceStart) || !Number.isFinite(sourceEnd)) return null;
+    return offset >= node.childNodes.length ? sourceEnd : sourceStart;
+  }
+
+  return null;
+}
+
 function isIPhoneViewport() {
   if (typeof window === 'undefined') return false;
   const ua = navigator.userAgent || '';
@@ -5577,6 +5775,13 @@ function PerformanceControlPanel({
   );
 }
 
+type LyricSourceRange = {
+  start: number;
+  end: number;
+  sourceStart: number;
+  sourceEnd: number;
+};
+
 function ChordProDisplayLine({
   line,
   transpose,
@@ -5751,10 +5956,12 @@ function ChordProDisplayLine({
       );
     }
     const anchoredLine = chordOverTextToAnchoredLine(line.chordLine, line.lyricLine);
+    const chordOverSourceRanges = buildLyricSourceRangesFromRawText(line.lyricLine, line.lyricSourceStart);
     if (mobileReflowMode) {
       return (
         <MobileReflowChordLine
           anchoredLine={anchoredLine}
+          sourceRanges={chordOverSourceRanges}
           lineIndex={lineIndex}
           chordClassName={chordClassName}
           chordStyle={chordStyle}
@@ -5772,6 +5979,7 @@ function ChordProDisplayLine({
     return (
       <AnchoredChordDisplayLine
         anchoredLine={anchoredLine}
+        sourceRanges={chordOverSourceRanges}
         lineIndex={lineIndex}
         chordClassName={chordClassName}
         chordStyle={chordStyle}
@@ -5801,10 +6009,12 @@ function ChordProDisplayLine({
 
   if (displayPreference === 'chords-over') {
     const anchoredLine = chordTokensToAnchoredLine(line.tokens);
+    const tokenSourceRanges = buildLyricSourceRangesFromRenderedTokens(line.tokens);
     if (mobileReflowMode) {
       return (
         <MobileReflowChordLine
           anchoredLine={anchoredLine}
+          sourceRanges={tokenSourceRanges}
           lineIndex={lineIndex}
           chordClassName={chordClassName}
           chordStyle={chordStyle}
@@ -5822,6 +6032,7 @@ function ChordProDisplayLine({
     return (
       <AnchoredChordDisplayLine
         anchoredLine={anchoredLine}
+        sourceRanges={tokenSourceRanges}
         lineIndex={lineIndex}
         chordClassName={chordClassName}
         chordStyle={chordStyle}
@@ -5841,11 +6052,13 @@ function ChordProDisplayLine({
   }
 
   const inlineAnchoredLine = chordTokensToAnchoredLine(line.tokens);
+  const inlineSourceRanges = buildLyricSourceRangesFromRenderedTokens(line.tokens);
   if (inlineAnchoredLine.anchors.length > 0) {
     if (mobileReflowMode) {
       return (
         <MobileReflowChordLine
           anchoredLine={inlineAnchoredLine}
+          sourceRanges={inlineSourceRanges}
           lineIndex={lineIndex}
           chordClassName={chordClassName}
           chordStyle={chordStyle}
@@ -5863,6 +6076,7 @@ function ChordProDisplayLine({
     return (
       <AnchoredChordDisplayLine
         anchoredLine={inlineAnchoredLine}
+        sourceRanges={inlineSourceRanges}
         lineIndex={lineIndex}
         chordClassName={chordClassName}
         chordStyle={chordStyle}
@@ -5884,13 +6098,123 @@ function ChordProDisplayLine({
   return (
     <div data-line-index={lineIndex} className="relative whitespace-pre-wrap" style={lyricLineStyle}>
       {showHarmonyCues && harmonyIconVisible && plainLineState.hasHarmony && <HarmonyCueIcon color={resolvedHarmonyIconColor} />}
-      {renderLyricTextWithHarmony(rawLineText, {
+      {renderSelectableLyricTextWithHarmony(rawLineText, {
+        sourceRanges: buildLyricSourceRangesFromRenderedTokens(line.tokens),
         showHarmonyCues,
         harmonyStyle,
         showHarmonyDebug
       })}
     </div>
   );
+}
+
+function renderSelectableLyricTextWithHarmony(
+  text: string,
+  options: LyricTextWithHarmonyOptions & { sourceRanges?: LyricSourceRange[] }
+) {
+  const lyricState = lyricTextHarmonyState(text, options.harmonyRanges);
+  const boundaries = Array.from(new Set([
+    0,
+    lyricState.text.length,
+    ...lyricState.ranges.flatMap((range) => [range.start, range.end]),
+    ...(options.sourceRanges ?? []).flatMap((range) => [range.start, range.end])
+  ])).sort((left, right) => left - right);
+
+  if (boundaries.length <= 2 && !options.sourceRanges?.length) {
+    return renderLyricTextWithHarmony(text, options);
+  }
+
+  return boundaries.slice(0, -1).map((start, index) => {
+    const end = boundaries[index + 1];
+    if (start >= end) return null;
+    const sourceRange = sourceRangeForSlice(options.sourceRanges, start, end);
+    const harmonyRanges = sliceHarmonyRanges(lyricState.ranges, start, end);
+    const dataProps = sourceRange
+      ? {
+          'data-stage-lyric': 'true',
+          'data-source-start': String(sourceRange.sourceStart + (start - sourceRange.start)),
+          'data-source-end': String(sourceRange.sourceStart + (end - sourceRange.start))
+        }
+      : {};
+    return (
+      <span key={`selectable-${start}-${end}-${index}`} {...dataProps}>
+        {renderLyricTextWithHarmony(lyricState.text.slice(start, end), {
+          harmonyRanges,
+          showHarmonyCues: options.showHarmonyCues,
+          harmonyStyle: options.harmonyStyle,
+          showHarmonyDebug: options.showHarmonyDebug
+        })}
+      </span>
+    );
+  });
+}
+
+function sourceRangeForSlice(ranges: LyricSourceRange[] | undefined, start: number, end: number) {
+  return ranges?.find((range) => start >= range.start && end <= range.end);
+}
+
+function buildLyricSourceRangesFromRenderedTokens(tokens: Array<{ type: 'text' | 'chord'; value: string; display: string; sourceStart?: number }>) {
+  const ranges: LyricSourceRange[] = [];
+  let visibleCursor = 0;
+  tokens.forEach((token) => {
+    if (token.type !== 'text') return;
+    const built = buildLyricSourceRangesFromRawText(token.display, token.sourceStart, visibleCursor);
+    if (built) ranges.push(...built);
+    visibleCursor += lyricTextHarmonyState(token.display).text.length;
+  });
+  return ranges;
+}
+
+function buildLyricSourceRangesFromRawText(rawText: string, sourceStart: number | undefined, visibleOffset = 0) {
+  if (typeof sourceStart !== 'number') return undefined;
+  const ranges: LyricSourceRange[] = [];
+  let visibleCursor = visibleOffset;
+  let rawIndex = 0;
+
+  while (rawIndex < rawText.length) {
+    const remaining = rawText.slice(rawIndex).toUpperCase();
+    if (remaining.startsWith('[HARMONY]')) {
+      rawIndex += '[HARMONY]'.length;
+      continue;
+    }
+    if (remaining.startsWith('[/HARMONY]')) {
+      rawIndex += '[/HARMONY]'.length;
+      continue;
+    }
+    const rawStart = rawIndex;
+    let text = '';
+    while (rawIndex < rawText.length) {
+      const next = rawText.slice(rawIndex).toUpperCase();
+      if (next.startsWith('[HARMONY]') || next.startsWith('[/HARMONY]')) break;
+      text += rawText[rawIndex];
+      rawIndex += 1;
+    }
+    if (text.length > 0) {
+      ranges.push({
+        start: visibleCursor,
+        end: visibleCursor + text.length,
+        sourceStart: sourceStart + rawStart,
+        sourceEnd: sourceStart + rawIndex
+      });
+      visibleCursor += text.length;
+    }
+  }
+
+  return mergeAdjacentLyricSourceRanges(ranges);
+}
+
+function mergeAdjacentLyricSourceRanges(ranges: LyricSourceRange[]) {
+  const merged: LyricSourceRange[] = [];
+  ranges.forEach((range) => {
+    const previous = merged[merged.length - 1];
+    if (previous && previous.end === range.start && previous.sourceEnd === range.sourceStart) {
+      previous.end = range.end;
+      previous.sourceEnd = range.sourceEnd;
+      return;
+    }
+    merged.push({ ...range });
+  });
+  return merged;
 }
 
 function renderStandaloneChordRow(line: string, chordClassName: string, chordStyle: React.CSSProperties) {
@@ -5919,6 +6243,7 @@ function renderMobileStandaloneChordRow(line: string, chordClassName: string, ch
 
 function MobileReflowChordLine({
   anchoredLine,
+  sourceRanges,
   lineIndex,
   chordClassName,
   chordStyle,
@@ -5932,6 +6257,7 @@ function MobileReflowChordLine({
   showHarmonyDebug
 }: {
   anchoredLine: AnchoredChordLine;
+  sourceRanges?: LyricSourceRange[];
   lineIndex: number;
   chordClassName: string;
   chordStyle: React.CSSProperties;
@@ -5964,8 +6290,9 @@ function MobileReflowChordLine({
     if (nextBoundary === undefined || boundary >= nextBoundary) return;
     nodes.push(
       <span key={`text-${boundary}-${nextBoundary}`}>
-        {renderLyricTextWithHarmony(anchoredLine.lyricLine.slice(boundary, nextBoundary), {
+        {renderSelectableLyricTextWithHarmony(anchoredLine.lyricLine.slice(boundary, nextBoundary), {
           harmonyRanges: sliceHarmonyRanges(lyricState.ranges, boundary, nextBoundary),
+          sourceRanges: sliceLyricSourceRanges(sourceRanges, boundary, nextBoundary),
           showHarmonyCues,
           harmonyStyle,
           showHarmonyDebug
@@ -6050,6 +6377,7 @@ function isStageChordToken(value: string) {
 
 function AnchoredChordDisplayLine({
   anchoredLine,
+  sourceRanges,
   lineIndex,
   chordClassName,
   chordStyle,
@@ -6066,6 +6394,7 @@ function AnchoredChordDisplayLine({
   showHarmonyDebug
 }: {
   anchoredLine: AnchoredChordLine;
+  sourceRanges?: LyricSourceRange[];
   lineIndex: number;
   chordClassName: string;
   chordStyle: React.CSSProperties;
@@ -6170,7 +6499,7 @@ function AnchoredChordDisplayLine({
         )}
         {showHarmonyCues && harmonyIconVisible && anchoredLine.harmonyRanges.length > 0 && <HarmonyCueIcon color={harmonyIconColor} top={lyricTop + lyricLineHeight / 2} />}
         <div ref={lyricRef} className="absolute left-0 whitespace-pre" style={{ top: `${lyricTop}px`, lineHeight: `${lyricLineHeight}px` }}>
-          {renderLyricWithAnchorMarkers(anchoredLine.lyricLine, anchorIndexes, markerRefs, anchoredLine.harmonyRanges, showHarmonyCues, harmonyStyle, showHarmonyDebug)}
+          {renderLyricWithAnchorMarkers(anchoredLine.lyricLine, anchorIndexes, markerRefs, anchoredLine.harmonyRanges, sourceRanges, showHarmonyCues, harmonyStyle, showHarmonyDebug)}
         </div>
       </div>
     </div>
@@ -6192,6 +6521,7 @@ function renderLyricWithAnchorMarkers(
   anchorIndexes: number[],
   markerRefs: React.MutableRefObject<Map<number, HTMLSpanElement>>,
   harmonyRanges: HarmonyRange[] = [],
+  sourceRanges?: LyricSourceRange[],
   showHarmonyCues = true,
   harmonyStyle: React.CSSProperties = {},
   showHarmonyDebug = false
@@ -6226,8 +6556,9 @@ function renderLyricWithAnchorMarkers(
     if (nextBoundary === undefined || boundary >= nextBoundary) continue;
     nodes.push(
       <span key={`text-${boundary}-${nextBoundary}`}>
-        {renderLyricTextWithHarmony(lyricLine.slice(boundary, nextBoundary), {
+        {renderSelectableLyricTextWithHarmony(lyricLine.slice(boundary, nextBoundary), {
           harmonyRanges: sliceHarmonyRanges(lyricState.ranges, boundary, nextBoundary),
+          sourceRanges: sliceLyricSourceRanges(sourceRanges, boundary, nextBoundary),
           showHarmonyCues,
           harmonyStyle,
           showHarmonyDebug
@@ -6245,6 +6576,17 @@ function sliceHarmonyRanges(ranges: HarmonyRange[], start: number, end: number) 
     .map((range) => ({
       start: Math.max(start, range.start) - start,
       end: Math.min(end, range.end) - start
+    }))
+    .filter((range) => range.end > range.start);
+}
+
+function sliceLyricSourceRanges(ranges: LyricSourceRange[] | undefined, start: number, end: number) {
+  return ranges
+    ?.map((range) => ({
+      start: Math.max(start, range.start) - start,
+      end: Math.min(end, range.end) - start,
+      sourceStart: range.sourceStart + Math.max(0, start - range.start),
+      sourceEnd: range.sourceStart + Math.max(0, Math.min(end, range.end) - range.start)
     }))
     .filter((range) => range.end > range.start);
 }

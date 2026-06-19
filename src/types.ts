@@ -61,11 +61,11 @@ export type ParsedChordToken =
   | { type: 'text'; value: string };
 
 export type ParsedChordProLine =
-  | { type: 'lyrics'; raw: string; tokens: ParsedChordToken[] }
-  | { type: 'blank'; raw: string }
-  | { type: 'comment'; raw: string; text: string }
-  | { type: 'section'; raw: string; section: SongSectionName; boundary: 'start' | 'end' }
-  | { type: 'directive'; raw: string; name: ChordProDirectiveName; value: string };
+  | { type: 'lyrics'; raw: string; tokens: ParsedChordToken[]; sourceStart?: number }
+  | { type: 'blank'; raw: string; sourceStart?: number }
+  | { type: 'comment'; raw: string; text: string; sourceStart?: number }
+  | { type: 'section'; raw: string; section: SongSectionName; boundary: 'start' | 'end'; sourceStart?: number }
+  | { type: 'directive'; raw: string; name: ChordProDirectiveName; value: string; sourceStart?: number };
 
 export type SongSectionName = 'verse' | 'chorus' | 'bridge' | 'solo' | 'outro';
 

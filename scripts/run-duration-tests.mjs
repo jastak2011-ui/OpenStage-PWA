@@ -85,6 +85,14 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/lib/stageHarmonyEdit.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/stageHarmonyEdit-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/services/externalDisplay.ts')],
   bundle: true,
   platform: 'node',

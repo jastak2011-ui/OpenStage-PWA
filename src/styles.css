@@ -162,6 +162,12 @@ label,
 
 .stage-chart {
   text-wrap: pretty;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.stage-harmony-selection-popover {
+  max-width: min(24rem, calc(100vw - 1.5rem));
 }
 
 .stage-profile-iphone .stage-scroll {
@@ -543,6 +549,15 @@ label,
     width: auto !important;
     max-width: none;
     padding: 0.75rem;
+  }
+
+  .stage-harmony-selection-popover {
+    left: 0.75rem !important;
+    right: 0.75rem !important;
+    top: auto !important;
+    bottom: max(4rem, calc(env(safe-area-inset-bottom) + 4rem)) !important;
+    justify-content: center;
+    border-radius: 999px;
   }
 
   .stage-autoscroll-status {

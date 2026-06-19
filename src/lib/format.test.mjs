@@ -20,10 +20,11 @@ import {
   inlineChordsToChordOverLyrics
 } from './chordLayout-test-target.mjs';
 import { parseChordPro } from './chordpro-test-target.mjs';
-import { harmonyTextRuns, lyricHarmonyRenderModel, lyricHarmonyRenderModelFromParsed, markHarmonyRange, parseHarmonyText, removeHarmonyRange, stripHarmonyMarkup } from './harmony-test-target.mjs';
+import { harmonyTextRuns, isRangeInsideHarmonyMarkup, lyricHarmonyRenderModel, lyricHarmonyRenderModelFromParsed, markHarmonyRange, parseHarmonyText, removeHarmonyRange, stripHarmonyMarkup } from './harmony-test-target.mjs';
 import { createId } from './ids-test-target.mjs';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './importExport-test-target.mjs';
 import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
+import { applyStageHarmonyEdit } from './stageHarmonyEdit-test-target.mjs';
 import { appleTvPortraitPrompterSettings, calculateExternalPrompterLayout, normalizeExternalDisplaySettings } from '../services/externalDisplay-test-target.mjs';
 import {
   anchoredChordLineLayout,
@@ -109,6 +110,12 @@ assert.deepEqual(
 assert.equal(stripHarmonyMarkup('[HARMONY]Full line[/HARMONY]'), 'Full line');
 assert.equal(markHarmonyRange('Take it easy', 8, 12), 'Take it [HARMONY]easy[/HARMONY]');
 assert.equal(markHarmonyRange('(ooh...ooh....ooh...ooh)', 0, 25), '[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]');
+assert.equal(isRangeInsideHarmonyMarkup('Take it [HARMONY]easy[/HARMONY]', 17, 21), true);
+assert.equal(removeHarmonyRange('Take it [HARMONY]easy[/HARMONY]', 17, 21), 'Take it easy');
+assert.equal(applyStageHarmonyEdit('Plain lyric line', 6, 11, 'mark'), 'Plain [HARMONY]lyric[/HARMONY] line');
+assert.equal(applyStageHarmonyEdit('[G]Take it easy', 11, 15, 'mark'), '[G]Take it [HARMONY]easy[/HARMONY]');
+assert.equal(applyStageHarmonyEdit('(ooh...ooh....ooh...ooh)', 0, 25, 'mark'), '[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]');
+assert.equal(applyStageHarmonyEdit('Take it [HARMONY]easy[/HARMONY]', 17, 21, 'remove'), 'Take it easy');
 const noSelectionHarmony = markHarmonyRange('Verse line\n(ooh...ooh....ooh...ooh)\nNext line', 12, 12);
 assert.equal(noSelectionHarmony, 'Verse line\n[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]\nNext line');
 assert.equal(removeHarmonyRange('Take it [HARMONY]easy[/HARMONY]', 0, 999), 'Take it easy');
