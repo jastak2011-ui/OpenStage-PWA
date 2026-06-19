@@ -249,6 +249,8 @@ type StageFormatTab = 'document' | 'format' | 'chords' | 'harmony' | 'sections' 
 type StageSelectionAction = {
   start: number;
   end: number;
+  selectedText: string;
+  songId: string;
   rect: { left: number; top: number; width: number; height: number };
   hasHarmony: boolean;
   pendingOperation?: StageHarmonyEditOperation;
@@ -3936,7 +3938,7 @@ function PerformanceView({
     swipeStartRef.current = touch ? { x: touch.clientX, y: touch.clientY, target: event.target } : null;
   }, [activePopover, selectionAction]);
   const handleStageTouchEnd = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    window.setTimeout(() => updateStageSelectionFromBrowser(stageRef.current, song.chart, setSelectionAction), 0);
+    window.setTimeout(() => updateStageSelectionFromBrowser(stageRef.current, song, setSelectionAction, { preserveExisting: useBottomHarmonyActionBar }), 0);
     const start = swipeStartRef.current;
     swipeStartRef.current = null;
     if (!start || activePopover || selectionAction || hasActiveStageLyricSelection(stageRef.current) || isInteractiveSwipeTarget(start.target) || isInteractiveSwipeTarget(event.target)) return;
@@ -3951,15 +3953,15 @@ function PerformanceView({
     });
     if (direction === 1) onNext();
     if (direction === -1) onPrevious();
-  }, [activePopover, onNext, onPrevious, selectionAction, song.chart, stageRef]);
+  }, [activePopover, onNext, onPrevious, selectionAction, song, stageRef, useBottomHarmonyActionBar]);
 
   const handleStageSelectionCommit = useCallback(() => {
-    window.setTimeout(() => updateStageSelectionFromBrowser(stageRef.current, song.chart, setSelectionAction), 0);
-  }, [song.chart, stageRef]);
+    window.setTimeout(() => updateStageSelectionFromBrowser(stageRef.current, song, setSelectionAction), 0);
+  }, [song, stageRef]);
 
   const applyStageHarmonySelection = useCallback(async (operation: StageHarmonyEditOperation) => {
     if (!selectionAction) return;
-    if (useBottomHarmonyActionBar && state.stageLocked && selectionAction.pendingOperation !== operation) {
+    if (useBottomHarmonyActionBar && selectionAction.pendingOperation !== operation) {
       setSelectionAction((current) => current ? { ...current, pendingOperation: operation } : current);
       return;
     }
@@ -3971,20 +3973,25 @@ function PerformanceView({
 
   useEffect(() => {
     const handleSelectionChange = () => {
-      window.setTimeout(() => updateStageSelectionFromBrowser(stageRef.current, song.chart, setSelectionAction), 0);
+      window.setTimeout(() => updateStageSelectionFromBrowser(stageRef.current, song, setSelectionAction, { preserveExisting: useBottomHarmonyActionBar }), 0);
     };
     document.addEventListener('selectionchange', handleSelectionChange);
     return () => document.removeEventListener('selectionchange', handleSelectionChange);
-  }, [song.chart, stageRef]);
+  }, [song, stageRef, useBottomHarmonyActionBar]);
 
   useEffect(() => {
-    if (activePopover || speedPopoverOpen) return;
+    setSelectionAction(null);
+    window.getSelection()?.removeAllRanges();
+  }, [song.id]);
+
+  useEffect(() => {
+    if (activePopover || speedPopoverOpen || selectionAction) return;
     const timer = window.setTimeout(() => {
       setToolbarVisible(false);
       setCursorHidden(true);
     }, 5000);
     return () => window.clearTimeout(timer);
-  }, [activePopover, speedPopoverOpen, toolbarVisible]);
+  }, [activePopover, selectionAction, speedPopoverOpen, toolbarVisible]);
 
   useEffect(() => {
     if (!speedPopoverOpen) return;
@@ -4007,7 +4014,7 @@ function PerformanceView({
       className={`stage-shell stage-profile-${state.activeProfile} relative h-screen overflow-hidden transition-colors duration-300 ${stageBackground} ${cursorHidden && !activePopover ? 'cursor-none' : ''}`}
       data-stage-profile={state.activeProfile}
       data-mobile-reflow={mobileReflowMode ? 'true' : 'false'}
-      data-controls-visible={toolbarVisible || activePopover || speedPopoverOpen ? 'true' : 'false'}
+      data-controls-visible={toolbarVisible || activePopover || speedPopoverOpen || selectionAction ? 'true' : 'false'}
       style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
       onPointerMove={revealMenu}
       onPointerDown={revealMenu}
@@ -4220,11 +4227,19 @@ function PerformanceView({
               onPointerDown={(event) => event.stopPropagation()}
             >
               <div className="mb-3 text-amber-100">Confirm edit to song chart?</div>
+              {state.showHarmonyDebug && (
+                <div className="mb-3 rounded-md border border-indigo-300/30 bg-indigo-300/10 px-2 py-1 text-left text-[0.68rem] text-indigo-100">
+                  <div>selected text captured: {selectionAction.selectedText.slice(0, 80)}</div>
+                  <div>pending selection exists: yes</div>
+                  <div>confirmation visible: yes</div>
+                  <div>confirmation action: {selectionAction.pendingOperation}</div>
+                </div>
+              )}
               <div className="flex justify-center gap-2">
-                <button className="rounded-full bg-teal-600 px-4 py-2 text-white hover:bg-teal-500" type="button" onClick={() => void applyStageHarmonySelection(selectionAction.pendingOperation!)}>
+                <button className="rounded-full bg-teal-600 px-4 py-2 text-white hover:bg-teal-500" type="button" onPointerDown={keepStageSelectionButtonPress} onClick={() => void applyStageHarmonySelection(selectionAction.pendingOperation!)}>
                   Apply
                 </button>
-                <button className="rounded-full border border-slate-500 px-4 py-2 text-slate-200 hover:bg-white/10" type="button" onClick={() => setSelectionAction((current) => current ? { ...current, pendingOperation: undefined } : current)}>
+                <button className="rounded-full border border-slate-500 px-4 py-2 text-slate-200 hover:bg-white/10" type="button" onPointerDown={keepStageSelectionButtonPress} onClick={() => setSelectionAction((current) => current ? { ...current, pendingOperation: undefined } : current)}>
                   Cancel
                 </button>
               </div>
@@ -4240,17 +4255,22 @@ function PerformanceView({
             role="toolbar"
             aria-label="Harmony selection actions"
           >
+            {state.showHarmonyDebug && (
+              <span className="rounded-full bg-indigo-500/20 px-3 py-2 text-[0.65rem] text-indigo-100">
+                captured: {selectionAction.selectedText.slice(0, 32)}
+              </span>
+            )}
             {!selectionAction.hasHarmony && (
-              <button className="rounded-full px-4 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('mark')}>
+              <button className="rounded-full px-4 py-2 hover:bg-white/10" type="button" onPointerDown={keepStageSelectionButtonPress} onClick={() => void applyStageHarmonySelection('mark')}>
                 Mark Harmony
               </button>
             )}
             {selectionAction.hasHarmony && (
-              <button className="rounded-full px-4 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('remove')}>
+              <button className="rounded-full px-4 py-2 hover:bg-white/10" type="button" onPointerDown={keepStageSelectionButtonPress} onClick={() => void applyStageHarmonySelection('remove')}>
                 Remove Harmony
               </button>
             )}
-            <button className="rounded-full px-4 py-2 text-slate-300 hover:bg-white/10" type="button" onClick={() => { setSelectionAction(null); window.getSelection()?.removeAllRanges(); }}>
+            <button className="rounded-full px-4 py-2 text-slate-300 hover:bg-white/10" type="button" onPointerDown={keepStageSelectionButtonPress} onClick={() => { setSelectionAction(null); window.getSelection()?.removeAllRanges(); }}>
               Cancel
             </button>
           </div>
@@ -5105,6 +5125,11 @@ function isInteractiveSwipeTarget(target: EventTarget | null) {
   return target instanceof HTMLElement && Boolean(target.closest('button, input, textarea, select, option, label, [role="button"], [data-stage-control]'));
 }
 
+function keepStageSelectionButtonPress(event: React.PointerEvent<HTMLButtonElement>) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 function shouldUseBottomHarmonyActionBar() {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
@@ -5122,32 +5147,34 @@ function hasActiveStageLyricSelection(stageElement: HTMLElement | null) {
 
 function updateStageSelectionFromBrowser(
   stageElement: HTMLElement | null,
-  chart: string,
-  setSelectionAction: React.Dispatch<React.SetStateAction<StageSelectionAction | null>>
+  song: Song,
+  setSelectionAction: React.Dispatch<React.SetStateAction<StageSelectionAction | null>>,
+  options: { preserveExisting?: boolean } = {}
 ) {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || !stageElement || !stageElement.contains(selection.anchorNode) || !stageElement.contains(selection.focusNode)) {
-    setSelectionAction(null);
+    setSelectionAction((current) => options.preserveExisting && current ? current : null);
     return;
   }
 
   const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-  if (!range || !selection.toString().trim()) {
-    setSelectionAction(null);
+  const selectedText = selection.toString();
+  if (!range || !selectedText.trim()) {
+    setSelectionAction((current) => options.preserveExisting && current ? current : null);
     return;
   }
 
   const start = sourcePointFromSelectionBoundary(range.startContainer, range.startOffset);
   const end = sourcePointFromSelectionBoundary(range.endContainer, range.endOffset);
-  if (!start || !end) {
-    setSelectionAction(null);
+  if (start === null || end === null) {
+    setSelectionAction((current) => options.preserveExisting && current ? current : null);
     return;
   }
 
   const sourceStart = Math.min(start, end);
   const sourceEnd = Math.max(start, end);
   if (sourceStart === sourceEnd) {
-    setSelectionAction(null);
+    setSelectionAction((current) => options.preserveExisting && current ? current : null);
     return;
   }
 
@@ -5155,13 +5182,15 @@ function updateStageSelectionFromBrowser(
   setSelectionAction({
     start: sourceStart,
     end: sourceEnd,
+    selectedText,
+    songId: song.id,
     rect: {
       left: rect.left,
       top: rect.top,
       width: rect.width,
       height: rect.height
     },
-    hasHarmony: isRangeInsideHarmonyMarkup(chart, sourceStart, sourceEnd)
+    hasHarmony: isRangeInsideHarmonyMarkup(song.chart, sourceStart, sourceEnd)
   });
 }
 
