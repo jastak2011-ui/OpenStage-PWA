@@ -66,6 +66,14 @@ import {
   detectAutoscrollHeartbeatStall,
   estimateBpmAutoscrollDurationSeconds
 } from './lib/autoscroll';
+import {
+  adjustAutoscrollSpeedMultiplier,
+  autoscrollLongPressMs,
+  autoscrollSpeedMax,
+  autoscrollSpeedMin,
+  autoscrollSpeedQuickPresets,
+  autoscrollSpeedStep
+} from './lib/autoscrollButton';
 import { formatDuration, isValidDurationInput, parseDurationInput } from './lib/format';
 import { getStageSwipeDirection } from './lib/stageGestures';
 import { createId } from './lib/ids';
@@ -3723,6 +3731,11 @@ function PerformanceView({
   const [formatTab, setFormatTab] = useState<StageFormatTab>('format');
   const [toolbarVisible, setToolbarVisible] = useState(true);
   const [cursorHidden, setCursorHidden] = useState(false);
+  const [speedPopoverOpen, setSpeedPopoverOpen] = useState(false);
+  const autoscrollButtonRef = useRef<HTMLButtonElement | null>(null);
+  const autoscrollLongPressTimerRef = useRef<number | null>(null);
+  const autoscrollLongPressActivatedRef = useRef(false);
+  const speedPopoverHideTimerRef = useRef<number | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number; target: EventTarget | null } | null>(null);
   const stageTheme = getStageTheme(state.stageTheme);
   const stageBackground = stageTheme.className;
@@ -3766,6 +3779,7 @@ function PerformanceView({
   const harmonyIconVisible = getEffectiveHarmonyIconVisible(state);
   const visibleStageNotes = filterStageNotes(song.notes);
   const autoscrollStatus = isAutoscrolling ? 'Running' : autoscrollDebug.stopReason === 'none' || autoscrollDebug.stopReason === 'user-paused' ? 'Paused' : 'Stopped';
+  const currentScrollSpeed = normalizeAutoscrollSpeedMultiplier(state.autoscrollSpeed);
   const isWarmTheme = state.stageTheme === 'coffeehouse';
   const headerText = isWarmTheme ? 'text-[#f4ead2]' : state.theme === 'dark' ? 'text-slate-100' : 'text-slate-950';
   const mutedText = isWarmTheme ? 'text-[#cdbb96]' : state.theme === 'dark' ? 'text-slate-400' : 'text-slate-600';
@@ -3776,15 +3790,63 @@ function PerformanceView({
     setToolbarVisible(true);
     setCursorHidden(false);
   }, []);
+  const closeSpeedPopover = useCallback(() => {
+    setSpeedPopoverOpen(false);
+    if (speedPopoverHideTimerRef.current) {
+      window.clearTimeout(speedPopoverHideTimerRef.current);
+      speedPopoverHideTimerRef.current = null;
+    }
+  }, []);
+  const keepSpeedPopoverAwake = useCallback(() => {
+    if (speedPopoverHideTimerRef.current) window.clearTimeout(speedPopoverHideTimerRef.current);
+    speedPopoverHideTimerRef.current = window.setTimeout(() => {
+      setSpeedPopoverOpen(false);
+      speedPopoverHideTimerRef.current = null;
+    }, 4000);
+  }, []);
+  const openSpeedPopover = useCallback(() => {
+    revealMenu();
+    setActivePopover(null);
+    setSpeedPopoverOpen(true);
+    keepSpeedPopoverAwake();
+  }, [keepSpeedPopoverAwake, revealMenu]);
+  const clearAutoscrollLongPressTimer = useCallback(() => {
+    if (!autoscrollLongPressTimerRef.current) return;
+    window.clearTimeout(autoscrollLongPressTimerRef.current);
+    autoscrollLongPressTimerRef.current = null;
+  }, []);
+  const handleAutoscrollPointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    clearAutoscrollLongPressTimer();
+    autoscrollLongPressActivatedRef.current = false;
+    autoscrollLongPressTimerRef.current = window.setTimeout(() => {
+      autoscrollLongPressActivatedRef.current = true;
+      autoscrollLongPressTimerRef.current = null;
+      openSpeedPopover();
+    }, autoscrollLongPressMs);
+  }, [clearAutoscrollLongPressTimer, openSpeedPopover]);
+  const handleAutoscrollPointerEnd = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    clearAutoscrollLongPressTimer();
+  }, [clearAutoscrollLongPressTimer]);
+  const handleAutoscrollContextMenu = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    autoscrollLongPressActivatedRef.current = true;
+    openSpeedPopover();
+  }, [openSpeedPopover]);
   const togglePopover = useCallback((popover: StagePopoverName) => {
     setToolbarVisible(true);
+    closeSpeedPopover();
     setActivePopover((current) => current === popover ? null : popover);
-  }, []);
+  }, [closeSpeedPopover]);
   const openFormatPopover = useCallback((tab: StageFormatTab = 'format') => {
     setFormatTab(tab);
     setToolbarVisible(true);
+    closeSpeedPopover();
     setActivePopover((current) => current === 'format' ? null : 'format');
-  }, []);
+  }, [closeSpeedPopover]);
   const handleStageTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     if (activePopover || isInteractiveSwipeTarget(event.target)) {
       swipeStartRef.current = null;
@@ -3811,20 +3873,36 @@ function PerformanceView({
   }, [activePopover, onNext, onPrevious]);
 
   useEffect(() => {
-    if (activePopover) return;
+    if (activePopover || speedPopoverOpen) return;
     const timer = window.setTimeout(() => {
       setToolbarVisible(false);
       setCursorHidden(true);
     }, 5000);
     return () => window.clearTimeout(timer);
-  }, [activePopover, toolbarVisible]);
+  }, [activePopover, speedPopoverOpen, toolbarVisible]);
+
+  useEffect(() => {
+    if (!speedPopoverOpen) return;
+    keepSpeedPopoverAwake();
+    return () => {
+      if (speedPopoverHideTimerRef.current) {
+        window.clearTimeout(speedPopoverHideTimerRef.current);
+        speedPopoverHideTimerRef.current = null;
+      }
+    };
+  }, [keepSpeedPopoverAwake, speedPopoverOpen]);
+
+  useEffect(() => () => {
+    clearAutoscrollLongPressTimer();
+    if (speedPopoverHideTimerRef.current) window.clearTimeout(speedPopoverHideTimerRef.current);
+  }, [clearAutoscrollLongPressTimer]);
 
   return (
     <main
       className={`stage-shell stage-profile-${state.activeProfile} relative h-screen overflow-hidden transition-colors duration-300 ${stageBackground} ${cursorHidden && !activePopover ? 'cursor-none' : ''}`}
       data-stage-profile={state.activeProfile}
       data-mobile-reflow={mobileReflowMode ? 'true' : 'false'}
-      data-controls-visible={toolbarVisible || activePopover ? 'true' : 'false'}
+      data-controls-visible={toolbarVisible || activePopover || speedPopoverOpen ? 'true' : 'false'}
       style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
       onPointerMove={revealMenu}
       onPointerDown={revealMenu}
@@ -3931,25 +4009,101 @@ function PerformanceView({
         Autoscroll {autoscrollStatus}
       </div>
       <div
-        className={`fixed z-40 transition-opacity duration-300 ${toolbarVisible || activePopover ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        className={`fixed z-40 transition-opacity duration-300 ${toolbarVisible || activePopover || speedPopoverOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
         style={{
           right: 'max(1.25rem, env(safe-area-inset-right))',
           bottom: 'max(1.25rem, env(safe-area-inset-bottom))'
         }}
       >
         <button
+          ref={autoscrollButtonRef}
           className={`stage-autoscroll-float ${isAutoscrolling ? 'stage-autoscroll-running' : 'stage-autoscroll-paused'}`}
           type="button"
-          title={isAutoscrolling ? 'Pause Autoscroll' : 'Start Autoscroll'}
-          aria-label={isAutoscrolling ? 'Pause Autoscroll' : 'Start Autoscroll'}
+          title={speedPopoverOpen ? 'Adjust Scroll Speed' : isAutoscrolling ? 'Pause Autoscroll' : 'Start Autoscroll'}
+          aria-label={speedPopoverOpen ? 'Adjust Scroll Speed' : isAutoscrolling ? 'Pause Autoscroll' : 'Start Autoscroll'}
+          aria-haspopup="dialog"
+          aria-expanded={speedPopoverOpen}
+          onPointerDown={handleAutoscrollPointerDown}
+          onPointerUp={handleAutoscrollPointerEnd}
+          onPointerCancel={handleAutoscrollPointerEnd}
+          onPointerLeave={handleAutoscrollPointerEnd}
+          onContextMenu={handleAutoscrollContextMenu}
           onClick={(event) => {
             event.stopPropagation();
+            if (autoscrollLongPressActivatedRef.current) {
+              autoscrollLongPressActivatedRef.current = false;
+              return;
+            }
             onToggleAutoscroll();
           }}
         >
           {isAutoscrolling ? <Pause size={20} /> : <ChevronsDown size={21} />}
         </button>
       </div>
+      {speedPopoverOpen && (
+        <div className="fixed inset-0 z-50" onPointerDown={closeSpeedPopover}>
+          <div
+            className={`stage-speed-popover fixed rounded-xl border p-3 shadow-2xl backdrop-blur-md ${menuSurface}`}
+            role="dialog"
+            aria-label="Adjust Scroll Speed"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              keepSpeedPopoverAwake();
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              keepSpeedPopoverAwake();
+            }}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Scroll Speed</div>
+                <div className="text-lg font-bold">{currentScrollSpeed.toFixed(2)}x</div>
+              </div>
+              <Gauge size={22} className="text-teal-300" />
+            </div>
+            <div className="mb-3 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+              <button
+                className="stage-speed-step-button"
+                type="button"
+                aria-label="Decrease Scroll Speed"
+                onClick={() => setAutoscrollSpeed(adjustAutoscrollSpeedMultiplier(currentScrollSpeed, -autoscrollSpeedStep))}
+              >
+                -
+              </button>
+              <input
+                aria-label="Adjust Scroll Speed"
+                type="range"
+                min={autoscrollSpeedMin}
+                max={autoscrollSpeedMax}
+                step={autoscrollSpeedStep}
+                value={currentScrollSpeed}
+                onChange={(event) => setAutoscrollSpeed(Number(event.target.value))}
+              />
+              <button
+                className="stage-speed-step-button"
+                type="button"
+                aria-label="Increase Scroll Speed"
+                onClick={() => setAutoscrollSpeed(adjustAutoscrollSpeedMultiplier(currentScrollSpeed, autoscrollSpeedStep))}
+              >
+                +
+              </button>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {autoscrollSpeedQuickPresets.map((preset) => (
+                <button
+                  key={preset}
+                  className={`rounded-md border px-2 py-2 text-xs font-semibold ${Math.abs(currentScrollSpeed - preset) < 0.001 ? 'border-teal-300 bg-teal-600/70 text-white' : 'border-slate-600 bg-white/5'}`}
+                  type="button"
+                  onClick={() => setAutoscrollSpeed(preset)}
+                >
+                  {preset.toFixed(preset % 1 === 0 ? 0 : 2)}x
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {state.showReadingGuide && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 h-20 -translate-y-1/2 border-y border-amber-200/10 bg-amber-200/[0.035]" />
       )}

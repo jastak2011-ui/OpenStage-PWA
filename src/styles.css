@@ -82,10 +82,24 @@ label,
 .stage-autoscroll-float {
   @apply inline-flex h-12 w-12 items-center justify-center rounded-full border text-sm shadow-xl transition duration-200 hover:scale-105 active:scale-95;
   touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   background: rgba(10, 12, 14, 0.58);
   border-color: rgba(148, 163, 184, 0.38);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 10px 28px rgba(0, 0, 0, 0.26);
   backdrop-filter: blur(6px);
+}
+
+.stage-speed-popover {
+  right: max(1.25rem, env(safe-area-inset-right));
+  bottom: max(4.75rem, calc(env(safe-area-inset-bottom) + 4.75rem));
+  width: min(20rem, calc(100vw - 2rem));
+  background: rgba(2, 6, 23, 0.94);
+}
+
+.stage-speed-step-button {
+  @apply inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-600 bg-white/5 text-lg font-bold transition hover:bg-white/10 active:scale-95;
 }
 
 .stage-autoscroll-paused {
@@ -520,6 +534,15 @@ label,
     height: 2.35rem;
     right: max(0.65rem, env(safe-area-inset-right)) !important;
     bottom: max(0.65rem, env(safe-area-inset-bottom)) !important;
+  }
+
+  .stage-speed-popover {
+    left: 0.75rem !important;
+    right: 0.75rem !important;
+    bottom: max(3.75rem, calc(env(safe-area-inset-bottom) + 3.75rem)) !important;
+    width: auto !important;
+    max-width: none;
+    padding: 0.75rem;
   }
 
   .stage-autoscroll-status {

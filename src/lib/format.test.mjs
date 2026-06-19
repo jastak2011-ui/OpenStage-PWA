@@ -6,6 +6,11 @@ import {
   detectAutoscrollHeartbeatStall,
   estimateBpmAutoscrollDurationSeconds
 } from './autoscroll-test-target.mjs';
+import {
+  adjustAutoscrollSpeedMultiplier,
+  autoscrollSpeedQuickPresets,
+  shouldOpenAutoscrollSpeedPopover
+} from './autoscrollButton-test-target.mjs';
 import { parseDurationInput } from './format-test-target.mjs';
 import { applyPerformanceChordTransform } from './chords-test-target.mjs';
 import {
@@ -173,6 +178,13 @@ liveMultiplier = 3;
 liveFinal = applyAutoscrollSpeedMultiplier(liveSpeedBase, liveMultiplier);
 const liveFastFrame = advanceVirtualScrollTop(0, 1, liveFinal, 600);
 assert.equal(liveFastFrame.nextScrollTop > liveSlowFrame.nextScrollTop * 10, true);
+assert.equal(shouldOpenAutoscrollSpeedPopover(499), false);
+assert.equal(shouldOpenAutoscrollSpeedPopover(500), true);
+assert.equal(adjustAutoscrollSpeedMultiplier(1, 0.05), 1.05);
+assert.equal(adjustAutoscrollSpeedMultiplier(1, -0.05), 0.95);
+assert.equal(adjustAutoscrollSpeedMultiplier(0.25, -0.05), 0.25);
+assert.equal(adjustAutoscrollSpeedMultiplier(3, 0.05), 3);
+assert.deepEqual([...autoscrollSpeedQuickPresets], [0.75, 1, 1.25, 1.5]);
 
 const endFrame = advanceVirtualScrollTop(99.5, 1, 2, 100);
 assert.deepEqual(endFrame, { nextScrollTop: 100, reachedEnd: true });
