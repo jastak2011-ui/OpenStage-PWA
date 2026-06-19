@@ -251,6 +251,7 @@ type StageSelectionAction = {
   end: number;
   rect: { left: number; top: number; width: number; height: number };
   hasHarmony: boolean;
+  pendingOperation?: StageHarmonyEditOperation;
 };
 
 type ToastState = {
@@ -3958,11 +3959,15 @@ function PerformanceView({
 
   const applyStageHarmonySelection = useCallback(async (operation: StageHarmonyEditOperation) => {
     if (!selectionAction) return;
-    if (state.stageLocked && !window.confirm('Stage Lock is on. Save this harmony edit to the song chart?')) return;
+    if (useBottomHarmonyActionBar && state.stageLocked && selectionAction.pendingOperation !== operation) {
+      setSelectionAction((current) => current ? { ...current, pendingOperation: operation } : current);
+      return;
+    }
+    if (!useBottomHarmonyActionBar && state.stageLocked && !window.confirm('Stage Lock is on. Save this harmony edit to the song chart?')) return;
     await onLiveHarmonyEdit(operation, selectionAction.start, selectionAction.end);
     setSelectionAction(null);
     window.getSelection()?.removeAllRanges();
-  }, [onLiveHarmonyEdit, selectionAction, state.stageLocked]);
+  }, [onLiveHarmonyEdit, selectionAction, state.stageLocked, useBottomHarmonyActionBar]);
 
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -4206,30 +4211,50 @@ function PerformanceView({
         </div>
       )}
       {selectionAction && (
-        <div
-          className={`stage-harmony-selection-popover fixed z-[60] flex gap-2 rounded-full border border-indigo-200/40 bg-slate-950/95 p-1.5 text-sm font-semibold text-white shadow-2xl backdrop-blur-md ${useBottomHarmonyActionBar ? 'stage-harmony-action-bar' : ''}`}
-          style={useBottomHarmonyActionBar ? undefined : {
-            left: `min(max(0.75rem, ${selectionAction.rect.left + selectionAction.rect.width / 2}px), calc(100vw - 15rem))`,
-            top: `max(0.75rem, ${selectionAction.rect.top - 54}px)`
-          }}
-          onPointerDown={(event) => event.stopPropagation()}
-          role="toolbar"
-          aria-label="Harmony selection actions"
-        >
-          {!selectionAction.hasHarmony && (
-            <button className="rounded-full px-4 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('mark')}>
-              Mark Harmony
-            </button>
+        <>
+          {useBottomHarmonyActionBar && selectionAction.pendingOperation && (
+            <div
+              className="stage-harmony-confirm-popover fixed z-[70] rounded-2xl border border-amber-200/40 bg-slate-950/95 p-3 text-center text-sm font-semibold text-white shadow-2xl backdrop-blur-md"
+              role="dialog"
+              aria-label="Confirm harmony edit"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 text-amber-100">Confirm edit to song chart?</div>
+              <div className="flex justify-center gap-2">
+                <button className="rounded-full bg-teal-600 px-4 py-2 text-white hover:bg-teal-500" type="button" onClick={() => void applyStageHarmonySelection(selectionAction.pendingOperation!)}>
+                  Apply
+                </button>
+                <button className="rounded-full border border-slate-500 px-4 py-2 text-slate-200 hover:bg-white/10" type="button" onClick={() => setSelectionAction((current) => current ? { ...current, pendingOperation: undefined } : current)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
           )}
-          {selectionAction.hasHarmony && (
-            <button className="rounded-full px-4 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('remove')}>
-              Remove Harmony
+          <div
+            className={`stage-harmony-selection-popover fixed z-[60] flex gap-2 rounded-full border border-indigo-200/40 bg-slate-950/95 p-1.5 text-sm font-semibold text-white shadow-2xl backdrop-blur-md ${useBottomHarmonyActionBar ? 'stage-harmony-action-bar' : ''}`}
+            style={useBottomHarmonyActionBar ? undefined : {
+              left: `min(max(0.75rem, ${selectionAction.rect.left + selectionAction.rect.width / 2}px), calc(100vw - 15rem))`,
+              top: `max(0.75rem, ${selectionAction.rect.top - 54}px)`
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            role="toolbar"
+            aria-label="Harmony selection actions"
+          >
+            {!selectionAction.hasHarmony && (
+              <button className="rounded-full px-4 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('mark')}>
+                Mark Harmony
+              </button>
+            )}
+            {selectionAction.hasHarmony && (
+              <button className="rounded-full px-4 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('remove')}>
+                Remove Harmony
+              </button>
+            )}
+            <button className="rounded-full px-4 py-2 text-slate-300 hover:bg-white/10" type="button" onClick={() => { setSelectionAction(null); window.getSelection()?.removeAllRanges(); }}>
+              Cancel
             </button>
-          )}
-          <button className="rounded-full px-4 py-2 text-slate-300 hover:bg-white/10" type="button" onClick={() => { setSelectionAction(null); window.getSelection()?.removeAllRanges(); }}>
-            Cancel
-          </button>
-        </div>
+          </div>
+        </>
       )}
       {state.showReadingGuide && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 h-20 -translate-y-1/2 border-y border-amber-200/10 bg-amber-200/[0.035]" />

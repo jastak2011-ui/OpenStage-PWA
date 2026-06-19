@@ -180,6 +180,15 @@ label,
   justify-content: center;
 }
 
+.stage-harmony-confirm-popover {
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: max(8.25rem, calc(env(safe-area-inset-bottom) + 8.25rem));
+  width: min(22rem, calc(100vw - 1.5rem));
+  transform: translateX(-50%);
+}
+
 .stage-profile-iphone .stage-scroll {
   padding-left: 0.75rem !important;
   padding-right: 0.75rem !important;
@@ -573,6 +582,15 @@ label,
   .stage-harmony-action-bar {
     transform: none;
     max-width: none;
+  }
+
+  .stage-harmony-confirm-popover {
+    left: 0.75rem !important;
+    right: 0.75rem !important;
+    top: auto !important;
+    bottom: max(8.25rem, calc(env(safe-area-inset-bottom) + 8.25rem)) !important;
+    width: auto !important;
+    transform: none;
   }
 
   .stage-autoscroll-status {
