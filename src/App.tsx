@@ -3858,6 +3858,7 @@ function PerformanceView({
   const visibleStageNotes = filterStageNotes(song.notes);
   const autoscrollStatus = isAutoscrolling ? 'Running' : autoscrollDebug.stopReason === 'none' || autoscrollDebug.stopReason === 'user-paused' ? 'Paused' : 'Stopped';
   const currentScrollSpeed = normalizeAutoscrollSpeedMultiplier(state.autoscrollSpeed);
+  const useBottomHarmonyActionBar = shouldUseBottomHarmonyActionBar();
   const isWarmTheme = state.stageTheme === 'coffeehouse';
   const headerText = isWarmTheme ? 'text-[#f4ead2]' : state.theme === 'dark' ? 'text-slate-100' : 'text-slate-950';
   const mutedText = isWarmTheme ? 'text-[#cdbb96]' : state.theme === 'dark' ? 'text-slate-400' : 'text-slate-600';
@@ -4206,25 +4207,27 @@ function PerformanceView({
       )}
       {selectionAction && (
         <div
-          className="stage-harmony-selection-popover fixed z-[60] flex gap-2 rounded-full border border-indigo-200/40 bg-slate-950/95 p-1.5 text-sm font-semibold text-white shadow-2xl backdrop-blur-md"
-          style={{
+          className={`stage-harmony-selection-popover fixed z-[60] flex gap-2 rounded-full border border-indigo-200/40 bg-slate-950/95 p-1.5 text-sm font-semibold text-white shadow-2xl backdrop-blur-md ${useBottomHarmonyActionBar ? 'stage-harmony-action-bar' : ''}`}
+          style={useBottomHarmonyActionBar ? undefined : {
             left: `min(max(0.75rem, ${selectionAction.rect.left + selectionAction.rect.width / 2}px), calc(100vw - 15rem))`,
             top: `max(0.75rem, ${selectionAction.rect.top - 54}px)`
           }}
           onPointerDown={(event) => event.stopPropagation()}
+          role="toolbar"
+          aria-label="Harmony selection actions"
         >
           {!selectionAction.hasHarmony && (
-            <button className="rounded-full px-3 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('mark')}>
+            <button className="rounded-full px-4 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('mark')}>
               Mark Harmony
             </button>
           )}
           {selectionAction.hasHarmony && (
-            <button className="rounded-full px-3 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('remove')}>
+            <button className="rounded-full px-4 py-2 hover:bg-white/10" type="button" onClick={() => void applyStageHarmonySelection('remove')}>
               Remove Harmony
             </button>
           )}
-          <button className="rounded-full px-3 py-2 text-slate-300 hover:bg-white/10" type="button" onClick={() => { setSelectionAction(null); window.getSelection()?.removeAllRanges(); }}>
-            <X size={16} />
+          <button className="rounded-full px-4 py-2 text-slate-300 hover:bg-white/10" type="button" onClick={() => { setSelectionAction(null); window.getSelection()?.removeAllRanges(); }}>
+            Cancel
           </button>
         </div>
       )}
@@ -5075,6 +5078,15 @@ function StagePopoverTitle({ title }: { title: string }) {
 
 function isInteractiveSwipeTarget(target: EventTarget | null) {
   return target instanceof HTMLElement && Boolean(target.closest('button, input, textarea, select, option, label, [role="button"], [data-stage-control]'));
+}
+
+function shouldUseBottomHarmonyActionBar() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isiOS = /iPad|iPhone|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+  const coarseTouch = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  const mobileWidth = window.matchMedia?.('(max-width: 900px)').matches ?? false;
+  return isiOS || (coarseTouch && mobileWidth);
 }
 
 function hasActiveStageLyricSelection(stageElement: HTMLElement | null) {

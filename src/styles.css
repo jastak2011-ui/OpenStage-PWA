@@ -170,6 +170,16 @@ label,
   max-width: min(24rem, calc(100vw - 1.5rem));
 }
 
+.stage-harmony-action-bar {
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: max(4rem, calc(env(safe-area-inset-bottom) + 4rem));
+  transform: translateX(-50%);
+  max-width: min(32rem, calc(100vw - 1.5rem));
+  justify-content: center;
+}
+
 .stage-profile-iphone .stage-scroll {
   padding-left: 0.75rem !important;
   padding-right: 0.75rem !important;
@@ -558,6 +568,11 @@ label,
     bottom: max(4rem, calc(env(safe-area-inset-bottom) + 4rem)) !important;
     justify-content: center;
     border-radius: 999px;
+  }
+
+  .stage-harmony-action-bar {
+    transform: none;
+    max-width: none;
   }
 
   .stage-autoscroll-status {
