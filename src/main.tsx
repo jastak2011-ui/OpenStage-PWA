@@ -95,6 +95,10 @@ function MountMarker() {
 }
 
 function CastReceiverTestPage() {
+  const params = new URLSearchParams(window.location.search);
+  const title = params.get('title')?.trim() || 'Take It Easy';
+  const artist = params.get('artist')?.trim() || 'Eagles';
+
   React.useEffect(() => {
     window.OpenStageReactMounted = true;
     window.OpenStageStartup?.markMounted();
@@ -110,11 +114,11 @@ function CastReceiverTestPage() {
         <div className="grid gap-6 text-4xl">
           <div>
             <div className="text-2xl font-semibold uppercase tracking-wide">Current Song:</div>
-            <div className="mt-2 text-5xl font-bold">Take It Easy</div>
+            <div className="mt-2 text-5xl font-bold">{title}</div>
           </div>
           <div>
             <div className="text-2xl font-semibold uppercase tracking-wide">Artist:</div>
-            <div className="mt-2 text-5xl font-bold">Eagles</div>
+            <div className="mt-2 text-5xl font-bold">{artist}</div>
           </div>
         </div>
         <p className="fixed bottom-8 left-0 right-0 text-xl font-semibold">Receiver page loaded successfully</p>

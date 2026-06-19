@@ -76,14 +76,23 @@
         </div>
         <div>
           <p class="label">Current Song:</p>
-          <p class="value">Take It Easy</p>
+          <p class="value" id="song-title">Take It Easy</p>
         </div>
         <div>
           <p class="label">Artist:</p>
-          <p class="value">Eagles</p>
+          <p class="value" id="song-artist">Eagles</p>
         </div>
       </section>
     </main>
     <p class="diagnostic">Receiver page loaded successfully</p>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const rawTitle = params.get('title');
+      const rawArtist = params.get('artist');
+      const title = rawTitle && rawTitle.trim() ? rawTitle.trim() : 'Take It Easy';
+      const artist = rawArtist && rawArtist.trim() ? rawArtist.trim() : 'Eagles';
+      document.getElementById('song-title').textContent = title;
+      document.getElementById('song-artist').textContent = artist;
+    </script>
   </body>
 </html>
