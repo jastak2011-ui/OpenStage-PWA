@@ -270,7 +270,17 @@ export const defaultPerformanceState: PerformanceState = {
     'portrait-prompter': false
   },
   theme: 'dark',
-  autoscrollSpeed: 18,
+  autoscrollSpeed: 1,
+  autoscrollSpeedsByProfile: {
+    desktop: 1,
+    'ipad-portrait': 1,
+    'ipad-landscape': 1,
+    iphone: 1,
+    'prompter-display': 1,
+    'stage-device': 1,
+    tablet: 1,
+    'portrait-prompter': 1
+  },
   autoscrollPreset: 'medium',
   autoscrollDurationMode: 'manual-duration',
   readingPace: 'normal',
@@ -395,6 +405,7 @@ export const useAppStore = create<AppStore>()(
           const currentBoldChords = state.performance.boldChordsByProfile ?? {};
           const currentItalicChords = state.performance.italicChordsByProfile ?? {};
           const currentShowChords = state.performance.showChordsByProfile ?? {};
+          const currentAutoscrollSpeeds = state.performance.autoscrollSpeedsByProfile ?? {};
           const nextFontSize =
             next.fontSize ??
             currentLyricSizes[activeProfile] ??
@@ -565,6 +576,11 @@ export const useAppStore = create<AppStore>()(
             currentShowChords[activeProfile] ??
             state.performance.showChords ??
             defaultPerformanceState.showChords;
+          const nextAutoscrollSpeed =
+            next.autoscrollSpeed ??
+            currentAutoscrollSpeeds[activeProfile] ??
+            state.performance.autoscrollSpeed ??
+            defaultPerformanceState.autoscrollSpeed;
           return {
             performance: {
               ...state.performance,
@@ -773,6 +789,12 @@ export const useAppStore = create<AppStore>()(
                 ...currentShowChords,
                 ...(next.showChordsByProfile ?? {}),
                 [activeProfile]: nextShowChords
+              },
+              autoscrollSpeed: nextAutoscrollSpeed,
+              autoscrollSpeedsByProfile: {
+                ...currentAutoscrollSpeeds,
+                ...(next.autoscrollSpeedsByProfile ?? {}),
+                [activeProfile]: nextAutoscrollSpeed
               },
               pedalMappings: {
                 ...state.performance.pedalMappings,

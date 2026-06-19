@@ -61,6 +61,7 @@ import { chordOverTextToAnchoredLine, chordTokensToAnchoredLine, inlineChordsToC
 import { isChordProFileName, parseChordPro, parseChordProBundle } from './lib/chordpro';
 import {
   advanceVirtualScrollTop,
+  applyAutoscrollSpeedMultiplier,
   calculateAutoscrollPixelsPerSecond,
   detectAutoscrollHeartbeatStall,
   estimateBpmAutoscrollDurationSeconds
@@ -255,6 +256,11 @@ type AutoscrollDebugInfo = {
   maxScroll: number;
   durationSeconds?: number;
   pixelsPerSecond: number;
+  speedSource: string;
+  basePixelsPerSecond: number;
+  scrollSpeedMultiplier: number;
+  finalPixelsPerSecond: number;
+  elapsedSeconds: number;
   bpm?: number;
   estimatedBeats?: number;
   estimatedDurationSeconds?: number;
@@ -304,6 +310,9 @@ type AutoscrollController = {
   virtualScrollTop: number;
   previousScrollTop: number;
   pixelsPerSecond: number;
+  basePixelsPerSecond: number;
+  scrollSpeedMultiplier: number;
+  finalPixelsPerSecond: number;
   durationSeconds?: number;
   estimatedBeats?: number;
   estimatedDurationSeconds?: number;
@@ -320,6 +329,9 @@ type AutoscrollController = {
 
 type AutoscrollSpeedPlan = {
   pixelsPerSecond: number;
+  basePixelsPerSecond: number;
+  scrollSpeedMultiplier: number;
+  finalPixelsPerSecond: number;
   durationSeconds?: number;
   estimatedBeats?: number;
   estimatedDurationSeconds?: number;
@@ -329,9 +341,9 @@ type AutoscrollSpeedPlan = {
 };
 
 const speedPresets: Record<Exclude<AutoscrollPreset, 'custom'>, number> = {
-  slow: 10,
-  medium: 18,
-  fast: 30
+  slow: 0.5,
+  medium: 1,
+  fast: 2
 };
 
 const iphoneAutoProfileStorageKey = 'openstage-iphone-profile-auto-applied';
@@ -526,6 +538,11 @@ export default function App() {
     maxScroll: 0,
     durationSeconds: undefined,
     pixelsPerSecond: 0,
+    speedSource: 'manual-speed',
+    basePixelsPerSecond: 0,
+    scrollSpeedMultiplier: 1,
+    finalPixelsPerSecond: 0,
+    elapsedSeconds: 0,
     bpm: undefined,
     estimatedBeats: undefined,
     estimatedDurationSeconds: undefined,
@@ -561,6 +578,9 @@ export default function App() {
     virtualScrollTop: 0,
     previousScrollTop: 0,
     pixelsPerSecond: 0,
+    basePixelsPerSecond: 0,
+    scrollSpeedMultiplier: 1,
+    finalPixelsPerSecond: 0,
     durationSeconds: undefined,
     estimatedBeats: undefined,
     estimatedDurationSeconds: undefined,
@@ -574,6 +594,9 @@ export default function App() {
     lastLayoutCheckAtMs: null,
     frameCount: 0
   });
+  const scrollSpeedMultiplierRef = useRef(1);
+  const basePixelsPerSecondRef = useRef(0);
+  const finalPixelsPerSecondRef = useRef(0);
   const scrollSaveFrameRef = useRef<number | null>(null);
   const scrollSaveTimeoutRef = useRef<number | null>(null);
   const pendingScrollPositionRef = useRef<{ songId: string; scrollTop: number } | null>(null);
@@ -643,6 +666,7 @@ export default function App() {
 
   useEffect(() => {
     performanceStateRef.current = performanceState;
+    updateLiveAutoscrollSpeedMultiplier(performanceState.autoscrollSpeed);
   }, [performanceState]);
 
   useEffect(() => {
@@ -1077,14 +1101,29 @@ export default function App() {
   }
 
   function updateAutoscrollPreset(preset: AutoscrollPreset) {
+    const multiplier = preset === 'custom' ? performanceState.autoscrollSpeed : speedPresets[preset];
+    updateLiveAutoscrollSpeedMultiplier(multiplier);
     updateStorePerformance({
       autoscrollPreset: preset,
-      autoscrollSpeed: preset === 'custom' ? performanceState.autoscrollSpeed : speedPresets[preset]
+      autoscrollSpeed: normalizeAutoscrollSpeedMultiplier(multiplier)
     });
   }
 
   function updateAutoscrollSpeed(speed: number) {
-    updateStorePerformance({ autoscrollPreset: 'custom', autoscrollSpeed: speed });
+    const multiplier = normalizeAutoscrollSpeedMultiplier(speed);
+    updateLiveAutoscrollSpeedMultiplier(multiplier);
+    updateStorePerformance({ autoscrollPreset: 'custom', autoscrollSpeed: multiplier });
+  }
+
+  function updateLiveAutoscrollSpeedMultiplier(multiplier: number) {
+    const nextMultiplier = normalizeAutoscrollSpeedMultiplier(multiplier);
+    scrollSpeedMultiplierRef.current = nextMultiplier;
+    const finalPixelsPerSecond = applyAutoscrollSpeedMultiplier(basePixelsPerSecondRef.current, nextMultiplier);
+    finalPixelsPerSecondRef.current = finalPixelsPerSecond;
+    const controller = autoscrollControllerRef.current;
+    controller.scrollSpeedMultiplier = nextMultiplier;
+    controller.finalPixelsPerSecond = finalPixelsPerSecond;
+    controller.pixelsPerSecond = finalPixelsPerSecond;
   }
 
   async function calculateAndSaveDurationFromBpm() {
@@ -1150,6 +1189,11 @@ export default function App() {
       durationSource: controller.durationSource,
       displayMode: controller.displayMode,
       pixelsPerSecond: controller.pixelsPerSecond,
+      speedSource: controller.durationSource,
+      basePixelsPerSecond: controller.basePixelsPerSecond,
+      scrollSpeedMultiplier: controller.scrollSpeedMultiplier,
+      finalPixelsPerSecond: controller.finalPixelsPerSecond,
+      elapsedSeconds: controller.lastFrameTimestamp === null || controller.lastFrameAtMs === null ? 0 : Math.max(0, (now - controller.lastFrameAtMs) / 1000),
       frameStatus,
       frameCount: controller.frameCount,
       lastFrameAgeMs: controller.lastFrameAtMs === null ? 0 : Math.max(0, now - controller.lastFrameAtMs),
@@ -1174,6 +1218,12 @@ export default function App() {
 
   function applyAutoscrollSpeedPlan(controller: AutoscrollController, plan: AutoscrollSpeedPlan) {
     controller.pixelsPerSecond = plan.pixelsPerSecond;
+    controller.basePixelsPerSecond = plan.basePixelsPerSecond;
+    controller.scrollSpeedMultiplier = plan.scrollSpeedMultiplier;
+    controller.finalPixelsPerSecond = plan.finalPixelsPerSecond;
+    basePixelsPerSecondRef.current = plan.basePixelsPerSecond;
+    scrollSpeedMultiplierRef.current = plan.scrollSpeedMultiplier;
+    finalPixelsPerSecondRef.current = plan.finalPixelsPerSecond;
     controller.durationSeconds = plan.durationSeconds;
     controller.estimatedBeats = plan.estimatedBeats;
     controller.estimatedDurationSeconds = plan.estimatedDurationSeconds;
@@ -1306,7 +1356,11 @@ export default function App() {
         activeController.lastFrameTimestamp === null ? 0 : Math.min((timestamp - activeController.lastFrameTimestamp) / 1000, 0.12);
       activeController.lastFrameTimestamp = timestamp;
       const previousScrollTop = activeController.virtualScrollTop;
-      const next = advanceVirtualScrollTop(activeController.virtualScrollTop, elapsedSeconds, activeController.pixelsPerSecond, activeController.maxScroll);
+      const livePixelsPerSecond = finalPixelsPerSecondRef.current;
+      activeController.pixelsPerSecond = livePixelsPerSecond;
+      activeController.finalPixelsPerSecond = livePixelsPerSecond;
+      activeController.scrollSpeedMultiplier = scrollSpeedMultiplierRef.current;
+      const next = advanceVirtualScrollTop(activeController.virtualScrollTop, elapsedSeconds, livePixelsPerSecond, activeController.maxScroll);
       activeController.virtualScrollTop = next.nextScrollTop;
       activeController.previousScrollTop = previousScrollTop;
       setAutoscrollScrollTop(currentTarget, activeController.virtualScrollTop);
@@ -1338,6 +1392,11 @@ export default function App() {
           durationSource: activeController.durationSource,
           displayMode: activeController.displayMode,
           pixelsPerSecond: activeController.pixelsPerSecond,
+          speedSource: activeController.durationSource,
+          basePixelsPerSecond: basePixelsPerSecondRef.current,
+          scrollSpeedMultiplier: scrollSpeedMultiplierRef.current,
+          finalPixelsPerSecond: livePixelsPerSecond,
+          elapsedSeconds,
           frameStatus: 'firing',
           frameCount: activeController.frameCount,
           lastFrameAgeMs: 0,
@@ -4618,8 +4677,8 @@ function StageControlPopover({
                   <Gauge size={18} /> BPM Estimate
                 </button>
                 <label className="grid gap-1 text-sm">
-                  <span>Scroll Speed: {state.autoscrollSpeed} px/sec</span>
-                  <input type="range" min={4} max={60} step={1} value={state.autoscrollSpeed} onChange={(event) => setAutoscrollSpeed(Number(event.target.value))} />
+                  <span>Scroll Speed: {normalizeAutoscrollSpeedMultiplier(state.autoscrollSpeed).toFixed(2)}x</span>
+                  <input type="range" min={0.25} max={3} step={0.05} value={normalizeAutoscrollSpeedMultiplier(state.autoscrollSpeed)} onChange={(event) => setAutoscrollSpeed(Number(event.target.value))} />
                 </label>
                 <button className="stage-menu-button" type="button" onClick={() => setState({ showReadingGuide: !state.showReadingGuide })}>
                   Reading Guide {state.showReadingGuide ? 'On' : 'Off'}
@@ -5146,13 +5205,18 @@ function AutoscrollDebugPanel({ debug }: { debug: AutoscrollDebugInfo }) {
       <div>clientHeight: {debug.clientHeight}</div>
       <div>maxScroll: {debug.maxScroll.toFixed(2)}</div>
       <div>mode: {debug.durationSource}</div>
+      <div>speed source: {debug.speedSource}</div>
       <div>display: {debug.displayMode}</div>
       <div>BPM: {debug.bpm ?? '-'}</div>
       <div>beats: {debug.estimatedBeats?.toFixed(1) ?? '-'}</div>
       <div>estimated: {debug.estimatedDurationSeconds ? formatDuration(debug.estimatedDurationSeconds) : '-'}</div>
       <div>pace: {debug.readingPaceMultiplier.toFixed(2)}</div>
       <div>duration: {debug.durationSeconds ?? '-'}</div>
+      <div>base px/sec: {debug.basePixelsPerSecond.toFixed(2)}</div>
+      <div>multiplier: {debug.scrollSpeedMultiplier.toFixed(2)}x</div>
+      <div>final px/sec: {debug.finalPixelsPerSecond.toFixed(2)}</div>
       <div>px/sec: {debug.pixelsPerSecond.toFixed(2)}</div>
+      <div>elapsed: {debug.elapsedSeconds.toFixed(3)}s</div>
       <div>frames: {debug.frameCount}</div>
       <div>last frame: {debug.lastFrameAgeMs.toFixed(0)}ms</div>
       <div>last scroll: {debug.lastScrollChangeAgeMs.toFixed(0)}ms</div>
@@ -5333,13 +5397,13 @@ function PerformanceControlPanel({
           ))}
         </div>
         <label className="grid gap-1 text-sm">
-          <span>Autoscroll speed: {state.autoscrollSpeed} px/sec</span>
+          <span>Scroll Speed: {normalizeAutoscrollSpeedMultiplier(state.autoscrollSpeed).toFixed(2)}x</span>
           <input
             type="range"
-            min={4}
-            max={60}
-            step={1}
-            value={state.autoscrollSpeed}
+            min={0.25}
+            max={3}
+            step={0.05}
+            value={normalizeAutoscrollSpeedMultiplier(state.autoscrollSpeed)}
             onChange={(event) => setAutoscrollSpeed(Number(event.target.value))}
           />
         </label>
@@ -6225,43 +6289,55 @@ function scrollAutoscrollTargetBy(preferred: HTMLDivElement | null, delta: numbe
   setAutoscrollScrollTop(target, Math.max(0, Math.min(metrics.maxScroll, metrics.scrollTopAfter + delta)));
 }
 
-function getAutoscrollPixelsPerSecond(song: Song | undefined, maxScroll: number, manualSpeed: number) {
-  return calculateAutoscrollPixelsPerSecond(maxScroll, song?.durationSeconds, manualSpeed);
-}
-
 function getAutoscrollSpeedPlan(song: Song | undefined, metrics: ReturnType<typeof getAutoscrollMetrics>, state: PerformanceState): AutoscrollSpeedPlan {
   const readingPaceMultiplier = getReadingPaceMultiplier(state.readingPace ?? 'normal');
   const displayMode = getDisplayModeLabel(state);
-  if (song?.durationSeconds && song.durationSeconds > 0) {
+  const multiplier = normalizeAutoscrollSpeedMultiplier(state.autoscrollSpeed);
+  const buildPlan = (
+    basePixelsPerSecond: number,
+    durationSource: AutoscrollSpeedPlan['durationSource'],
+    extra: Partial<AutoscrollSpeedPlan> = {}
+  ): AutoscrollSpeedPlan => {
+    const finalPixelsPerSecond = applyAutoscrollSpeedMultiplier(basePixelsPerSecond, multiplier);
     return {
-      pixelsPerSecond: calculateAutoscrollPixelsPerSecond(metrics.maxScroll, song.durationSeconds, state.autoscrollSpeed),
-      durationSeconds: song.durationSeconds,
+      ...extra,
+      pixelsPerSecond: finalPixelsPerSecond,
+      basePixelsPerSecond,
+      scrollSpeedMultiplier: multiplier,
+      finalPixelsPerSecond,
       readingPaceMultiplier,
-      durationSource: 'manual-duration',
+      durationSource,
       displayMode
     };
+  };
+
+  if (song?.durationSeconds && song.durationSeconds > 0) {
+    const basePixelsPerSecond = calculateAutoscrollPixelsPerSecond(metrics.maxScroll, song.durationSeconds, 18);
+    return buildPlan(basePixelsPerSecond, 'manual-duration', {
+      durationSeconds: song.durationSeconds,
+    });
   }
 
-  const shouldUseBpm = (state.autoscrollDurationMode ?? 'manual-duration') === 'bpm-estimate' || Boolean(song?.bpm);
+  const durationMode = state.autoscrollDurationMode ?? 'manual-duration';
+  const shouldUseBpm = durationMode === 'bpm-estimate' || (durationMode !== 'manual-speed' && Boolean(song?.bpm));
   const estimate = shouldUseBpm ? getBpmDurationEstimate(song, metrics, state) : undefined;
   if (estimate) {
-    return {
-      pixelsPerSecond: calculateAutoscrollPixelsPerSecond(metrics.maxScroll, estimate.durationSeconds, state.autoscrollSpeed),
+    const basePixelsPerSecond = calculateAutoscrollPixelsPerSecond(metrics.maxScroll, estimate.durationSeconds, 18);
+    return buildPlan(basePixelsPerSecond, 'bpm-estimate', {
       durationSeconds: estimate.durationSeconds,
       estimatedBeats: estimate.estimatedBeats,
-      estimatedDurationSeconds: estimate.durationSeconds,
-      readingPaceMultiplier,
-      durationSource: 'bpm-estimate',
-      displayMode
-    };
+      estimatedDurationSeconds: estimate.durationSeconds
+    });
   }
 
-  return {
-    pixelsPerSecond: state.autoscrollSpeed,
-    readingPaceMultiplier,
-    durationSource: 'manual-speed',
-    displayMode
-  };
+  return buildPlan(18, 'manual-speed');
+}
+
+function normalizeAutoscrollSpeedMultiplier(value: number | undefined) {
+  if (!Number.isFinite(value)) return 1;
+  const numeric = Number(value);
+  const migrated = numeric > 3 ? numeric / 18 : numeric;
+  return Math.max(0.25, Math.min(3, migrated));
 }
 
 function getBpmDurationEstimate(song: Song | undefined, metrics: ReturnType<typeof getAutoscrollMetrics>, state: PerformanceState) {

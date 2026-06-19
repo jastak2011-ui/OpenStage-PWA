@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   advanceVirtualScrollTop,
+  applyAutoscrollSpeedMultiplier,
   calculateAutoscrollPixelsPerSecond,
   detectAutoscrollHeartbeatStall,
   estimateBpmAutoscrollDurationSeconds
@@ -155,11 +156,23 @@ assert.equal(airPlayLayout.scale > 0.9, true);
 assert.equal(calculateAutoscrollPixelsPerSecond(450, 120, 18), 3.75);
 assert.equal(calculateAutoscrollPixelsPerSecond(450, 225, 18), 2);
 assert.equal(calculateAutoscrollPixelsPerSecond(450, undefined, 18), 18);
+assert.equal(applyAutoscrollSpeedMultiplier(calculateAutoscrollPixelsPerSecond(450, 120, 18), 0.5), 1.875);
+assert.equal(applyAutoscrollSpeedMultiplier(calculateAutoscrollPixelsPerSecond(450, 225, 18), 3), 6);
+assert.equal(applyAutoscrollSpeedMultiplier(calculateAutoscrollPixelsPerSecond(450, undefined, 18), 2), 36);
 
 const slowFrame = advanceVirtualScrollTop(10, 1 / 60, 1.2, 100);
 assert.equal(slowFrame.reachedEnd, false);
 assert.equal(slowFrame.nextScrollTop > 10, true);
 assert.equal(slowFrame.nextScrollTop < 11, true);
+
+const liveSpeedBase = calculateAutoscrollPixelsPerSecond(600, 300, 18);
+let liveMultiplier = 0.25;
+let liveFinal = applyAutoscrollSpeedMultiplier(liveSpeedBase, liveMultiplier);
+const liveSlowFrame = advanceVirtualScrollTop(0, 1, liveFinal, 600);
+liveMultiplier = 3;
+liveFinal = applyAutoscrollSpeedMultiplier(liveSpeedBase, liveMultiplier);
+const liveFastFrame = advanceVirtualScrollTop(0, 1, liveFinal, 600);
+assert.equal(liveFastFrame.nextScrollTop > liveSlowFrame.nextScrollTop * 10, true);
 
 const endFrame = advanceVirtualScrollTop(99.5, 1, 2, 100);
 assert.deepEqual(endFrame, { nextScrollTop: 100, reachedEnd: true });

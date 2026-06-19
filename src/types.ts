@@ -217,6 +217,7 @@ export type PerformanceState = {
   useMonospaceChordsByProfile: Partial<Record<DeviceProfile, boolean>>;
   theme: PerformanceTheme;
   autoscrollSpeed: number;
+  autoscrollSpeedsByProfile: Partial<Record<DeviceProfile, number>>;
   autoscrollPreset: AutoscrollPreset;
   autoscrollDurationMode: AutoscrollDurationMode;
   readingPace: ReadingPace;

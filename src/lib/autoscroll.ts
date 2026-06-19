@@ -5,6 +5,10 @@ export function calculateAutoscrollPixelsPerSecond(maxScroll: number, durationSe
   return manualSpeed;
 }
 
+export function applyAutoscrollSpeedMultiplier(basePixelsPerSecond: number, multiplier = 1) {
+  return Math.max(0, basePixelsPerSecond) * Math.max(0, multiplier);
+}
+
 export function advanceVirtualScrollTop(currentScrollTop: number, elapsedSeconds: number, pixelsPerSecond: number, maxScroll: number) {
   const nextScrollTop = Math.min(maxScroll, currentScrollTop + Math.max(0, elapsedSeconds) * Math.max(0, pixelsPerSecond));
   return {
