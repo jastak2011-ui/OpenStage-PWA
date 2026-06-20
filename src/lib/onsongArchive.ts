@@ -156,6 +156,7 @@ function songFromOnSongObject(object: ArchiveObject, archiveFileName: string, in
       timeSignature,
       tags,
       favorite: false,
+      referenceAudioUrl: '',
       notes: filepath ? `Source file: ${filepath}` : '',
       chart: content,
       displayPreference,

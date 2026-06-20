@@ -16,6 +16,7 @@ export type Song = {
   musicBrainzRecordingId?: string;
   deezerTrackId?: string;
   lastFmUrl?: string;
+  referenceAudioUrl?: string;
   difficulty?: string;
   tuning?: string;
   originalKey?: string;

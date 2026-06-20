@@ -91,6 +91,7 @@ export function parseChordProSong(rawText: string, fileName = 'ChordPro import')
     bandNotes: '',
     rehearsalNotes: [],
     favorite: false,
+    referenceAudioUrl: '',
     key,
     capo,
     bpm,

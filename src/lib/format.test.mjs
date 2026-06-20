@@ -64,11 +64,16 @@ assert.equal(parseDurationInput('3:99'), undefined);
 
 const favoriteCsvSong = parseCsvSongs('title,artist,favorite,chart\n"Favorite Tune","OpenStage","true","[G]Go"')[0];
 assert.equal(favoriteCsvSong.favorite, true);
+const referenceAudioCsvSong = parseCsvSongs('title,referenceAudioUrl,chart\n"Reference Tune","https://example.com/ref.mp3","[G]Go"')[0];
+assert.equal(referenceAudioCsvSong.referenceAudioUrl, 'https://example.com/ref.mp3');
 const exportedFavoriteCsv = songsToCsv([favoriteCsvSong]);
 assert.match(exportedFavoriteCsv.split('\n')[0], /favorite/);
+assert.match(songsToCsv([referenceAudioCsvSong]).split('\n')[0], /referenceAudioUrl/);
 assert.match(exportedFavoriteCsv, /"true"/);
 const favoriteJsonSong = parseJsonSongs(songsToJson([favoriteCsvSong]))[0];
 assert.equal(favoriteJsonSong.favorite, true);
+const referenceAudioJsonSong = parseJsonSongs(songsToJson([referenceAudioCsvSong]))[0];
+assert.equal(referenceAudioJsonSong.referenceAudioUrl, 'https://example.com/ref.mp3');
 const legacyJsonSong = parseJsonSongs('[{"title":"Legacy Tune","chart":"[C]Old"}]')[0];
 assert.equal(legacyJsonSong.favorite, false);
 const webpageChordOver = parseWebpageChartText(`3AM

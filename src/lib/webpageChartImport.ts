@@ -85,6 +85,7 @@ export function parseWebpageChartText(rawText: string): WebpageChartImportPrevie
     bandNotes: '',
     rehearsalNotes: [],
     notes: removedLines.length ? `Removed webpage junk:\n${removedLines.slice(0, 12).join('\n')}` : '',
+    referenceAudioUrl: '',
     chart,
     favorite: false,
     displayPreference,

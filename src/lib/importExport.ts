@@ -39,7 +39,8 @@ export function songsToCsv(songs: Song[]) {
     'rawChordPro',
     'musicBrainzRecordingId',
     'deezerTrackId',
-    'lastFmUrl'
+    'lastFmUrl',
+    'referenceAudioUrl'
   ];
   const rows = songs.map((song) =>
     headers
@@ -100,7 +101,8 @@ export function parseCsvSongs(text: string): Song[] {
         rawChordPro: row.rawChordPro,
         musicBrainzRecordingId: row.musicBrainzRecordingId,
         deezerTrackId: row.deezerTrackId,
-        lastFmUrl: row.lastFmUrl
+        lastFmUrl: row.lastFmUrl,
+        referenceAudioUrl: row.referenceAudioUrl
       });
     });
 }
@@ -169,6 +171,7 @@ function normalizeSong(song: Partial<Song>): Song {
     musicBrainzRecordingId: song.musicBrainzRecordingId || '',
     deezerTrackId: song.deezerTrackId || '',
     lastFmUrl: song.lastFmUrl || '',
+    referenceAudioUrl: song.referenceAudioUrl || '',
     rawChordPro: song.rawChordPro || song.chart || '',
     parsedChordPro: song.parsedChordPro || (song.rawChordPro || song.chart ? parseChordPro(song.rawChordPro || song.chart || '') : undefined),
     updatedAt: new Date().toISOString()

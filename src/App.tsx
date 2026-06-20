@@ -508,6 +508,7 @@ const emptySong = (): Song => ({
   bandNotes: '',
   rehearsalNotes: [],
   notes: '',
+  referenceAudioUrl: '',
   chart: '[C]Start writing your [F]chart here\n[Am]Use inline chords like [G]this',
   favorite: false,
   displayPreference: 'inline',
@@ -519,7 +520,8 @@ const emptySong = (): Song => ({
 function withSongDefaults(song: Song): Song {
   return {
     ...song,
-    favorite: Boolean(song.favorite)
+    favorite: Boolean(song.favorite),
+    referenceAudioUrl: song.referenceAudioUrl || ''
   };
 }
 
@@ -929,6 +931,7 @@ export default function App() {
       const nextSong = {
         ...song,
         favorite: Boolean(song.favorite),
+        referenceAudioUrl: song.referenceAudioUrl?.trim() ?? '',
         capo: nextCapo,
         bpm: Number(song.bpm ?? 0) || 0,
         rawChordPro: song.chart,
@@ -2973,6 +2976,7 @@ function SongEditorView({
   const [enrichmentStatus, setEnrichmentStatus] = useState('');
   const [enrichmentError, setEnrichmentError] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [referenceAudioOpen, setReferenceAudioOpen] = useState(Boolean(song.referenceAudioUrl));
   const [fullScreenEditor, setFullScreenEditor] = useState(initialFullScreen);
   const chartEditorRef = useRef<HTMLTextAreaElement | null>(null);
   const chartSelectionRef = useRef({ start: 0, end: 0 });
@@ -2986,6 +2990,7 @@ function SongEditorView({
     setEnrichmentStatus('');
     setEnrichmentError('');
     setDetailsOpen(false);
+    setReferenceAudioOpen(Boolean(song.referenceAudioUrl));
     setFullScreenEditor(initialFullScreen);
   }, [song, initialFullScreen]);
 
@@ -3080,7 +3085,7 @@ function SongEditorView({
 
   if (fullScreenEditor) {
     return (
-      <main className="fixed inset-0 z-[100] grid grid-rows-[auto_1fr] bg-slate-950 text-slate-100">
+      <main className="fixed inset-0 z-[100] grid grid-rows-[auto_auto_1fr] bg-slate-950 text-slate-100">
         <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-950/95 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] shadow-lg backdrop-blur">
           <div className="min-w-0 flex-1">
             <div className="truncate text-base font-semibold sm:text-lg">{draft.title || 'Untitled Song'}</div>
@@ -3098,6 +3103,12 @@ function SongEditorView({
             Exit Full Screen
           </button>
         </div>
+        <ReferenceAudioControls
+          url={draft.referenceAudioUrl || ''}
+          onChange={(referenceAudioUrl) => setDraft({ ...draft, referenceAudioUrl })}
+          onSave={() => void saveDraft()}
+          compact
+        />
         <section className="grid min-h-0 gap-2 px-3 pb-[max(0.85rem,env(safe-area-inset-bottom))] pt-3">
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
             <span>ChordPro, OnSong text, and chords-over-lyrics spacing are preserved.</span>
@@ -3277,6 +3288,26 @@ function SongEditorView({
               )}
             </section>
 
+            <section className="rounded-md border border-slate-300 bg-white">
+              <button
+                className="flex w-full items-center gap-2 px-4 py-3 text-left font-semibold"
+                type="button"
+                onClick={() => setReferenceAudioOpen((open) => !open)}
+              >
+                {referenceAudioOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                Reference Audio
+              </button>
+              {referenceAudioOpen && (
+                <div className="border-t border-slate-200 p-4">
+                  <ReferenceAudioControls
+                    url={draft.referenceAudioUrl || ''}
+                    onChange={(referenceAudioUrl) => setDraft({ ...draft, referenceAudioUrl })}
+                    onSave={() => void saveDraft()}
+                  />
+                </div>
+              )}
+            </section>
+
             <section className="rounded-md border border-slate-300 bg-white p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-semibold">ChordPro / Chart Editor</h3>
@@ -3406,6 +3437,147 @@ function RawCurrentSongDebugPanel({
       </div>
     </details>
   );
+}
+
+function ReferenceAudioControls({
+  url,
+  onChange,
+  onSave,
+  compact = false
+}: {
+  url: string;
+  onChange: (url: string) => void;
+  onSave?: () => void;
+  compact?: boolean;
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [audioError, setAudioError] = useState('');
+  const trimmedUrl = url.trim();
+  const canPlayDirectly = isDirectReferenceAudioUrl(trimmedUrl);
+
+  useEffect(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setAudioError('');
+  }, [trimmedUrl]);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = playbackRate;
+  }, [playbackRate]);
+
+  async function togglePlay() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    try {
+      setAudioError('');
+      if (audio.paused) {
+        await audio.play();
+      } else {
+        audio.pause();
+      }
+    } catch {
+      setAudioError('Audio could not be played. Check the URL or browser permissions.');
+    }
+  }
+
+  function skip(seconds: number) {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.currentTime = Math.max(0, Math.min(audio.duration || Number.MAX_SAFE_INTEGER, audio.currentTime + seconds));
+  }
+
+  return (
+    <div className={`${compact ? 'border-b border-slate-800 bg-slate-900/95 px-3 py-2 text-slate-100' : 'grid gap-3'}`}>
+      <div className={`grid gap-2 ${compact ? 'md:grid-cols-[1fr_auto] md:items-center' : ''}`}>
+        <label className="grid gap-1">
+          <span className={`font-medium ${compact ? 'text-xs text-slate-300' : 'text-sm text-slate-700'}`}>Reference Audio URL</span>
+          <input
+            className={`h-10 rounded-md border px-3 text-sm outline-none focus:border-teal-500 ${compact ? 'border-slate-700 bg-black text-slate-100' : 'border-slate-300 bg-white text-slate-950'}`}
+            value={url}
+            placeholder="https://example.com/reference-track.mp3"
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </label>
+        <button className={compact ? 'stage-menu-button h-10 self-end' : 'secondary-button h-10 self-end'} type="button" onClick={() => onChange('')} disabled={!trimmedUrl}>
+          Clear URL
+        </button>
+        {onSave && (
+          <button className={compact ? 'stage-menu-button h-10 self-end' : 'primary-button h-10 self-end'} type="button" onClick={onSave}>
+            <Save size={18} />
+            Save with song
+          </button>
+        )}
+      </div>
+
+      {!trimmedUrl ? null : canPlayDirectly ? (
+        <div className={`grid gap-2 rounded-md border p-2 ${compact ? 'border-slate-700 bg-black/30' : 'border-slate-200 bg-slate-50'}`}>
+          <audio
+            ref={audioRef}
+            src={trimmedUrl}
+            preload="metadata"
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onEnded={() => setIsPlaying(false)}
+            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+            onLoadedMetadata={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
+            onError={() => {
+              setIsPlaying(false);
+              setAudioError('Audio failed to load. Check that the URL points directly to a playable audio file.');
+            }}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={togglePlay}>
+              {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+              {isPlaying ? 'Pause' : 'Play'}
+            </button>
+            <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={() => skip(-10)}>-10 seconds</button>
+            <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={() => skip(10)}>+10 seconds</button>
+            <span className="rounded bg-black/10 px-2 py-1 text-sm font-semibold">
+              {formatReferenceAudioTime(currentTime)} / {duration ? formatReferenceAudioTime(duration) : '--:--'}
+            </span>
+            <div className="ml-auto flex flex-wrap gap-1">
+              {[0.75, 1, 1.25].map((rate) => (
+                <button
+                  key={rate}
+                  className={`rounded border px-2 py-1 text-xs font-semibold ${playbackRate === rate ? 'border-teal-400 bg-teal-600 text-white' : compact ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-slate-300 bg-white text-slate-700'}`}
+                  type="button"
+                  onClick={() => setPlaybackRate(rate)}
+                >
+                  {rate.toFixed(2).replace(/\.00$/, '.0')}x
+                </button>
+              ))}
+            </div>
+          </div>
+          {audioError && <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">{audioError}</div>}
+        </div>
+      ) : (
+        <div className={`flex flex-wrap items-center gap-2 rounded-md border p-3 ${compact ? 'border-slate-700 bg-black/30 text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+          <span className="text-sm">This link is saved with the song but is not a direct playable audio file.</span>
+          <a className={compact ? 'stage-menu-button' : 'secondary-button'} href={trimmedUrl} target="_blank" rel="noreferrer">
+            Open Reference Link
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function isDirectReferenceAudioUrl(url: string) {
+  if (!url) return false;
+  return /\.(?:mp3|m4a|wav|webm|ogg)(?:[?#].*)?$/i.test(url);
+}
+
+function formatReferenceAudioTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const rounded = Math.floor(seconds);
+  const minutes = Math.floor(rounded / 60);
+  const remainingSeconds = rounded % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
 }
 
 function EnrichmentPreview({
