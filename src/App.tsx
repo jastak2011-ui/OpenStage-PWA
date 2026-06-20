@@ -3108,6 +3108,7 @@ function SongEditorView({
           onChange={(referenceAudioUrl) => setDraft({ ...draft, referenceAudioUrl })}
           onSave={() => void saveDraft()}
           compact
+          miniPlayer
         />
         <section className="grid min-h-0 gap-2 px-3 pb-[max(0.85rem,env(safe-area-inset-bottom))] pt-3">
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
@@ -3303,6 +3304,7 @@ function SongEditorView({
                     url={draft.referenceAudioUrl || ''}
                     onChange={(referenceAudioUrl) => setDraft({ ...draft, referenceAudioUrl })}
                     onSave={() => void saveDraft()}
+                    urlEditorOnly
                   />
                 </div>
               )}
@@ -3352,6 +3354,13 @@ function SongEditorView({
                   </div>
                 </div>
               )}
+              <ReferenceAudioControls
+                url={draft.referenceAudioUrl || ''}
+                onChange={(referenceAudioUrl) => setDraft({ ...draft, referenceAudioUrl })}
+                compact
+                miniPlayer
+                sticky
+              />
               <label className="mt-3 grid gap-2">
                 <span className="text-sm font-medium text-slate-700">Lyrics / Chord Chart</span>
                 <textarea
@@ -3443,12 +3452,18 @@ function ReferenceAudioControls({
   url,
   onChange,
   onSave,
-  compact = false
+  compact = false,
+  miniPlayer = false,
+  urlEditorOnly = false,
+  sticky = false
 }: {
   url: string;
   onChange: (url: string) => void;
   onSave?: () => void;
   compact?: boolean;
+  miniPlayer?: boolean;
+  urlEditorOnly?: boolean;
+  sticky?: boolean;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -3458,6 +3473,10 @@ function ReferenceAudioControls({
   const [audioError, setAudioError] = useState('');
   const trimmedUrl = url.trim();
   const canPlayDirectly = isDirectReferenceAudioUrl(trimmedUrl);
+  const shellClassName = [
+    compact ? 'border-b border-slate-800 bg-slate-900/95 px-3 py-2 text-slate-100' : 'grid gap-3',
+    sticky ? 'sticky bottom-2 z-20 rounded-md border border-slate-700 shadow-lg backdrop-blur md:bottom-auto md:top-[9rem]' : ''
+  ].filter(Boolean).join(' ');
 
   useEffect(() => {
     setIsPlaying(false);
@@ -3492,30 +3511,42 @@ function ReferenceAudioControls({
   }
 
   return (
-    <div className={`${compact ? 'border-b border-slate-800 bg-slate-900/95 px-3 py-2 text-slate-100' : 'grid gap-3'}`}>
-      <div className={`grid gap-2 ${compact ? 'md:grid-cols-[1fr_auto] md:items-center' : ''}`}>
-        <label className="grid gap-1">
-          <span className={`font-medium ${compact ? 'text-xs text-slate-300' : 'text-sm text-slate-700'}`}>Reference Audio URL</span>
-          <input
-            className={`h-10 rounded-md border px-3 text-sm outline-none focus:border-teal-500 ${compact ? 'border-slate-700 bg-black text-slate-100' : 'border-slate-300 bg-white text-slate-950'}`}
-            value={url}
-            placeholder="https://example.com/reference-track.mp3"
-            onChange={(event) => onChange(event.target.value)}
-          />
-        </label>
-        <button className={compact ? 'stage-menu-button h-10 self-end' : 'secondary-button h-10 self-end'} type="button" onClick={() => onChange('')} disabled={!trimmedUrl}>
-          Clear URL
-        </button>
-        {onSave && (
-          <button className={compact ? 'stage-menu-button h-10 self-end' : 'primary-button h-10 self-end'} type="button" onClick={onSave}>
-            <Save size={18} />
-            Save with song
+    <div className={shellClassName}>
+      {!miniPlayer && (
+        <div className={`grid gap-2 ${compact ? 'md:grid-cols-[1fr_auto] md:items-center' : ''}`}>
+          <label className="grid gap-1">
+            <span className={`font-medium ${compact ? 'text-xs text-slate-300' : 'text-sm text-slate-700'}`}>Reference Audio URL</span>
+            <input
+              className={`h-10 rounded-md border px-3 text-sm outline-none focus:border-teal-500 ${compact ? 'border-slate-700 bg-black text-slate-100' : 'border-slate-300 bg-white text-slate-950'}`}
+              value={url}
+              placeholder="https://example.com/reference-track.mp3"
+              onChange={(event) => onChange(event.target.value)}
+            />
+          </label>
+          <button className={compact ? 'stage-menu-button h-10 self-end' : 'secondary-button h-10 self-end'} type="button" onClick={() => onChange('')} disabled={!trimmedUrl}>
+            Clear URL
           </button>
-        )}
-      </div>
+          {onSave && (
+            <button className={compact ? 'stage-menu-button h-10 self-end' : 'primary-button h-10 self-end'} type="button" onClick={onSave}>
+              <Save size={18} />
+              Save with song
+            </button>
+          )}
+        </div>
+      )}
 
-      {!trimmedUrl ? null : canPlayDirectly ? (
+      {urlEditorOnly ? (
+        trimmedUrl && !canPlayDirectly ? (
+          <div className={`mt-3 flex flex-wrap items-center gap-2 rounded-md border p-3 ${compact ? 'border-slate-700 bg-black/30 text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+            <span className="text-sm">This link is saved with the song but is not a direct playable audio file.</span>
+            <a className={compact ? 'stage-menu-button' : 'secondary-button'} href={trimmedUrl} target="_blank" rel="noreferrer">
+              Open Reference Link
+            </a>
+          </div>
+        ) : null
+      ) : !trimmedUrl ? null : canPlayDirectly ? (
         <div className={`grid gap-2 rounded-md border p-2 ${compact ? 'border-slate-700 bg-black/30' : 'border-slate-200 bg-slate-50'}`}>
+          {miniPlayer && <div className="text-xs font-semibold uppercase tracking-normal opacity-70">Reference Audio</div>}
           <audio
             ref={audioRef}
             src={trimmedUrl}
@@ -3535,8 +3566,8 @@ function ReferenceAudioControls({
               {isPlaying ? <Pause size={18} /> : <Play size={18} />}
               {isPlaying ? 'Pause' : 'Play'}
             </button>
-            <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={() => skip(-10)}>-10 seconds</button>
-            <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={() => skip(10)}>+10 seconds</button>
+            <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={() => skip(-10)}>-10 sec</button>
+            <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={() => skip(10)}>+10 sec</button>
             <span className="rounded bg-black/10 px-2 py-1 text-sm font-semibold">
               {formatReferenceAudioTime(currentTime)} / {duration ? formatReferenceAudioTime(duration) : '--:--'}
             </span>
@@ -3557,6 +3588,7 @@ function ReferenceAudioControls({
         </div>
       ) : (
         <div className={`flex flex-wrap items-center gap-2 rounded-md border p-3 ${compact ? 'border-slate-700 bg-black/30 text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+          {miniPlayer && <span className="text-xs font-semibold uppercase tracking-normal opacity-70">Reference Audio</span>}
           <span className="text-sm">This link is saved with the song but is not a direct playable audio file.</span>
           <a className={compact ? 'stage-menu-button' : 'secondary-button'} href={trimmedUrl} target="_blank" rel="noreferrer">
             Open Reference Link
