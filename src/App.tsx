@@ -3471,8 +3471,10 @@ function ReferenceAudioControls({
   const [duration, setDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [audioError, setAudioError] = useState('');
+  const [copyMessage, setCopyMessage] = useState('');
   const trimmedUrl = url.trim();
   const canPlayDirectly = isDirectReferenceAudioUrl(trimmedUrl);
+  const urlKindLabel = canPlayDirectly ? 'Playable Audio URL' : 'External Reference Link';
   const shellClassName = [
     compact ? 'border-b border-slate-800 bg-slate-900/95 px-3 py-2 text-slate-100' : 'grid gap-3',
     sticky ? 'sticky bottom-2 z-20 rounded-md border border-slate-700 shadow-lg backdrop-blur md:bottom-auto md:top-[9rem]' : ''
@@ -3510,12 +3512,48 @@ function ReferenceAudioControls({
     audio.currentTime = Math.max(0, Math.min(audio.duration || Number.MAX_SAFE_INTEGER, audio.currentTime + seconds));
   }
 
+  function openReferenceLink() {
+    if (!trimmedUrl) return;
+    const opened = window.open(trimmedUrl, '_blank', 'noopener,noreferrer');
+    if (opened) opened.opener = null;
+  }
+
+  async function copyReferenceLink() {
+    if (!trimmedUrl) return;
+    try {
+      await navigator.clipboard.writeText(trimmedUrl);
+      setCopyMessage('Reference link copied');
+      window.setTimeout(() => setCopyMessage(''), 2200);
+    } catch {
+      setCopyMessage('Copy failed. Select the URL and copy it manually.');
+      window.setTimeout(() => setCopyMessage(''), 3200);
+    }
+  }
+
+  const externalLinkPanel = (
+    <div className={`grid gap-2 rounded-md border p-3 ${compact ? 'border-slate-700 bg-black/30 text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+      <div className="text-xs font-semibold uppercase tracking-normal opacity-70">External Reference Link</div>
+      <p className="text-sm">
+        This link cannot be played inside OpenStage. Use a direct audio file URL for the in-app mini-player.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={openReferenceLink}>
+          Open Reference Link in New Tab
+        </button>
+        <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={() => void copyReferenceLink()}>
+          Copy Reference Link
+        </button>
+      </div>
+      {copyMessage && <div className="text-sm font-semibold text-teal-600">{copyMessage}</div>}
+    </div>
+  );
+
   return (
     <div className={shellClassName}>
       {!miniPlayer && (
         <div className={`grid gap-2 ${compact ? 'md:grid-cols-[1fr_auto] md:items-center' : ''}`}>
           <label className="grid gap-1">
-            <span className={`font-medium ${compact ? 'text-xs text-slate-300' : 'text-sm text-slate-700'}`}>Reference Audio URL</span>
+            <span className={`font-medium ${compact ? 'text-xs text-slate-300' : 'text-sm text-slate-700'}`}>{trimmedUrl ? urlKindLabel : 'Reference Audio URL'}</span>
             <input
               className={`h-10 rounded-md border px-3 text-sm outline-none focus:border-teal-500 ${compact ? 'border-slate-700 bg-black text-slate-100' : 'border-slate-300 bg-white text-slate-950'}`}
               value={url}
@@ -3536,17 +3574,10 @@ function ReferenceAudioControls({
       )}
 
       {urlEditorOnly ? (
-        trimmedUrl && !canPlayDirectly ? (
-          <div className={`mt-3 flex flex-wrap items-center gap-2 rounded-md border p-3 ${compact ? 'border-slate-700 bg-black/30 text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
-            <span className="text-sm">This link is saved with the song but is not a direct playable audio file.</span>
-            <a className={compact ? 'stage-menu-button' : 'secondary-button'} href={trimmedUrl} target="_blank" rel="noreferrer">
-              Open Reference Link
-            </a>
-          </div>
-        ) : null
+        trimmedUrl && !canPlayDirectly ? <div className="mt-3">{externalLinkPanel}</div> : null
       ) : !trimmedUrl ? null : canPlayDirectly ? (
         <div className={`grid gap-2 rounded-md border p-2 ${compact ? 'border-slate-700 bg-black/30' : 'border-slate-200 bg-slate-50'}`}>
-          {miniPlayer && <div className="text-xs font-semibold uppercase tracking-normal opacity-70">Reference Audio</div>}
+          {miniPlayer && <div className="text-xs font-semibold uppercase tracking-normal opacity-70">Playable Audio URL</div>}
           <audio
             ref={audioRef}
             src={trimmedUrl}
@@ -3587,13 +3618,7 @@ function ReferenceAudioControls({
           {audioError && <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">{audioError}</div>}
         </div>
       ) : (
-        <div className={`flex flex-wrap items-center gap-2 rounded-md border p-3 ${compact ? 'border-slate-700 bg-black/30 text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
-          {miniPlayer && <span className="text-xs font-semibold uppercase tracking-normal opacity-70">Reference Audio</span>}
-          <span className="text-sm">This link is saved with the song but is not a direct playable audio file.</span>
-          <a className={compact ? 'stage-menu-button' : 'secondary-button'} href={trimmedUrl} target="_blank" rel="noreferrer">
-            Open Reference Link
-          </a>
-        </div>
+        externalLinkPanel
       )}
     </div>
   );
