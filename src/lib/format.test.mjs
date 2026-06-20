@@ -23,6 +23,7 @@ import { parseChordPro } from './chordpro-test-target.mjs';
 import { harmonyTextRuns, isRangeInsideHarmonyMarkup, lyricHarmonyRenderModel, lyricHarmonyRenderModelFromParsed, markHarmonyRange, parseHarmonyText, removeHarmonyRange, stripHarmonyMarkup } from './harmony-test-target.mjs';
 import { createId } from './ids-test-target.mjs';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './importExport-test-target.mjs';
+import { parseWebpageChartText } from './webpageChartImport-test-target.mjs';
 import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
 import { applyStageHarmonyEdit } from './stageHarmonyEdit-test-target.mjs';
 import { appleTvPortraitPrompterSettings, calculateExternalPrompterLayout, normalizeExternalDisplaySettings } from '../services/externalDisplay-test-target.mjs';
@@ -70,6 +71,34 @@ const favoriteJsonSong = parseJsonSongs(songsToJson([favoriteCsvSong]))[0];
 assert.equal(favoriteJsonSong.favorite, true);
 const legacyJsonSong = parseJsonSongs('[{"title":"Legacy Tune","chart":"[C]Old"}]')[0];
 assert.equal(legacyJsonSong.favorite, false);
+const webpageChordOver = parseWebpageChartText(`3AM
+Matchbox 20
+Capo 1
+Key G
+BPM 108
+Tuning: Standard
+Advertisement
+
+G        C
+She says it's cold outside
+Comments`);
+assert.equal(webpageChordOver.song.title, '3AM');
+assert.equal(webpageChordOver.song.artist, 'Matchbox 20');
+assert.equal(webpageChordOver.song.key, 'G');
+assert.equal(webpageChordOver.song.capo, 1);
+assert.equal(webpageChordOver.song.bpm, 108);
+assert.equal(webpageChordOver.song.displayPreference, 'chords-over');
+assert.match(webpageChordOver.cleanedText, /G        C\nShe says it's cold outside/);
+assert.equal(webpageChordOver.removedLines.includes('Advertisement'), true);
+const webpageInline = parseWebpageChartText(`Take On Me
+A-ha
+
+[G]Talking away
+Rating`);
+assert.equal(webpageInline.song.title, 'Take On Me');
+assert.equal(webpageInline.song.artist, 'A-ha');
+assert.equal(webpageInline.song.displayPreference, 'inline');
+assert.equal(webpageInline.cleanedText, '[G]Talking away');
 const harmonyText = parseHarmonyText('Take it [HARMONY]easy[/HARMONY]');
 assert.equal(harmonyText.text, 'Take it easy');
 assert.deepEqual(harmonyText.ranges, [{ start: 8, end: 12 }]);

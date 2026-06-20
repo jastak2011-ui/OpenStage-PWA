@@ -77,6 +77,14 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/lib/webpageChartImport.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/webpageChartImport-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/lib/stageGestures.ts')],
   bundle: true,
   platform: 'node',

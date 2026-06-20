@@ -79,6 +79,7 @@ import { getStageSwipeDirection } from './lib/stageGestures';
 import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/stageHarmonyEdit';
 import { createId } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
+import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
 import {
   anchoredChordLineLayout,
   boldChordsUpdate,
@@ -1878,6 +1879,10 @@ export default function App() {
             return summary;
           }}
           onJsonCsvImport={importSongs}
+          onWebpageChartImport={async (song) => {
+            await saveSong(song);
+            setToast({ message: 'Webpage chart imported', type: 'success' });
+          }}
         />
       )}
 
@@ -2154,17 +2159,22 @@ function Toast({ toast }: { toast: Exclude<ToastState, null> }) {
 function ImportSongsView({
   songs,
   onImport,
-  onJsonCsvImport
+  onJsonCsvImport,
+  onWebpageChartImport
 }: {
   songs: Song[];
   onImport: (files: ImportCandidate[], strategy: DuplicateStrategy) => Promise<ImportSummary>;
   onJsonCsvImport: (file: File) => Promise<void>;
+  onWebpageChartImport: (song: Song) => Promise<void>;
 }) {
   const [strategy, setStrategy] = useState<DuplicateStrategy>('skip');
   const [pendingFiles, setPendingFiles] = useState<ImportCandidate[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [webpagePasteText, setWebpagePasteText] = useState('');
+  const [webpagePreview, setWebpagePreview] = useState<WebpageChartImportPreview | null>(null);
+  const [isSavingPaste, setIsSavingPaste] = useState(false);
 
   async function addFiles(files: File[]) {
     const accepted = files.filter((file) => isSupportedSongImportFileName(file.name));
@@ -2197,6 +2207,22 @@ function ImportSongsView({
     }
   }
 
+  function previewWebpagePaste() {
+    setWebpagePreview(parseWebpageChartText(webpagePasteText));
+  }
+
+  async function saveWebpagePaste() {
+    if (!webpagePreview || webpagePreview.warnings.length > 0) return;
+    setIsSavingPaste(true);
+    try {
+      await onWebpageChartImport(webpagePreview.song);
+      setWebpagePasteText('');
+      setWebpagePreview(null);
+    } finally {
+      setIsSavingPaste(false);
+    }
+  }
+
   return (
     <main className="min-h-[calc(100vh-105px)] p-4">
       <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[1fr_340px]">
@@ -2207,6 +2233,85 @@ function ImportSongsView({
               Import ChordPro files or OnSong .archive libraries with source chart text preserved for offline use.
             </p>
           </div>
+
+          <section className="rounded-md border border-teal-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold">Paste Webpage Chart</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Paste copied song text from a webpage. OpenStage will remove common webpage clutter, detect metadata, and preserve chord-over-lyrics spacing.
+                </p>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => { setWebpagePasteText(''); setWebpagePreview(null); }}>
+                Clear
+              </button>
+            </div>
+            <textarea
+              className="input mt-3 min-h-72 w-full font-mono text-sm leading-relaxed"
+              placeholder={"Paste webpage song/chord text here...\n\nExample:\n3AM\nMatchbox 20\nCapo 1\nKey G\nBPM 108\n\nG        C\nShe says it's cold outside"}
+              value={webpagePasteText}
+              onChange={(event) => {
+                setWebpagePasteText(event.target.value);
+                if (webpagePreview) setWebpagePreview(null);
+              }}
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button className="primary-button" type="button" onClick={previewWebpagePaste} disabled={!webpagePasteText.trim()}>
+                Preview Webpage Chart
+              </button>
+              {webpagePreview && (
+                <button className="primary-button" type="button" onClick={saveWebpagePaste} disabled={isSavingPaste || webpagePreview.warnings.length > 0}>
+                  Save as Song
+                </button>
+              )}
+            </div>
+            {webpagePreview && (
+              <section className="mt-4 grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="font-semibold">Preview</h4>
+                    <p className="text-sm text-slate-600">
+                      {webpagePreview.detectedFields.length ? `Detected: ${webpagePreview.detectedFields.join(', ')}` : 'No metadata detected.'}
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+                    Display: {webpagePreview.song.displayPreference === 'chords-over' ? 'Chords over lyrics' : 'Inline chords'}
+                  </span>
+                </div>
+                <div className="grid gap-2 md:grid-cols-3">
+                  <div className="rounded border border-slate-200 bg-white p-2">
+                    <div className="text-xs font-semibold uppercase text-slate-500">Title</div>
+                    <div className="font-semibold">{webpagePreview.song.title}</div>
+                  </div>
+                  <div className="rounded border border-slate-200 bg-white p-2">
+                    <div className="text-xs font-semibold uppercase text-slate-500">Artist</div>
+                    <div className="font-semibold">{webpagePreview.song.artist || '-'}</div>
+                  </div>
+                  <div className="rounded border border-slate-200 bg-white p-2">
+                    <div className="text-xs font-semibold uppercase text-slate-500">Metadata</div>
+                    <div className="text-sm">Key {webpagePreview.song.key || '-'} / Capo {webpagePreview.song.capo ?? 0} / BPM {webpagePreview.song.bpm || '-'}</div>
+                    <div className="text-sm">Tuning {webpagePreview.song.tuning || '-'}</div>
+                  </div>
+                </div>
+                {webpagePreview.removedLines.length > 0 && (
+                  <details className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <summary className="cursor-pointer font-semibold">Removed webpage junk ({webpagePreview.removedLines.length})</summary>
+                    <div className="mt-2 grid gap-1">
+                      {webpagePreview.removedLines.slice(0, 20).map((line, index) => <div key={`${line}-${index}`}>{line}</div>)}
+                    </div>
+                  </details>
+                )}
+                {webpagePreview.warnings.length > 0 && (
+                  <div className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+                    {webpagePreview.warnings.join(' ')}
+                  </div>
+                )}
+                <pre className="max-h-96 overflow-auto rounded-md border border-slate-300 bg-white p-3 font-mono text-sm leading-relaxed whitespace-pre-wrap">
+                  {webpagePreview.cleanedText}
+                </pre>
+              </section>
+            )}
+          </section>
 
           <div
             className={`grid min-h-64 place-items-center rounded-md border-2 border-dashed bg-white p-8 text-center ${
