@@ -1867,6 +1867,7 @@ export default function App() {
           onAddToSetlist={addToSetlist}
           performanceState={performanceState}
           setPerformanceState={updatePerformanceState}
+          initialFullScreen={editorReturnMode === 'stage'}
         />
       )}
 
@@ -2951,7 +2952,8 @@ function SongEditorView({
   onDelete,
   onAddToSetlist,
   performanceState,
-  setPerformanceState
+  setPerformanceState,
+  initialFullScreen = false
 }: {
   song: Song;
   songs: Song[];
@@ -2961,6 +2963,7 @@ function SongEditorView({
   onAddToSetlist: (id: string) => void;
   performanceState: PerformanceState;
   setPerformanceState: (next: Partial<PerformanceState>) => void;
+  initialFullScreen?: boolean;
 }) {
   const [draft, setDraft] = useState<Song>(song);
   const [durationDraft, setDurationDraft] = useState('');
@@ -2970,6 +2973,7 @@ function SongEditorView({
   const [enrichmentStatus, setEnrichmentStatus] = useState('');
   const [enrichmentError, setEnrichmentError] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [fullScreenEditor, setFullScreenEditor] = useState(initialFullScreen);
   const chartEditorRef = useRef<HTMLTextAreaElement | null>(null);
   const chartSelectionRef = useRef({ start: 0, end: 0 });
 
@@ -2982,7 +2986,38 @@ function SongEditorView({
     setEnrichmentStatus('');
     setEnrichmentError('');
     setDetailsOpen(false);
-  }, [song]);
+    setFullScreenEditor(initialFullScreen);
+  }, [song, initialFullScreen]);
+
+  const hasUnsavedChanges = useMemo(() => {
+    const parsedDuration = parseDurationInput(durationDraft);
+    return JSON.stringify({ ...draft, durationSeconds: parsedDuration ?? draft.durationSeconds }) !== JSON.stringify(song);
+  }, [draft, durationDraft, song]);
+
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        setFullScreenEditor((enabled) => !enabled);
+      }
+    }
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, []);
+
+  async function saveDraft() {
+    const parsedDuration = parseDurationInput(durationDraft);
+    if (durationDraft.trim() && parsedDuration === undefined) {
+      setDurationError('Use formats like 3:45 or 1:02:30');
+      return;
+    }
+    await onSave({ ...draft, durationSeconds: parsedDuration });
+  }
+
+  function cancelEditor() {
+    if (hasUnsavedChanges && !window.confirm('Discard unsaved changes?')) return;
+    onCancel();
+  }
 
   async function runEnrichmentLookup() {
     setEnrichmentStatus('Looking up MusicBrainz, Last.fm, Deezer, and local matches...');
@@ -3043,11 +3078,53 @@ function SongEditorView({
     chartSelectionRef.current = { start: editor.selectionStart, end: editor.selectionEnd };
   }
 
+  if (fullScreenEditor) {
+    return (
+      <main className="fixed inset-0 z-[100] grid grid-rows-[auto_1fr] bg-slate-950 text-slate-100">
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-950/95 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] shadow-lg backdrop-blur">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-base font-semibold sm:text-lg">{draft.title || 'Untitled Song'}</div>
+            <div className="truncate text-xs text-slate-400">{draft.artist || 'Unknown artist'}{hasUnsavedChanges ? ' - Unsaved changes' : ''}</div>
+          </div>
+          <button className="primary-button h-10" type="button" onClick={() => void saveDraft()}>
+            <Save size={18} />
+            Save
+          </button>
+          <button className="secondary-button h-10 border-slate-700 bg-slate-900 text-slate-100" type="button" onClick={cancelEditor}>
+            Cancel
+          </button>
+          <button className="secondary-button h-10 border-slate-700 bg-slate-900 text-slate-100" type="button" onClick={() => setFullScreenEditor(false)}>
+            <X size={18} />
+            Exit Full Screen
+          </button>
+        </div>
+        <section className="grid min-h-0 gap-2 px-3 pb-[max(0.85rem,env(safe-area-inset-bottom))] pt-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <span>ChordPro, OnSong text, and chords-over-lyrics spacing are preserved.</span>
+            <span className="ml-auto">Ctrl+Shift+F toggles full screen</span>
+          </div>
+          <textarea
+            ref={chartEditorRef}
+            className="h-full min-h-0 w-full resize-none rounded-md border border-slate-700 bg-black p-4 font-mono text-base leading-7 text-slate-100 outline-none focus:border-teal-400 sm:text-lg sm:leading-8"
+            value={draft.chart}
+            spellCheck={false}
+            autoFocus
+            onSelect={rememberChartSelection}
+            onKeyUp={rememberChartSelection}
+            onMouseUp={rememberChartSelection}
+            onTouchEnd={rememberChartSelection}
+            onChange={(event) => setDraft({ ...draft, chart: event.target.value })}
+          />
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-[calc(100vh-105px)] bg-slate-100 p-4 text-slate-950">
       <section className="mx-auto max-w-6xl">
         <div className="sticky top-[4.5rem] z-20 mb-4 flex flex-wrap items-center gap-2 rounded-md border border-slate-300 bg-white/95 p-2 shadow-sm backdrop-blur">
-          <button className="secondary-button h-10" type="button" onClick={onCancel}>
+          <button className="secondary-button h-10" type="button" onClick={cancelEditor}>
             <ChevronLeft size={18} />
             Back to Library
           </button>
@@ -3055,8 +3132,12 @@ function SongEditorView({
             <Save size={18} />
             Save
           </button>
-          <button className="secondary-button h-10" type="button" onClick={onCancel}>
+          <button className="secondary-button h-10" type="button" onClick={cancelEditor}>
             Cancel
+          </button>
+          <button className="secondary-button h-10" type="button" onClick={() => setFullScreenEditor(true)}>
+            <Expand size={18} />
+            Full Screen Editor
           </button>
           <h2 className="ml-auto text-sm font-semibold text-slate-600 sm:text-base">Song Editor</h2>
         </div>
@@ -3065,12 +3146,7 @@ function SongEditorView({
             className="mx-auto grid max-w-6xl gap-4"
             onSubmit={(event) => {
               event.preventDefault();
-              const parsedDuration = parseDurationInput(durationDraft);
-              if (durationDraft.trim() && parsedDuration === undefined) {
-                setDurationError('Use formats like 3:45 or 1:02:30');
-                return;
-              }
-              onSave({ ...draft, durationSeconds: parsedDuration });
+              void saveDraft();
             }}
           >
             <section className="rounded-md border border-slate-300 bg-white p-4">
@@ -3220,6 +3296,10 @@ function SongEditorView({
                 <button className="secondary-button ml-auto" type="button" onClick={() => setConversionPreview(inlineChordsToChordOverLyrics(draft.chart))}>
                   Convert Inline Chords to Chords Over Lyrics
                 </button>
+                <button className="secondary-button" type="button" onClick={() => setFullScreenEditor(true)}>
+                  <Expand size={18} />
+                  Full Screen Editor
+                </button>
                 <button className="secondary-button" type="button" onClick={markHarmonySelection}>
                   <Music2 size={18} />
                   Mark Harmony
@@ -3266,7 +3346,7 @@ function SongEditorView({
                 <Save size={18} />
                 Save song
               </button>
-              <button className="secondary-button" type="button" onClick={onCancel}>
+              <button className="secondary-button" type="button" onClick={cancelEditor}>
                 Cancel
               </button>
               <button className="secondary-button" type="button" onClick={() => onAddToSetlist(draft.id)}>
