@@ -11,6 +11,7 @@ import {
   FileJson,
   Gauge,
   GripVertical,
+  HelpCircle,
   Library,
   ListMusic,
   LogIn,
@@ -317,7 +318,8 @@ const mobileModeOptions: Array<{ mode: StageMode; label: string; icon: React.Rea
   { mode: 'stage', label: 'Stage', icon: <Monitor size={19} /> },
   { mode: 'pedals', label: 'Pedals', icon: <Settings size={19} /> },
   { mode: 'settings', label: 'Settings', icon: <Settings size={19} /> },
-  { mode: 'diagnostics', label: 'Diagnostics', icon: <Gauge size={19} /> }
+  { mode: 'diagnostics', label: 'Diagnostics', icon: <Gauge size={19} /> },
+  { mode: 'help', label: 'Help', icon: <HelpCircle size={19} /> }
 ];
 
 function modeLabel(mode: StageMode) {
@@ -1728,6 +1730,7 @@ export default function App() {
             <ModeButton icon={<Settings size={17} />} label="Pedals" mode="pedals" active={activeMode} setActive={setActiveMode} />
             <ModeButton icon={<Settings size={17} />} label="Settings" mode="settings" active={activeMode} setActive={setActiveMode} />
             <ModeButton icon={<Gauge size={17} />} label="Diagnostics" mode="diagnostics" active={activeMode} setActive={setActiveMode} />
+            <ModeButton icon={<HelpCircle size={17} />} label="Help" mode="help" active={activeMode} setActive={setActiveMode} />
           </nav>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <button className="icon-button" title="New song" onClick={() => saveSong(emptySong())}>
@@ -1973,6 +1976,8 @@ export default function App() {
         />
       )}
 
+      {activeMode === 'help' && <HelpView />}
+
       {activeMode === 'perform' && selectedSong && (
         <PerformanceView
           song={selectedSong}
@@ -2156,6 +2161,125 @@ function Toast({ toast }: { toast: Exclude<ToastState, null> }) {
         </button>
       )}
     </div>
+  );
+}
+
+const helpSections = [
+  {
+    title: 'Getting Started',
+    body: 'OpenStage stores songs locally for offline use. Start in Library, import or add songs, then use Stage for live performance.',
+    steps: ['Import a few songs or create a new song.', 'Open a song from Library to edit it.', 'Use Stage when you are ready to rehearse or perform.']
+  },
+  {
+    title: 'Importing Songs',
+    body: 'Use Import for ChordPro files, OnSong archives, JSON/CSV backups, folders, or pasted webpage charts.',
+    steps: ['Open Import.', 'Choose Paste Webpage Chart, Select files, or Select folder.', 'Preview when available, then save or import.']
+  },
+  {
+    title: 'Editing Songs',
+    body: 'The Song Editor is chart-first. Song Details stay collapsed so lyrics and chords are easy to reach.',
+    steps: ['Click a song in Library.', 'Edit the chart text directly.', 'Use Full Screen Editor for a larger writing area.', 'Save to return to your previous screen.']
+  },
+  {
+    title: 'Stage Mode',
+    body: 'Stage Mode is the low-distraction performance view. Library, Setlists, Format, and More open as overlays without leaving Stage.',
+    steps: ['Open a song.', 'Choose Stage.', 'Tap the chart to reveal controls.', 'Use Previous/Next, swipe, or a pedal to change songs.']
+  },
+  {
+    title: 'Setlists',
+    body: 'Build named setlists, reorder songs, save them, and run them in Stage so navigation stays inside the setlist.',
+    steps: ['Open Setlist.', 'Enter a setlist name.', 'Add songs and drag or move them into order.', 'Save Setlist, then Run in Stage.']
+  },
+  {
+    title: 'Autoscroll',
+    body: 'Autoscroll can use manual duration, BPM estimates, or manual speed. The floating scroll button starts and pauses scrolling.',
+    steps: ['In Stage, tap the scroll button to start or pause.', 'Press and hold the scroll button for quick speed controls.', 'Use Format > Scroll for detailed settings.']
+  },
+  {
+    title: 'Harmony Cues',
+    body: 'Harmony cues mark backing vocal words without changing the original chart style.',
+    steps: ['In the editor, select lyric text and click Mark Harmony.', 'In Stage, select lyric text and use the Harmony action bar.', 'Use Format > Harmony to change color, underline, icon, and visibility.']
+  },
+  {
+    title: 'Formatting',
+    body: 'Stage formatting is device/profile based, so desktop, iPhone, iPad, and prompter screens can have different defaults.',
+    steps: ['Open Stage.', 'Tap Format.', 'Choose Document, Format, Chords, Harmony, Sections, Display, Scroll, or External.', 'Apply or save a Display Profile for the current device.']
+  },
+  {
+    title: 'Reference Audio',
+    body: 'Each song can store a reference audio URL for rehearsal while editing.',
+    steps: ['Open a song in the editor.', 'Expand Reference Audio.', 'Paste a direct MP3, M4A, WAV, OGG, or WebM URL for the mini-player.', 'YouTube or music-service links are saved as external reference links.']
+  },
+  {
+    title: 'Backup / Restore',
+    body: 'Use backups before major imports or device changes. Backups include songs, setlists, settings, and reference audio URLs.',
+    steps: ['Open Settings.', 'Export a local backup file.', 'Use Restore Backup to load it on another device or after a reset.']
+  },
+  {
+    title: 'Mobile / iPad Tips',
+    body: 'On phones, use the hamburger menu for navigation. In Stage, controls auto-hide so the chart has more room.',
+    steps: ['Use the iPhone Display Profile for smaller text and wrapping.', 'Use Show Chords off for vocalist-only views.', 'On iPad, Add to Home Screen for a more app-like PWA experience.']
+  }
+];
+
+const quickHelpTasks = [
+  { title: 'Import a song', steps: ['Open Import.', 'Drop files, select files, or paste webpage chart text.', 'Review the summary, then open the song from Library.'] },
+  { title: 'Edit lyrics/chords', steps: ['Open Library.', 'Click a song.', 'Edit the chart text.', 'Click Save.'] },
+  { title: 'Mark harmony', steps: ['Select lyric text in the editor or Stage.', 'Click Mark Harmony.', 'Confirm the change if prompted.'] },
+  { title: 'Build a setlist', steps: ['Open Setlist.', 'Name the setlist.', 'Add songs.', 'Reorder songs.', 'Click Save Setlist.'] },
+  { title: 'Start Stage Mode', steps: ['Select a song or run a saved setlist.', 'Open Stage.', 'Tap the chart to show or hide controls.'] },
+  { title: 'Adjust scroll speed', steps: ['In Stage, press and hold the floating scroll button.', 'Move the slider or tap a preset.', 'Release and keep performing.'] },
+  { title: 'Add reference audio', steps: ['Open a song in the editor.', 'Expand Reference Audio.', 'Paste a direct playable audio URL.', 'Save the song.'] }
+];
+
+function HelpView() {
+  return (
+    <main className="min-h-[calc(100vh-105px)] p-3 sm:p-4">
+      <div className="mx-auto grid max-w-6xl gap-5">
+        <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="grid h-11 w-11 place-items-center rounded-md bg-teal-700 text-white">
+              <HelpCircle size={24} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-2xl font-semibold text-slate-950">OpenStage Help</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                Simple instructions for importing songs, editing charts, building setlists, and using Stage Mode during rehearsal or live performance.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-950">Quick Steps</h3>
+            <p className="mt-1 text-sm text-slate-600">Common tasks, kept short.</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {quickHelpTasks.map((task) => (
+              <article key={task.title} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                <h4 className="font-semibold text-slate-950">{task.title}</h4>
+                <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-6 text-slate-700">
+                  {task.steps.map((step) => <li key={step}>{step}</li>)}
+                </ol>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="grid gap-3 md:grid-cols-2">
+          {helpSections.map((section) => (
+            <article key={section.title} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+              <h3 className="text-lg font-semibold text-slate-950">{section.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{section.body}</p>
+              <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-slate-700">
+                {section.steps.map((step) => <li key={step}>{step}</li>)}
+              </ol>
+            </article>
+          ))}
+        </section>
+      </div>
+    </main>
   );
 }
 
