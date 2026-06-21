@@ -81,7 +81,15 @@ import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/sta
 import { createId } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
-import { connectRemoteDisplay, isDisplayRoute, publishRemoteDisplaySong, type RemoteDisplayStatus } from './services/remoteDisplay';
+import {
+  connectRemoteDisplay,
+  getRemoteDisplayUrl,
+  isDisplayRoute,
+  publishRemoteDisplaySong,
+  saveRemoteDisplayUrl,
+  subscribeRemoteDisplayControllerStatus,
+  type RemoteDisplayStatus
+} from './services/remoteDisplay';
 import {
   anchoredChordLineLayout,
   boldChordsUpdate,
@@ -2296,6 +2304,8 @@ function RemoteDisplayApp() {
   const [missingSongId, setMissingSongId] = useState('');
   const [status, setStatus] = useState<RemoteDisplayStatus>('connecting');
   const [lastMessageAt, setLastMessageAt] = useState('');
+  const [relayUrl, setRelayUrl] = useState(() => getRemoteDisplayUrl());
+  const [connectionKey, setConnectionKey] = useState(0);
   const displayState: PerformanceState = {
     ...defaultPerformanceState,
     activeProfile: 'prompter-display',
@@ -2335,7 +2345,12 @@ function RemoteDisplayApp() {
       }
     });
     return () => connection.close();
-  }, []);
+  }, [connectionKey]);
+
+  function saveDisplayRelayUrl() {
+    saveRemoteDisplayUrl(relayUrl.trim());
+    setConnectionKey((key) => key + 1);
+  }
 
   useEffect(() => {
     if (!selectedSongId || songMap.has(selectedSongId)) {
@@ -2351,11 +2366,28 @@ function RemoteDisplayApp() {
         <section className="max-w-2xl">
           <div className="text-5xl font-bold">OpenStage Display</div>
           <div className="mt-5 text-2xl text-slate-300">Waiting for iPad controller</div>
-          <div className="mt-8 grid gap-2 text-lg text-slate-400">
-            <div>WebSocket: {status}</div>
+          <div className="mx-auto mt-8 grid max-w-xl gap-3 rounded-md border border-slate-700 bg-slate-900/70 p-4 text-left text-lg text-slate-300">
+            <div className="flex items-center justify-between gap-3">
+              <span>WebSocket</span>
+              <span className={`rounded-full border px-3 py-1 text-sm font-semibold ${remoteDisplayStatusClass(status)}`}>
+                {remoteDisplayStatusLabel(status)}
+              </span>
+            </div>
+            <label className="grid gap-1 text-sm">
+              <span className="font-semibold text-slate-200">Relay address</span>
+              <input
+                className="rounded-md border border-slate-600 bg-black px-3 py-2 font-mono text-slate-100"
+                value={relayUrl}
+                placeholder="ws://192.168.1.123:8787"
+                onChange={(event) => setRelayUrl(event.target.value)}
+              />
+            </label>
+            <button className="rounded-md bg-teal-700 px-4 py-2 text-sm font-semibold text-white" type="button" onClick={saveDisplayRelayUrl}>
+              Save and Reconnect
+            </button>
             {lastMessageAt && <div>Last message: {lastMessageAt}</div>}
             {missingSongId && <div>Song ID not found locally: {missingSongId}</div>}
-            <div>Open this page on the Raspberry Pi display: /display</div>
+            <div className="text-sm text-slate-400">Open this page on the Raspberry Pi display: /display</div>
           </div>
         </section>
       </main>
@@ -2953,6 +2985,7 @@ function SettingsView({
   return (
     <main className="min-h-[calc(100vh-105px)] p-4">
       <div className="mx-auto grid max-w-5xl gap-4 md:grid-cols-2">
+        <RemoteDisplaySettingsCard />
         <SettingsCard title="Display Settings">
           <PerformanceControlPanel state={state} setState={setState} setPreset={setPreset} setAutoscrollSpeed={setAutoscrollSpeed} onCalculateDuration={() => undefined} />
         </SettingsCard>
@@ -3035,6 +3068,64 @@ function SettingsView({
       </div>
     </main>
   );
+}
+
+function RemoteDisplaySettingsCard() {
+  const [relayUrl, setRelayUrl] = useState(() => getRemoteDisplayUrl());
+  const [status, setStatus] = useState<RemoteDisplayStatus>('disconnected');
+  const [message, setMessage] = useState('');
+
+  useEffect(() => subscribeRemoteDisplayControllerStatus(setStatus), []);
+
+  function saveRelayUrl() {
+    saveRemoteDisplayUrl(relayUrl.trim());
+    setMessage('Remote Display relay address saved');
+    window.setTimeout(() => setMessage(''), 2500);
+  }
+
+  return (
+    <SettingsCard title="Remote Display">
+      <div className="grid gap-3 text-sm text-slate-700">
+        <p>
+          Render stays a static site. Run the relay locally on the Raspberry Pi with <span className="font-mono">npm run remote-display</span>,
+          then point both the iPad and <span className="font-mono">/display</span> at that Pi address.
+        </p>
+        <label className="grid gap-1">
+          <span className="font-semibold text-slate-800">Relay address</span>
+          <input
+            className="input font-mono"
+            placeholder="ws://192.168.1.123:8787"
+            value={relayUrl}
+            onChange={(event) => setRelayUrl(event.target.value)}
+          />
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="primary-button" type="button" onClick={saveRelayUrl}>Save Relay Address</button>
+          <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${remoteDisplayStatusClass(status)}`}>
+            {remoteDisplayStatusLabel(status)}
+          </span>
+        </div>
+        {message && <div className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800">{message}</div>}
+        <p className="text-xs text-slate-500">
+          Use the same address on every device, for example <span className="font-mono">ws://192.168.1.123:8787</span>.
+        </p>
+      </div>
+    </SettingsCard>
+  );
+}
+
+function remoteDisplayStatusLabel(status: RemoteDisplayStatus) {
+  if (status === 'connected') return 'Connected';
+  if (status === 'connecting') return 'Reconnecting';
+  if (status === 'error') return 'Error';
+  return 'Disconnected';
+}
+
+function remoteDisplayStatusClass(status: RemoteDisplayStatus) {
+  if (status === 'connected') return 'border-teal-300 bg-teal-50 text-teal-800';
+  if (status === 'connecting') return 'border-amber-300 bg-amber-50 text-amber-800';
+  if (status === 'error') return 'border-red-300 bg-red-50 text-red-800';
+  return 'border-slate-300 bg-slate-100 text-slate-700';
 }
 
 function SettingsCard({ title, children }: { title: string; children: React.ReactNode }) {

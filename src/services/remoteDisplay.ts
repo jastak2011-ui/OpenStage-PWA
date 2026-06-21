@@ -16,6 +16,8 @@ const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(
 
 let controllerConnection: ReturnType<typeof connectRemoteDisplay> | null = null;
 let pendingControllerSongId = '';
+let controllerStatus: RemoteDisplayStatus = 'disconnected';
+const controllerStatusListeners = new Set<(status: RemoteDisplayStatus) => void>();
 
 export function isDisplayRoute() {
   return window.location.pathname.replace(/\/+$/, '') === '/display';
@@ -44,6 +46,20 @@ export function saveRemoteDisplayUrl(url: string) {
   } catch {
     // Optional convenience only.
   }
+  resetRemoteDisplayController();
+}
+
+export function subscribeRemoteDisplayControllerStatus(listener: (status: RemoteDisplayStatus) => void) {
+  controllerStatusListeners.add(listener);
+  listener(controllerStatus);
+  return () => {
+    controllerStatusListeners.delete(listener);
+  };
+}
+
+function setControllerStatus(status: RemoteDisplayStatus) {
+  controllerStatus = status;
+  controllerStatusListeners.forEach((listener) => listener(status));
 }
 
 export function connectRemoteDisplay({ role, onMessage, onStatus }: RemoteDisplayConnectionOptions) {
@@ -123,6 +139,7 @@ export function publishRemoteDisplaySong(songId: string) {
     controllerConnection = connectRemoteDisplay({
       role: 'controller',
       onStatus: (status) => {
+        setControllerStatus(status);
         if (status !== 'connected' || !pendingControllerSongId) return;
         controllerConnection?.send({ type: 'song', songId: pendingControllerSongId });
       }
@@ -136,6 +153,7 @@ export function resetRemoteDisplayController() {
   controllerConnection?.close();
   controllerConnection = null;
   pendingControllerSongId = '';
+  setControllerStatus('disconnected');
 }
 
 function parseRemoteDisplayMessage(data: unknown): RemoteDisplayMessage | null {
