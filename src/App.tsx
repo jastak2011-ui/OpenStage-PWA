@@ -5098,9 +5098,11 @@ function StageControlPopover({
     setProfileMessage(`Saved current settings as ${displayProfileLabel(selectedDisplayProfile)} profile`);
   }
 
+  const isFormatPopover = active === 'format';
+
   return (
     <aside
-      className={`stage-popover fixed ${popoverPosition} top-20 z-50 w-[min(24rem,calc(100vw-1.5rem))] rounded-lg border p-3 shadow-2xl backdrop-blur-md ${menuSurface}`}
+      className={`stage-popover fixed ${popoverPosition} top-20 z-50 w-[min(24rem,calc(100vw-1.5rem))] rounded-lg border shadow-2xl backdrop-blur-md ${menuSurface} ${isFormatPopover ? 'stage-format-popover flex flex-col overflow-hidden p-0' : 'p-3'}`}
       data-stage-popover={active}
       onClick={(event) => event.stopPropagation()}
     >
@@ -5163,9 +5165,11 @@ function StageControlPopover({
       )}
 
       {active === 'format' && (
-        <div className="grid gap-3">
-          <StagePopoverTitle title="Format" />
-          <div className="min-h-72">
+        <div className="stage-format-panel flex min-h-0 flex-1 flex-col">
+          <div className="stage-format-header shrink-0 border-b border-slate-700/70 px-3 py-3">
+            <StagePopoverTitle title="Format" />
+          </div>
+          <div className="stage-format-content min-h-0 flex-1 overflow-y-auto px-3 py-3">
             {formatTab === 'document' && (
               <div className="grid gap-3">
                 <div className="grid gap-3 rounded-md border border-amber-300/30 bg-amber-300/10 p-3">
@@ -5488,7 +5492,7 @@ function StageControlPopover({
             )}
             {formatTab === 'external' && <ExternalDisplayControls state={{ ...state, externalDisplay: externalDisplaySettings }} setState={setState} />}
           </div>
-          <div className="stage-format-tabbar mt-2 grid grid-cols-4 gap-1 border-t border-slate-700 pt-2 sm:grid-cols-8">
+          <div className="stage-format-tabbar grid shrink-0 grid-cols-4 gap-1 border-t border-slate-700 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 sm:grid-cols-8">
             <StageTabButton icon={<FileJson size={16} />} label="Document" active={formatTab === 'document'} onClick={() => setFormatTab('document')} />
             <StageTabButton icon={<Settings size={16} />} label="Format" active={formatTab === 'format'} onClick={() => setFormatTab('format')} />
             <StageTabButton icon={<ListMusic size={16} />} label="Chords" active={formatTab === 'chords'} onClick={() => setFormatTab('chords')} />
