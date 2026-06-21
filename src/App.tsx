@@ -81,6 +81,7 @@ import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/sta
 import { createId } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
+import { connectRemoteDisplay, isDisplayRoute, publishRemoteDisplaySong, type RemoteDisplayStatus } from './services/remoteDisplay';
 import {
   anchoredChordLineLayout,
   boldChordsUpdate,
@@ -529,6 +530,7 @@ function withSongDefaults(song: Song): Song {
 
 export default function App() {
   if (isExternalPrompterRoute()) return <ExternalPrompterApp />;
+  if (isDisplayRoute()) return <RemoteDisplayApp />;
 
   const [songs, setSongs] = useState<Song[]>([]);
   const [setlist, setSetlist] = useState<SetlistItem[]>([]);
@@ -760,6 +762,11 @@ export default function App() {
       if (isAutoscrolling) stopAutoscroll('route-change');
     }
   }, [selectedSongId]);
+
+  useEffect(() => {
+    if (!isStageSurface || !selectedSongId) return;
+    publishRemoteDisplaySong(selectedSongId);
+  }, [isStageSurface, selectedSongId]);
 
   useEffect(() => {
     if (!isStageSurface || !selectedSong || !performanceState.castReceiverEnabled) return;
@@ -2279,6 +2286,183 @@ function HelpView() {
           ))}
         </section>
       </div>
+    </main>
+  );
+}
+
+function RemoteDisplayApp() {
+  const [songs, setSongs] = useState<Song[]>([]);
+  const [selectedSongId, setSelectedSongId] = useState('');
+  const [missingSongId, setMissingSongId] = useState('');
+  const [status, setStatus] = useState<RemoteDisplayStatus>('connecting');
+  const [lastMessageAt, setLastMessageAt] = useState('');
+  const displayState: PerformanceState = {
+    ...defaultPerformanceState,
+    activeProfile: 'prompter-display',
+    portraitMode: true,
+    stageTheme: 'standard-dark',
+    theme: 'dark',
+    minimalStageMode: true
+  };
+  const songMap = useMemo(() => new Map(songs.map((song) => [song.id, song])), [songs]);
+  const song = selectedSongId ? songMap.get(selectedSongId) : undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    db.songs
+      .toArray()
+      .then((storedSongs) => {
+        if (!cancelled) setSongs(storedSongs.map(withSongDefaults));
+      })
+      .catch((error) => {
+        reportError('Remote display song load failed', error);
+        if (!cancelled) setStatus('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const connection = connectRemoteDisplay({
+      role: 'display',
+      onStatus: setStatus,
+      onMessage: (message) => {
+        if (message.type !== 'song') return;
+        setSelectedSongId(message.songId);
+        setMissingSongId('');
+        setLastMessageAt(new Date().toLocaleTimeString());
+      }
+    });
+    return () => connection.close();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedSongId || songMap.has(selectedSongId)) {
+      setMissingSongId('');
+      return;
+    }
+    setMissingSongId(selectedSongId);
+  }, [selectedSongId, songMap]);
+
+  if (!song) {
+    return (
+      <main className="grid min-h-screen w-screen place-items-center bg-black p-8 text-center text-slate-100">
+        <section className="max-w-2xl">
+          <div className="text-5xl font-bold">OpenStage Display</div>
+          <div className="mt-5 text-2xl text-slate-300">Waiting for iPad controller</div>
+          <div className="mt-8 grid gap-2 text-lg text-slate-400">
+            <div>WebSocket: {status}</div>
+            {lastMessageAt && <div>Last message: {lastMessageAt}</div>}
+            {missingSongId && <div>Song ID not found locally: {missingSongId}</div>}
+            <div>Open this page on the Raspberry Pi display: /display</div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  return <RemoteDisplaySong song={song} state={displayState} />;
+}
+
+function RemoteDisplaySong({ song, state }: { song: Song; state: PerformanceState }) {
+  const effectiveCapo = getEffectiveCapo(song, state);
+  const lyricFontSize = getEffectiveLyricFontSize(state);
+  const lineSpacing = getEffectiveLineSpacing(state);
+  const headerFontSize = getEffectiveHeaderFontSize(state);
+  const chordFontSize = getEffectiveChordFontSize(state);
+  const documentTheme = getDocumentThemePreset(getEffectiveDocumentTheme(state));
+  const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
+  const chordFontFamily = getEffectiveUseMonospaceChords(state) ? 'Consolas, "Courier New", monospace' : stageFontFamily;
+  const rendered = renderSong(song, {
+    transpose: state.transpose,
+    capo: effectiveCapo,
+    showNashvilleNumbers: state.showNashvilleNumbers,
+    songKey: song.performanceKey || song.key,
+    activeProfile: state.activeProfile,
+    lyricFontSize,
+    lineSpacing,
+    chordFontSize,
+    headerFontSize,
+    songTitleFontSize: getEffectiveSongTitleFontSize(state),
+    songArtistFontSize: getEffectiveSongArtistFontSize(state),
+    sectionFontSize: getEffectiveSectionFontSize(state),
+    sectionSpacingBefore: getEffectiveSectionSpacingBefore(state),
+    sectionSpacingAfter: getEffectiveSectionSpacingAfter(state),
+    viewportWidth: window.innerWidth,
+    displayMode: 'remote-display'
+  });
+  const songTitleStyle = buildSongDocumentTextStyle({
+    size: getEffectiveSongTitleFontSize(state),
+    color: getEffectiveSongTitleColor(state),
+    bold: getEffectiveSongTitleBold(state),
+    italic: getEffectiveSongTitleItalic(state),
+    documentTheme,
+    fallbackColor: documentTheme.text
+  });
+  const songArtistStyle = buildSongDocumentTextStyle({
+    size: getEffectiveSongArtistFontSize(state),
+    color: getEffectiveSongArtistColor(state),
+    bold: getEffectiveSongArtistBold(state),
+    italic: getEffectiveSongArtistItalic(state),
+    documentTheme,
+    fallbackColor: documentTheme.muted
+  });
+
+  return (
+    <main
+      className={`${getStageTheme(state.stageTheme).className} h-screen w-screen overflow-hidden`}
+      style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
+    >
+      <article
+        className="h-full w-full overflow-hidden whitespace-pre-wrap px-[8vw] py-[6vh]"
+        style={{
+          fontSize: `${lyricFontSize}px`,
+          lineHeight: 1.52,
+          color: documentTheme.text,
+          fontFamily: stageFontFamily
+        }}
+      >
+        {rendered.lines.map((line, index) => (
+          <ChordProDisplayLine
+            key={`${line.raw}-${index}`}
+            line={line}
+            transpose={state.transpose}
+            showNashville={state.showNashvilleNumbers}
+            songKey={song.performanceKey || song.key}
+            boldChords={getEffectiveBoldChords(state)}
+            italicChords={getEffectiveItalicChords(state)}
+            showChords={getEffectiveShowChords(state)}
+            chordFontColor={getEffectiveChordFontColor(state)}
+            chordHighlightColor={getEffectiveChordHighlightColor(state)}
+            sectionFontSize={getEffectiveSectionFontSize(state)}
+            sectionFontColor={getEffectiveSectionFontColor(state)}
+            sectionBold={getEffectiveSectionBold(state)}
+            sectionItalic={getEffectiveSectionItalic(state)}
+            sectionUppercase={getEffectiveSectionUppercase(state)}
+            sectionSpacingBefore={getEffectiveSectionSpacingBefore(state)}
+            sectionSpacingAfter={getEffectiveSectionSpacingAfter(state)}
+            songTitleStyle={songTitleStyle}
+            songArtistStyle={songArtistStyle}
+            showHarmonyCues={getEffectiveShowHarmonyCues(state)}
+            harmonyTextColor={getEffectiveHarmonyTextColor(state)}
+            harmonyIconColor={getEffectiveHarmonyIconColor(state)}
+            harmonyItalic={getEffectiveHarmonyItalic(state)}
+            harmonyUnderline={getEffectiveHarmonyUnderline(state)}
+            harmonyIconVisible={getEffectiveHarmonyIconVisible(state)}
+            displayPreference={song.displayPreference ?? 'inline'}
+            lineIndex={index}
+            chordFontSize={chordFontSize}
+            chordFontFamily={chordFontFamily}
+            lyricFontSize={lyricFontSize}
+            lineSpacing={lineSpacing}
+            chordVerticalOffset={getEffectiveChordVerticalOffset(state)}
+            mobileReflowMode={false}
+            showAnchorDebug={false}
+            showHarmonyDebug={false}
+          />
+        ))}
+      </article>
     </main>
   );
 }

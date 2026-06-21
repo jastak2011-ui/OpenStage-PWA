@@ -1,0 +1,117 @@
+import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
+
+const port = Number(process.env.OPENSTAGE_REMOTE_DISPLAY_PORT || process.env.PORT || 8787);
+const clients = new Set();
+
+const server = createServer((request, response) => {
+  if (request.url === '/health') {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ ok: true, clients: clients.size }));
+    return;
+  }
+
+  response.writeHead(200, { 'content-type': 'text/plain' });
+  response.end('OpenStage Remote Display WebSocket relay is running.\n');
+});
+
+server.on('upgrade', (request, socket) => {
+  const key = request.headers['sec-websocket-key'];
+  if (!key || typeof key !== 'string') {
+    socket.destroy();
+    return;
+  }
+
+  const accept = createHash('sha1')
+    .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+    .digest('base64');
+
+  socket.write([
+    'HTTP/1.1 101 Switching Protocols',
+    'Upgrade: websocket',
+    'Connection: Upgrade',
+    `Sec-WebSocket-Accept: ${accept}`,
+    '',
+    ''
+  ].join('\r\n'));
+
+  clients.add(socket);
+  socket.on('data', (buffer) => {
+    const message = decodeClientFrame(buffer);
+    if (!message) return;
+    broadcast(message, socket);
+  });
+  socket.on('close', () => clients.delete(socket));
+  socket.on('error', () => clients.delete(socket));
+});
+
+server.listen(port, '0.0.0.0', () => {
+  console.log(`OpenStage Remote Display relay listening on ws://0.0.0.0:${port}`);
+});
+
+function broadcast(message, source) {
+  const frame = encodeTextFrame(message);
+  for (const client of clients) {
+    if (client === source || client.destroyed) continue;
+    client.write(frame);
+  }
+}
+
+function decodeClientFrame(buffer) {
+  if (buffer.length < 6) return null;
+  const opcode = buffer[0] & 0x0f;
+  if (opcode === 0x8) return null;
+  if (opcode !== 0x1) return null;
+
+  const masked = (buffer[1] & 0x80) === 0x80;
+  let length = buffer[1] & 0x7f;
+  let offset = 2;
+
+  if (length === 126) {
+    if (buffer.length < offset + 2) return null;
+    length = buffer.readUInt16BE(offset);
+    offset += 2;
+  } else if (length === 127) {
+    if (buffer.length < offset + 8) return null;
+    const high = buffer.readUInt32BE(offset);
+    const low = buffer.readUInt32BE(offset + 4);
+    if (high !== 0) return null;
+    length = low;
+    offset += 8;
+  }
+
+  if (!masked || buffer.length < offset + 4 + length) return null;
+  const mask = buffer.subarray(offset, offset + 4);
+  offset += 4;
+
+  const payload = Buffer.alloc(length);
+  for (let index = 0; index < length; index += 1) {
+    payload[index] = buffer[offset + index] ^ mask[index % 4];
+  }
+
+  return payload.toString('utf8');
+}
+
+function encodeTextFrame(message) {
+  const payload = Buffer.from(message, 'utf8');
+  const length = payload.length;
+
+  if (length < 126) {
+    return Buffer.concat([Buffer.from([0x81, length]), payload]);
+  }
+
+  if (length < 65536) {
+    const header = Buffer.alloc(4);
+    header[0] = 0x81;
+    header[1] = 126;
+    header.writeUInt16BE(length, 2);
+    return Buffer.concat([header, payload]);
+  }
+
+  const header = Buffer.alloc(10);
+  header[0] = 0x81;
+  header[1] = 127;
+  header.writeUInt32BE(0, 2);
+  header.writeUInt32BE(length, 6);
+  return Buffer.concat([header, payload]);
+}
