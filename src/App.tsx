@@ -1870,7 +1870,6 @@ export default function App() {
           onAddToSetlist={addToSetlist}
           performanceState={performanceState}
           setPerformanceState={updatePerformanceState}
-          initialFullScreen={editorReturnMode === 'stage'}
         />
       )}
 
@@ -2955,8 +2954,7 @@ function SongEditorView({
   onDelete,
   onAddToSetlist,
   performanceState,
-  setPerformanceState,
-  initialFullScreen = false
+  setPerformanceState
 }: {
   song: Song;
   songs: Song[];
@@ -2966,7 +2964,6 @@ function SongEditorView({
   onAddToSetlist: (id: string) => void;
   performanceState: PerformanceState;
   setPerformanceState: (next: Partial<PerformanceState>) => void;
-  initialFullScreen?: boolean;
 }) {
   const [draft, setDraft] = useState<Song>(song);
   const [durationDraft, setDurationDraft] = useState('');
@@ -2977,7 +2974,7 @@ function SongEditorView({
   const [enrichmentError, setEnrichmentError] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [referenceAudioOpen, setReferenceAudioOpen] = useState(Boolean(song.referenceAudioUrl));
-  const [fullScreenEditor, setFullScreenEditor] = useState(initialFullScreen);
+  const [fullScreenEditor, setFullScreenEditor] = useState(false);
   const chartEditorRef = useRef<HTMLTextAreaElement | null>(null);
   const chartSelectionRef = useRef({ start: 0, end: 0 });
 
@@ -2991,8 +2988,8 @@ function SongEditorView({
     setEnrichmentError('');
     setDetailsOpen(false);
     setReferenceAudioOpen(Boolean(song.referenceAudioUrl));
-    setFullScreenEditor(initialFullScreen);
-  }, [song, initialFullScreen]);
+    setFullScreenEditor(false);
+  }, [song]);
 
   const hasUnsavedChanges = useMemo(() => {
     const parsedDuration = parseDurationInput(durationDraft);
@@ -3084,40 +3081,51 @@ function SongEditorView({
   }
 
   if (fullScreenEditor) {
+    const hasPlayableReferenceAudio = isDirectReferenceAudioUrl(draft.referenceAudioUrl || '');
+    const hasExternalReferenceLink = Boolean(draft.referenceAudioUrl?.trim()) && !hasPlayableReferenceAudio;
     return (
-      <main className="fixed inset-0 z-[100] grid grid-rows-[auto_auto_1fr] bg-slate-950 text-slate-100">
-        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-950/95 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] shadow-lg backdrop-blur">
+      <main className="fixed inset-0 z-[100] grid min-h-[100dvh] grid-rows-[auto_auto_1fr] bg-slate-950 text-slate-100">
+        <div className="flex min-h-12 items-center gap-2 border-b border-slate-800 bg-slate-950/95 px-2 pb-1.5 pt-[max(0.35rem,env(safe-area-inset-top))] shadow-lg backdrop-blur sm:px-3">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-base font-semibold sm:text-lg">{draft.title || 'Untitled Song'}</div>
-            <div className="truncate text-xs text-slate-400">{draft.artist || 'Unknown artist'}{hasUnsavedChanges ? ' - Unsaved changes' : ''}</div>
+            <div className="truncate text-sm font-semibold leading-tight sm:text-base">{draft.title || 'Untitled Song'}</div>
+            <div className="truncate text-[0.68rem] leading-tight text-slate-400 sm:text-xs">{draft.artist || 'Unknown artist'}{hasUnsavedChanges ? ' - Unsaved changes' : ''}</div>
           </div>
-          <button className="primary-button h-10" type="button" onClick={() => void saveDraft()}>
+          {hasExternalReferenceLink && (
+            <button className="stage-menu-button hidden h-9 sm:inline-flex" type="button" onClick={() => window.open(draft.referenceAudioUrl?.trim(), '_blank', 'noopener,noreferrer')}>
+              Reference Link
+            </button>
+          )}
+          <button className="primary-button h-9 px-2 text-xs sm:px-3 sm:text-sm" type="button" onClick={() => void saveDraft()}>
             <Save size={18} />
             Save
           </button>
-          <button className="secondary-button h-10 border-slate-700 bg-slate-900 text-slate-100" type="button" onClick={cancelEditor}>
+          <button className="secondary-button h-9 border-slate-700 bg-slate-900 px-2 text-xs text-slate-100 sm:px-3 sm:text-sm" type="button" onClick={cancelEditor}>
             Cancel
           </button>
-          <button className="secondary-button h-10 border-slate-700 bg-slate-900 text-slate-100" type="button" onClick={() => setFullScreenEditor(false)}>
+          <button className="secondary-button h-9 border-slate-700 bg-slate-900 px-2 text-xs text-slate-100 sm:px-3 sm:text-sm" type="button" onClick={() => setFullScreenEditor(false)}>
             <X size={18} />
-            Exit Full Screen
+            <span className="hidden sm:inline">Exit Full Screen</span>
+            <span className="sm:hidden">Exit</span>
           </button>
         </div>
-        <ReferenceAudioControls
-          url={draft.referenceAudioUrl || ''}
-          onChange={(referenceAudioUrl) => setDraft({ ...draft, referenceAudioUrl })}
-          onSave={() => void saveDraft()}
-          compact
-          miniPlayer
-        />
-        <section className="grid min-h-0 gap-2 px-3 pb-[max(0.85rem,env(safe-area-inset-bottom))] pt-3">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+        {hasPlayableReferenceAudio ? (
+          <ReferenceAudioControls
+            url={draft.referenceAudioUrl || ''}
+            onChange={(referenceAudioUrl) => setDraft({ ...draft, referenceAudioUrl })}
+            compact
+            miniPlayer
+            dense
+          />
+        ) : <div />}
+        <section className="grid min-h-0 grid-rows-[auto_1fr] gap-1 px-2 pb-[max(0.45rem,env(safe-area-inset-bottom))] pt-1 sm:px-3">
+          <div className="flex flex-wrap items-center gap-2 text-[0.68rem] leading-tight text-slate-400">
             <span>ChordPro, OnSong text, and chords-over-lyrics spacing are preserved.</span>
-            <span className="ml-auto">Ctrl+Shift+F toggles full screen</span>
+            {hasExternalReferenceLink && <span className="text-amber-200">Reference link is external; use a direct audio file URL for the mini-player.</span>}
+            <span className="ml-auto hidden sm:inline">Ctrl+Shift+F toggles full screen</span>
           </div>
           <textarea
             ref={chartEditorRef}
-            className="h-full min-h-0 w-full resize-none rounded-md border border-slate-700 bg-black p-4 font-mono text-base leading-7 text-slate-100 outline-none focus:border-teal-400 sm:text-lg sm:leading-8"
+            className="h-full min-h-[40dvh] w-full resize-none rounded-md border border-slate-700 bg-black p-3 font-mono text-base leading-7 text-slate-100 outline-none focus:border-teal-400 sm:p-4 sm:text-lg sm:leading-8"
             value={draft.chart}
             spellCheck={false}
             autoFocus
@@ -3455,7 +3463,8 @@ function ReferenceAudioControls({
   compact = false,
   miniPlayer = false,
   urlEditorOnly = false,
-  sticky = false
+  sticky = false,
+  dense = false
 }: {
   url: string;
   onChange: (url: string) => void;
@@ -3464,6 +3473,7 @@ function ReferenceAudioControls({
   miniPlayer?: boolean;
   urlEditorOnly?: boolean;
   sticky?: boolean;
+  dense?: boolean;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -3476,7 +3486,7 @@ function ReferenceAudioControls({
   const canPlayDirectly = isDirectReferenceAudioUrl(trimmedUrl);
   const urlKindLabel = canPlayDirectly ? 'Playable Audio URL' : 'External Reference Link';
   const shellClassName = [
-    compact ? 'border-b border-slate-800 bg-slate-900/95 px-3 py-2 text-slate-100' : 'grid gap-3',
+    compact ? `border-b border-slate-800 bg-slate-900/95 px-2 ${dense ? 'py-1' : 'py-2'} text-slate-100 sm:px-3` : 'grid gap-3',
     sticky ? 'sticky bottom-2 z-20 rounded-md border border-slate-700 shadow-lg backdrop-blur md:bottom-auto md:top-[9rem]' : ''
   ].filter(Boolean).join(' ');
 
@@ -3576,8 +3586,8 @@ function ReferenceAudioControls({
       {urlEditorOnly ? (
         trimmedUrl && !canPlayDirectly ? <div className="mt-3">{externalLinkPanel}</div> : null
       ) : !trimmedUrl ? null : canPlayDirectly ? (
-        <div className={`grid gap-2 rounded-md border p-2 ${compact ? 'border-slate-700 bg-black/30' : 'border-slate-200 bg-slate-50'}`}>
-          {miniPlayer && <div className="text-xs font-semibold uppercase tracking-normal opacity-70">Playable Audio URL</div>}
+        <div className={`grid ${dense ? 'gap-1 rounded-sm border-0 p-0' : 'gap-2 rounded-md border p-2'} ${compact ? 'border-slate-700 bg-black/30' : 'border-slate-200 bg-slate-50'}`}>
+          {miniPlayer && !dense && <div className="text-xs font-semibold uppercase tracking-normal opacity-70">Playable Audio URL</div>}
           <audio
             ref={audioRef}
             src={trimmedUrl}
@@ -3592,14 +3602,14 @@ function ReferenceAudioControls({
               setAudioError('Audio failed to load. Check that the URL points directly to a playable audio file.');
             }}
           />
-          <div className="flex flex-wrap items-center gap-2">
-            <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={togglePlay}>
+          <div className={`flex flex-wrap items-center ${dense ? 'gap-1' : 'gap-2'}`}>
+            <button className={`${compact ? 'stage-menu-button' : 'secondary-button'} ${dense ? 'h-8 px-2 text-xs' : ''}`} type="button" onClick={togglePlay}>
               {isPlaying ? <Pause size={18} /> : <Play size={18} />}
               {isPlaying ? 'Pause' : 'Play'}
             </button>
-            <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={() => skip(-10)}>-10 sec</button>
-            <button className={compact ? 'stage-menu-button' : 'secondary-button'} type="button" onClick={() => skip(10)}>+10 sec</button>
-            <span className="rounded bg-black/10 px-2 py-1 text-sm font-semibold">
+            <button className={`${compact ? 'stage-menu-button' : 'secondary-button'} ${dense ? 'h-8 px-2 text-xs' : ''}`} type="button" onClick={() => skip(-10)}>-10 sec</button>
+            <button className={`${compact ? 'stage-menu-button' : 'secondary-button'} ${dense ? 'h-8 px-2 text-xs' : ''}`} type="button" onClick={() => skip(10)}>+10 sec</button>
+            <span className={`rounded bg-black/10 px-2 py-1 font-semibold ${dense ? 'text-xs' : 'text-sm'}`}>
               {formatReferenceAudioTime(currentTime)} / {duration ? formatReferenceAudioTime(duration) : '--:--'}
             </span>
             <div className="ml-auto flex flex-wrap gap-1">
