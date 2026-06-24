@@ -4,23 +4,26 @@ import { createServer } from 'node:http';
 import { createServer as createSecureServer } from 'node:https';
 
 const secureMode = process.env.OPENSTAGE_REMOTE_DISPLAY_SECURE === '1';
-const port = Number(process.env.OPENSTAGE_REMOTE_DISPLAY_PORT || process.env.PORT || (secureMode ? 8788 : 8787));
+const dualMode = process.env.OPENSTAGE_REMOTE_DISPLAY_DUAL === '1';
+const plainPort = Number(process.env.OPENSTAGE_REMOTE_DISPLAY_WS_PORT || 8787);
+const securePort = Number(process.env.OPENSTAGE_REMOTE_DISPLAY_WSS_PORT || 8788);
+const port = Number(process.env.OPENSTAGE_REMOTE_DISPLAY_PORT || process.env.PORT || (secureMode ? securePort : plainPort));
 const certPath = process.env.OPENSTAGE_REMOTE_DISPLAY_CERT || './certs/openstage-remote.crt';
 const keyPath = process.env.OPENSTAGE_REMOTE_DISPLAY_KEY || './certs/openstage-remote.key';
 const clients = new Set();
 
-const requestHandler = (request, response) => {
+const requestHandler = (mode) => (request, response) => {
   if (request.url === '/health') {
     response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ ok: true, secure: secureMode, clients: clients.size }));
+    response.end(JSON.stringify({ ok: true, mode, clients: clients.size }));
     return;
   }
 
   response.writeHead(200, { 'content-type': 'text/plain' });
-  response.end(`OpenStage Remote Display ${secureMode ? 'secure ' : ''}WebSocket relay is running.\n`);
+  response.end(`OpenStage Remote Display ${mode} WebSocket relay is running.\n`);
 };
 
-if (secureMode && (!existsSync(certPath) || !existsSync(keyPath))) {
+if ((secureMode || dualMode) && (!existsSync(certPath) || !existsSync(keyPath))) {
   console.error('OpenStage Remote Display secure relay could not start.');
   console.error(`Missing certificate or key file.`);
   console.error(`Expected certificate: ${certPath}`);
@@ -29,51 +32,72 @@ if (secureMode && (!existsSync(certPath) || !existsSync(keyPath))) {
   process.exit(1);
 }
 
-const server = secureMode
-  ? createSecureServer(
-      {
-        cert: readFileSync(certPath),
-        key: readFileSync(keyPath)
-      },
-      requestHandler
-    )
-  : createServer(requestHandler);
+if (dualMode) {
+  const plainServer = createPlainRelayServer();
+  const secureServer = createSecureRelayServer();
+  listen(plainServer, plainPort, 'ws');
+  listen(secureServer, securePort, 'wss');
+} else {
+  const server = secureMode ? createSecureRelayServer() : createPlainRelayServer();
+  listen(server, port, secureMode ? 'wss' : 'ws');
+}
 
-server.on('upgrade', (request, socket) => {
-  const key = request.headers['sec-websocket-key'];
-  if (!key || typeof key !== 'string') {
-    socket.destroy();
-    return;
-  }
+function createPlainRelayServer() {
+  const server = createServer(requestHandler('plain'));
+  attachWebSocketRelay(server);
+  return server;
+}
 
-  const accept = createHash('sha1')
-    .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
-    .digest('base64');
+function createSecureRelayServer() {
+  const server = createSecureServer(
+    {
+      cert: readFileSync(certPath),
+      key: readFileSync(keyPath)
+    },
+    requestHandler('secure')
+  );
+  attachWebSocketRelay(server);
+  return server;
+}
 
-  socket.write([
-    'HTTP/1.1 101 Switching Protocols',
-    'Upgrade: websocket',
-    'Connection: Upgrade',
-    `Sec-WebSocket-Accept: ${accept}`,
-    '',
-    ''
-  ].join('\r\n'));
+function attachWebSocketRelay(server) {
+  server.on('upgrade', (request, socket) => {
+    const key = request.headers['sec-websocket-key'];
+    if (!key || typeof key !== 'string') {
+      socket.destroy();
+      return;
+    }
 
-  clients.add(socket);
-  socket.on('data', (buffer) => {
-    const message = decodeClientFrame(buffer);
-    if (!message) return;
-    broadcast(message, socket);
+    const accept = createHash('sha1')
+      .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+      .digest('base64');
+
+    socket.write([
+      'HTTP/1.1 101 Switching Protocols',
+      'Upgrade: websocket',
+      'Connection: Upgrade',
+      `Sec-WebSocket-Accept: ${accept}`,
+      '',
+      ''
+    ].join('\r\n'));
+
+    clients.add(socket);
+    socket.on('data', (buffer) => {
+      const message = decodeClientFrame(buffer);
+      if (!message) return;
+      broadcast(message, socket);
+    });
+    socket.on('close', () => clients.delete(socket));
+    socket.on('error', () => clients.delete(socket));
   });
-  socket.on('close', () => clients.delete(socket));
-  socket.on('error', () => clients.delete(socket));
-});
+}
 
-server.listen(port, '0.0.0.0', () => {
-  const scheme = secureMode ? 'wss' : 'ws';
-  console.log(`OpenStage Remote Display relay listening on ${scheme}://0.0.0.0:${port}`);
-  if (secureMode) console.log(`Using certificate ${certPath} and key ${keyPath}`);
-});
+function listen(server, serverPort, scheme) {
+  server.listen(serverPort, '0.0.0.0', () => {
+    console.log(`OpenStage Remote Display relay listening on ${scheme}://0.0.0.0:${serverPort}`);
+    if (scheme === 'wss') console.log(`Using certificate ${certPath} and key ${keyPath}`);
+  });
+}
 
 function broadcast(message, source) {
   const frame = encodeTextFrame(message);

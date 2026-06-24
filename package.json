@@ -9,6 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "remote-display": "node ./scripts/remote-display-server.mjs",
     "remote-display-secure": "OPENSTAGE_REMOTE_DISPLAY_SECURE=1 OPENSTAGE_REMOTE_DISPLAY_PORT=8788 node ./scripts/remote-display-server.mjs",
+    "remote-display-dual": "OPENSTAGE_REMOTE_DISPLAY_DUAL=1 node ./scripts/remote-display-server.mjs",
     "test:duration": "node ./scripts/run-duration-tests.mjs"
   },
   "dependencies": {

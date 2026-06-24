@@ -47,6 +47,30 @@ Default address:
 wss://192.168.68.125:8788
 ```
 
+## Dual Local Relay
+
+Use this when one device loads OpenStage locally over `http://` and another loads OpenStage from Render over `https://`.
+
+This starts one relay process with two listeners:
+
+```text
+ws://0.0.0.0:8787
+wss://0.0.0.0:8788
+```
+
+Both listeners share the same client set and message broadcast bus.
+
+```bash
+npm run remote-display-dual
+```
+
+Example setup:
+
+```text
+Pi /display page: ws://192.168.68.125:8787
+iPad controller:  wss://192.168.68.125:8788
+```
+
 ### 3. Trust the local certificate on the iPad
 
 Because this is a self-signed local certificate, iPadOS may reject the secure WebSocket until the certificate is trusted.
@@ -80,10 +104,10 @@ node ./scripts/remote-display-server.mjs
 
 ## Success Test
 
-1. Pi runs `npm run remote-display-secure`.
-2. iPad opens the Render OpenStage URL.
-3. Pi opens the Render OpenStage `/display` URL.
-4. Both are configured to use `wss://PI-IP:8788`.
+1. Pi runs `npm run remote-display-dual`.
+2. Pi opens local Vite `/display` and uses `ws://192.168.68.125:8787`.
+3. iPad opens the Render OpenStage URL and uses `wss://192.168.68.125:8788`.
+4. Both show connected.
 5. Selecting a song on iPad updates the Pi display.
 
 This does not add cloud sync, Supabase, authentication, or song-file synchronization. The relay only forwards small control messages such as:
