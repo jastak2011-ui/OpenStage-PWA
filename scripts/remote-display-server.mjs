@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createServer as createSecureServer } from 'node:https';
 
@@ -19,6 +19,15 @@ const requestHandler = (request, response) => {
   response.writeHead(200, { 'content-type': 'text/plain' });
   response.end(`OpenStage Remote Display ${secureMode ? 'secure ' : ''}WebSocket relay is running.\n`);
 };
+
+if (secureMode && (!existsSync(certPath) || !existsSync(keyPath))) {
+  console.error('OpenStage Remote Display secure relay could not start.');
+  console.error(`Missing certificate or key file.`);
+  console.error(`Expected certificate: ${certPath}`);
+  console.error(`Expected key: ${keyPath}`);
+  console.error('Generate them on the Raspberry Pi first. See docs/remote-display.md.');
+  process.exit(1);
+}
 
 const server = secureMode
   ? createSecureServer(

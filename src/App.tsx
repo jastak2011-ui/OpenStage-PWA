@@ -2402,7 +2402,7 @@ function RemoteDisplayApp() {
               <input
                 className="rounded-md border border-slate-600 bg-black px-3 py-2 font-mono text-slate-100"
                 value={relayUrl}
-                placeholder="ws://192.168.1.123:8787"
+                placeholder="wss://192.168.68.125:8788"
                 onChange={(event) => setRelayUrl(event.target.value)}
               />
             </label>
@@ -3155,13 +3155,13 @@ function RemoteDisplaySettingsCard() {
       <div className="grid gap-3 text-sm text-slate-700">
         <p>
           Render stays a static site. Run the relay locally on the Raspberry Pi with <span className="font-mono">npm run remote-display</span>,
-          then point both the iPad and <span className="font-mono">/display</span> at that Pi address.
+          or <span className="font-mono">npm run remote-display-secure</span> for Render/HTTPS, then point both the iPad and <span className="font-mono">/display</span> at that Pi address.
         </p>
         <label className="grid gap-1">
           <span className="font-semibold text-slate-800">Relay address</span>
           <input
             className="input font-mono"
-            placeholder="ws://192.168.1.123:8787"
+            placeholder="wss://192.168.68.125:8788"
             value={relayUrl}
             onChange={(event) => setRelayUrl(event.target.value)}
           />
@@ -3183,7 +3183,7 @@ function RemoteDisplaySettingsCard() {
         </div>
         {message && <div className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800">{message}</div>}
         <p className="text-xs text-slate-500">
-          Use the same address on every device, for example <span className="font-mono">ws://192.168.1.123:8787</span>.
+          Use <span className="font-mono">wss://PI-IP:8788</span> when OpenStage is loaded from Render over HTTPS. Plain <span className="font-mono">ws://PI-IP:8787</span> is still available for local HTTP testing.
         </p>
       </div>
     </SettingsCard>

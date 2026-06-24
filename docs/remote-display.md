@@ -22,7 +22,7 @@ Use this when OpenStage is loaded from Render over `https://`. Browsers block `w
 
 ### 1. Generate a local self-signed certificate on the Pi
 
-Replace `192.168.68.91` with the Raspberry Pi LAN IP address.
+Replace `192.168.68.125` with the Raspberry Pi LAN IP address.
 
 ```bash
 mkdir -p certs
@@ -31,8 +31,8 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout certs/openstage-remote.key \
   -out certs/openstage-remote.crt \
   -days 825 \
-  -subj "/CN=192.168.68.91" \
-  -addext "subjectAltName=IP:192.168.68.91,DNS:raspberrypi.local"
+  -subj "/CN=192.168.68.125" \
+  -addext "subjectAltName=IP:192.168.68.125,DNS:raspberrypi.local"
 ```
 
 ### 2. Start the secure relay
@@ -44,7 +44,7 @@ npm run remote-display-secure
 Default address:
 
 ```text
-wss://192.168.68.91:8788
+wss://192.168.68.125:8788
 ```
 
 ### 3. Trust the local certificate on the iPad
@@ -53,10 +53,11 @@ Because this is a self-signed local certificate, iPadOS may reject the secure We
 
 One practical test path:
 
-1. Open `https://192.168.68.91:8788/health` in Safari on the iPad.
-2. Accept or install/trust the certificate if iPadOS offers that option.
-3. In OpenStage Settings, set Remote Display relay address to `wss://192.168.68.91:8788`.
-4. On the Pi display page, set the same relay address.
+1. Open `https://192.168.68.125:8788/health` in Safari on the iPad.
+2. If Safari shows a certificate warning, choose the option to continue to the site.
+3. If iPadOS requires installed trust instead, AirDrop/email the `certs/openstage-remote.crt` file to the iPad, install the profile, then enable full trust in Settings > General > About > Certificate Trust Settings.
+4. In OpenStage Settings, set Remote Display relay address to `wss://192.168.68.125:8788`.
+5. On the Pi display page, set the same relay address.
 
 ## Custom Certificate Paths
 
