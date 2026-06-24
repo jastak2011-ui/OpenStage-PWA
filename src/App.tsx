@@ -83,11 +83,14 @@ import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
 import {
   connectRemoteDisplay,
+  connectRemoteDisplayControllerForDiagnostics,
   getRemoteDisplayUrl,
   isDisplayRoute,
   publishRemoteDisplaySong,
   saveRemoteDisplayUrl,
+  subscribeRemoteDisplayControllerSnapshot,
   subscribeRemoteDisplayControllerStatus,
+  type RemoteDisplayControllerSnapshot,
   type RemoteDisplayStatus
 } from './services/remoteDisplay';
 import {
@@ -3124,12 +3127,25 @@ function SettingsView({
 function RemoteDisplaySettingsCard() {
   const [relayUrl, setRelayUrl] = useState(() => getRemoteDisplayUrl());
   const [status, setStatus] = useState<RemoteDisplayStatus>('disconnected');
+  const [diagnostics, setDiagnostics] = useState<RemoteDisplayControllerSnapshot>({
+    status: 'disconnected',
+    url: getRemoteDisplayUrl(),
+    detail: 'Controller has not connected yet.',
+    lastEventAt: '',
+    lastSongId: '',
+    lastPublishState: 'none'
+  });
   const [message, setMessage] = useState('');
 
   useEffect(() => subscribeRemoteDisplayControllerStatus(setStatus), []);
+  useEffect(() => subscribeRemoteDisplayControllerSnapshot((snapshot) => {
+    setDiagnostics(snapshot);
+    setStatus(snapshot.status);
+  }), []);
 
   function saveRelayUrl() {
     saveRemoteDisplayUrl(relayUrl.trim());
+    connectRemoteDisplayControllerForDiagnostics();
     setMessage('Remote Display relay address saved');
     window.setTimeout(() => setMessage(''), 2500);
   }
@@ -3155,6 +3171,15 @@ function RemoteDisplaySettingsCard() {
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${remoteDisplayStatusClass(status)}`}>
             {remoteDisplayStatusLabel(status)}
           </span>
+        </div>
+        <div className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+          <div className="font-semibold text-slate-900">Controller WebSocket Diagnostics</div>
+          <div>URL used: <span className="font-mono">{diagnostics.url || getRemoteDisplayUrl()}</span></div>
+          <div>Status: <span className="font-semibold">{remoteDisplayStatusLabel(diagnostics.status)}</span></div>
+          <div>Last event: {diagnostics.lastEventAt || '-'}</div>
+          <div>Last song: <span className="font-mono">{diagnostics.lastSongId || '-'}</span></div>
+          <div>Publish state: {diagnostics.lastPublishState}</div>
+          <div className={diagnostics.status === 'error' ? 'font-semibold text-red-700' : ''}>Message: {diagnostics.detail || '-'}</div>
         </div>
         {message && <div className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800">{message}</div>}
         <p className="text-xs text-slate-500">
