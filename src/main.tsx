@@ -22,6 +22,19 @@ declare global {
 window.OpenStageStartup?.checkpoint('main script loaded');
 installGlobalErrorHandlers();
 
+if (import.meta.env.DEV && 'serviceWorker' in navigator) {
+  navigator.serviceWorker
+    .getRegistrations()
+    .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+    .catch((error) => markStartupError(error));
+  if ('caches' in window) {
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((key) => key.toLowerCase().includes('openstage') || key.toLowerCase().includes('workbox')).map((key) => caches.delete(key))))
+      .catch((error) => markStartupError(error));
+  }
+}
+
 if (!import.meta.env.DEV && 'serviceWorker' in navigator) {
   registerSW({ immediate: true });
 }

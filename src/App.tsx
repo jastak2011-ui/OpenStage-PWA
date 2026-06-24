@@ -2304,6 +2304,7 @@ function RemoteDisplayApp() {
   const [missingSongId, setMissingSongId] = useState('');
   const [status, setStatus] = useState<RemoteDisplayStatus>('connecting');
   const [lastMessageAt, setLastMessageAt] = useState('');
+  const [startupError, setStartupError] = useState('');
   const [relayUrl, setRelayUrl] = useState(() => getRemoteDisplayUrl());
   const [connectionKey, setConnectionKey] = useState(0);
   const displayState: PerformanceState = {
@@ -2312,6 +2313,11 @@ function RemoteDisplayApp() {
     portraitMode: true,
     stageTheme: 'standard-dark',
     theme: 'dark',
+    documentTheme: 'dark-stage',
+    documentThemesByProfile: {
+      ...(defaultPerformanceState.documentThemesByProfile ?? {}),
+      'prompter-display': 'dark-stage'
+    },
     minimalStageMode: true
   };
   const songMap = useMemo(() => new Map(songs.map((song) => [song.id, song])), [songs]);
@@ -2325,7 +2331,9 @@ function RemoteDisplayApp() {
         if (!cancelled) setSongs(storedSongs.map(withSongDefaults));
       })
       .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
         reportError('Remote display song load failed', error);
+        if (!cancelled) setStartupError(message);
         if (!cancelled) setStatus('error');
       });
     return () => {
@@ -2349,6 +2357,7 @@ function RemoteDisplayApp() {
 
   function saveDisplayRelayUrl() {
     saveRemoteDisplayUrl(relayUrl.trim());
+    setStatus('connecting');
     setConnectionKey((key) => key + 1);
   }
 
@@ -2360,9 +2369,21 @@ function RemoteDisplayApp() {
     setMissingSongId(selectedSongId);
   }, [selectedSongId, songMap]);
 
+  const diagnostics = (
+    <RemoteDisplayStatusStrip
+      status={status}
+      relayUrl={relayUrl}
+      songCount={songs.length}
+      selectedSongId={selectedSongId}
+      lastMessageAt={lastMessageAt}
+      error={startupError}
+    />
+  );
+
   if (!song) {
     return (
       <main className="grid min-h-screen w-screen place-items-center bg-black p-8 text-center text-slate-100">
+        {diagnostics}
         <section className="max-w-2xl">
           <div className="text-5xl font-bold">OpenStage Display</div>
           <div className="mt-5 text-2xl text-slate-300">Waiting for iPad controller</div>
@@ -2394,10 +2415,39 @@ function RemoteDisplayApp() {
     );
   }
 
-  return <RemoteDisplaySong song={song} state={displayState} />;
+  return <RemoteDisplaySong song={song} state={displayState} diagnostics={diagnostics} />;
 }
 
-function RemoteDisplaySong({ song, state }: { song: Song; state: PerformanceState }) {
+function RemoteDisplayStatusStrip({
+  status,
+  relayUrl,
+  songCount,
+  selectedSongId,
+  lastMessageAt,
+  error
+}: {
+  status: RemoteDisplayStatus;
+  relayUrl: string;
+  songCount: number;
+  selectedSongId: string;
+  lastMessageAt: string;
+  error: string;
+}) {
+  return (
+    <div className="fixed bottom-3 left-3 z-[80] max-w-[calc(100vw-1.5rem)] rounded-md border border-slate-700 bg-black/85 px-3 py-2 text-left text-xs leading-5 text-slate-200 shadow-xl">
+      <div className="font-semibold text-white">OpenStage Display Debug</div>
+      <div>route: {window.location.pathname}</div>
+      <div>relay: {relayUrl || '-'}</div>
+      <div>status: {remoteDisplayStatusLabel(status)}</div>
+      <div>local songs: {songCount}</div>
+      <div>selected song id: {selectedSongId || '-'}</div>
+      <div>last message: {lastMessageAt || '-'}</div>
+      {error && <div className="text-red-200">error: {error}</div>}
+    </div>
+  );
+}
+
+function RemoteDisplaySong({ song, state, diagnostics }: { song: Song; state: PerformanceState; diagnostics: React.ReactNode }) {
   const effectiveCapo = getEffectiveCapo(song, state);
   const lyricFontSize = getEffectiveLyricFontSize(state);
   const lineSpacing = getEffectiveLineSpacing(state);
@@ -2446,6 +2496,7 @@ function RemoteDisplaySong({ song, state }: { song: Song; state: PerformanceStat
       className={`${getStageTheme(state.stageTheme).className} h-screen w-screen overflow-hidden`}
       style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
     >
+      {diagnostics}
       <article
         className="h-full w-full overflow-hidden whitespace-pre-wrap px-[8vw] py-[6vh]"
         style={{
