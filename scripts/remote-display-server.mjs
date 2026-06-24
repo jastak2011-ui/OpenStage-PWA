@@ -1,19 +1,34 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { createServer as createSecureServer } from 'node:https';
 
-const port = Number(process.env.OPENSTAGE_REMOTE_DISPLAY_PORT || process.env.PORT || 8787);
+const secureMode = process.env.OPENSTAGE_REMOTE_DISPLAY_SECURE === '1';
+const port = Number(process.env.OPENSTAGE_REMOTE_DISPLAY_PORT || process.env.PORT || (secureMode ? 8788 : 8787));
+const certPath = process.env.OPENSTAGE_REMOTE_DISPLAY_CERT || './certs/openstage-remote.crt';
+const keyPath = process.env.OPENSTAGE_REMOTE_DISPLAY_KEY || './certs/openstage-remote.key';
 const clients = new Set();
 
-const server = createServer((request, response) => {
+const requestHandler = (request, response) => {
   if (request.url === '/health') {
     response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ ok: true, clients: clients.size }));
+    response.end(JSON.stringify({ ok: true, secure: secureMode, clients: clients.size }));
     return;
   }
 
   response.writeHead(200, { 'content-type': 'text/plain' });
-  response.end('OpenStage Remote Display WebSocket relay is running.\n');
-});
+  response.end(`OpenStage Remote Display ${secureMode ? 'secure ' : ''}WebSocket relay is running.\n`);
+};
+
+const server = secureMode
+  ? createSecureServer(
+      {
+        cert: readFileSync(certPath),
+        key: readFileSync(keyPath)
+      },
+      requestHandler
+    )
+  : createServer(requestHandler);
 
 server.on('upgrade', (request, socket) => {
   const key = request.headers['sec-websocket-key'];
@@ -46,7 +61,9 @@ server.on('upgrade', (request, socket) => {
 });
 
 server.listen(port, '0.0.0.0', () => {
-  console.log(`OpenStage Remote Display relay listening on ws://0.0.0.0:${port}`);
+  const scheme = secureMode ? 'wss' : 'ws';
+  console.log(`OpenStage Remote Display relay listening on ${scheme}://0.0.0.0:${port}`);
+  if (secureMode) console.log(`Using certificate ${certPath} and key ${keyPath}`);
 });
 
 function broadcast(message, source) {
