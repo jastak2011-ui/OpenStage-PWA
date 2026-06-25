@@ -5522,27 +5522,30 @@ function TempoBeatIndicator({ activeBeat, message }: { activeBeat: number | null
   const visible = activeBeat !== null || Boolean(message);
   return (
     <div
-      className={`stage-tempo-indicator fixed z-40 flex items-center gap-2 rounded-full border border-white/15 bg-black/55 px-3 py-2 text-xs font-semibold text-slate-100 shadow-xl backdrop-blur-md transition-opacity duration-200 ${visible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+      className={`stage-tempo-indicator fixed z-40 flex items-center transition-opacity duration-200 ${visible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
       aria-live="polite"
     >
-      <div className="flex items-center gap-1.5" aria-label={activeBeat === null ? 'Tempo inactive' : `Beat ${activeBeat + 1}`}>
+      <div
+        className="stage-tempo-pill flex flex-col items-center justify-center rounded-full border border-white/15 bg-black/55 shadow-xl backdrop-blur-md"
+        aria-label={activeBeat === null ? 'Tempo inactive' : `Beat ${activeBeat + 1}`}
+      >
         {[0, 1, 2, 3].map((beat) => {
           const tone = tempoDotTone(beat, activeBeat);
           return (
             <span
               key={beat}
-              className={`h-2.5 w-2.5 rounded-full transition-colors duration-100 ${
+              className={`stage-tempo-dot rounded-full transition-colors duration-100 ${
                 tone === 'gold'
-                  ? 'bg-amber-300 shadow-[0_0_12px_rgba(252,211,77,0.7)]'
+                  ? 'bg-amber-300 shadow-[0_0_15px_rgba(252,211,77,0.75)]'
                   : tone === 'purple'
-                    ? 'bg-violet-400 shadow-[0_0_12px_rgba(167,139,250,0.65)]'
+                    ? 'bg-violet-400 shadow-[0_0_15px_rgba(167,139,250,0.7)]'
                     : 'bg-slate-500/45'
               }`}
             />
           );
         })}
       </div>
-      {message && <span className="max-w-36 text-[0.7rem] text-amber-100">{message}</span>}
+      {message && <span className="stage-tempo-message ml-2 rounded-full border border-amber-200/20 bg-black/60 px-3 py-1.5 text-[0.7rem] font-semibold text-amber-100 shadow-lg backdrop-blur-md">{message}</span>}
     </div>
   );
 }

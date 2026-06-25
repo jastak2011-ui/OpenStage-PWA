@@ -108,6 +108,21 @@ label,
   transform: translateY(-50%);
 }
 
+.stage-tempo-pill {
+  width: 42px;
+  height: 204px;
+  gap: 22px;
+}
+
+.stage-tempo-dot {
+  width: 20px;
+  height: 20px;
+}
+
+.stage-tempo-message {
+  max-width: min(12rem, calc(100vw - 4.75rem));
+}
+
 .stage-autoscroll-paused {
   opacity: 0.72;
   color: rgba(226, 232, 240, 0.82);
@@ -629,10 +644,25 @@ label,
 
   .stage-tempo-indicator {
     left: max(0.5rem, env(safe-area-inset-left));
-    top: auto;
-    bottom: max(4.25rem, calc(env(safe-area-inset-bottom) + 4.25rem));
-    transform: none;
-    max-width: min(11rem, calc(100vw - 1rem));
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    max-width: min(13rem, calc(100vw - 1rem));
+  }
+
+  .stage-tempo-pill {
+    width: 34px;
+    height: 190px;
+    gap: 19px;
+  }
+
+  .stage-tempo-dot {
+    width: 18px;
+    height: 18px;
+  }
+
+  .stage-tempo-message {
+    max-width: min(9rem, calc(100vw - 3.5rem));
   }
 
   .stage-popover {
