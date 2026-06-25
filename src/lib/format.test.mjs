@@ -26,6 +26,7 @@ import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './import
 import { parseWebpageChartText } from './webpageChartImport-test-target.mjs';
 import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
 import { applyStageHarmonyEdit } from './stageHarmonyEdit-test-target.mjs';
+import { nextTempoBeat, normalizeTempoBpm, tempoDotTone, tempoIntervalMs } from './tempo-test-target.mjs';
 import { appleTvPortraitPrompterSettings, calculateExternalPrompterLayout, normalizeExternalDisplaySettings } from '../services/externalDisplay-test-target.mjs';
 import {
   anchoredChordLineLayout,
@@ -61,6 +62,23 @@ assert.equal(parseDurationInput('3:45'), 225);
 assert.equal(parseDurationInput('03:45'), 225);
 assert.equal(parseDurationInput('1:02:30'), 3750);
 assert.equal(parseDurationInput('3:99'), undefined);
+
+assert.equal(normalizeTempoBpm(120), 120);
+assert.equal(normalizeTempoBpm('90'), 90);
+assert.equal(normalizeTempoBpm(0), null);
+assert.equal(normalizeTempoBpm(undefined), null);
+assert.equal(tempoIntervalMs(120), 500);
+assert.equal(tempoIntervalMs(60), 1000);
+assert.equal(nextTempoBeat(null), 0);
+assert.equal(nextTempoBeat(0), 1);
+assert.equal(nextTempoBeat(1), 2);
+assert.equal(nextTempoBeat(2), 3);
+assert.equal(nextTempoBeat(3), 0);
+assert.equal(tempoDotTone(0, 0), 'gold');
+assert.equal(tempoDotTone(1, 1), 'purple');
+assert.equal(tempoDotTone(2, 2), 'purple');
+assert.equal(tempoDotTone(3, 3), 'purple');
+assert.equal(tempoDotTone(1, 0), 'dim');
 
 const favoriteCsvSong = parseCsvSongs('title,artist,favorite,chart\n"Favorite Tune","OpenStage","true","[G]Go"')[0];
 assert.equal(favoriteCsvSong.favorite, true);

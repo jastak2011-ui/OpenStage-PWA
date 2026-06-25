@@ -78,6 +78,7 @@ import {
 import { formatDuration, isValidDurationInput, parseDurationInput } from './lib/format';
 import { getStageSwipeDirection } from './lib/stageGestures';
 import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/stageHarmonyEdit';
+import { nextTempoBeat, normalizeTempoBpm, tempoDotTone, tempoIntervalMs } from './lib/tempo';
 import { createId } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
@@ -4730,10 +4731,15 @@ function PerformanceView({
   const [cursorHidden, setCursorHidden] = useState(false);
   const [speedPopoverOpen, setSpeedPopoverOpen] = useState(false);
   const [selectionAction, setSelectionAction] = useState<StageSelectionAction | null>(null);
+  const [tempoRunning, setTempoRunning] = useState(false);
+  const [activeTempoBeat, setActiveTempoBeat] = useState<number | null>(null);
+  const [tempoMessage, setTempoMessage] = useState('');
   const autoscrollButtonRef = useRef<HTMLButtonElement | null>(null);
   const autoscrollLongPressTimerRef = useRef<number | null>(null);
   const autoscrollLongPressActivatedRef = useRef(false);
   const speedPopoverHideTimerRef = useRef<number | null>(null);
+  const tempoIntervalRef = useRef<number | null>(null);
+  const tempoMessageTimerRef = useRef<number | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number; target: EventTarget | null } | null>(null);
   const stageTheme = getStageTheme(state.stageTheme);
   const stageBackground = stageTheme.className;
@@ -4784,11 +4790,43 @@ function PerformanceView({
   const mutedText = isWarmTheme ? 'text-[#cdbb96]' : state.theme === 'dark' ? 'text-slate-400' : 'text-slate-600';
   const menuSurface = isWarmTheme ? 'border-[#5b452f] bg-[#1b130e]/95 text-[#f4ead2]' : 'border-slate-700 bg-slate-950/95 text-slate-100';
   const toolbarButton = isWarmTheme ? 'border-[#8c6b38] bg-[#2a1d14]/80 text-[#f4ead2] hover:bg-[#3a281b]' : 'border-slate-700 bg-slate-900/80 text-slate-100 hover:bg-slate-800';
+  const songBpm = normalizeTempoBpm(song.bpm);
 
   const revealMenu = useCallback(() => {
     setToolbarVisible(true);
     setCursorHidden(false);
   }, []);
+  const clearTempoInterval = useCallback(() => {
+    if (tempoIntervalRef.current !== null) {
+      window.clearInterval(tempoIntervalRef.current);
+      tempoIntervalRef.current = null;
+    }
+  }, []);
+  const stopTempo = useCallback(() => {
+    clearTempoInterval();
+    setTempoRunning(false);
+    setActiveTempoBeat(null);
+  }, [clearTempoInterval]);
+  const showTempoMessage = useCallback((message: string) => {
+    setTempoMessage(message);
+    if (tempoMessageTimerRef.current !== null) window.clearTimeout(tempoMessageTimerRef.current);
+    tempoMessageTimerRef.current = window.setTimeout(() => {
+      setTempoMessage('');
+      tempoMessageTimerRef.current = null;
+    }, 2600);
+  }, []);
+  const toggleTempo = useCallback(() => {
+    revealMenu();
+    if (tempoRunning) {
+      stopTempo();
+      return;
+    }
+    if (!songBpm) {
+      showTempoMessage('No BPM set for this song.');
+      return;
+    }
+    setTempoRunning(true);
+  }, [revealMenu, showTempoMessage, songBpm, stopTempo, tempoRunning]);
   const closeSpeedPopover = useCallback(() => {
     setSpeedPopoverOpen(false);
     if (speedPopoverHideTimerRef.current) {
@@ -4902,6 +4940,25 @@ function PerformanceView({
   }, [song.id]);
 
   useEffect(() => {
+    stopTempo();
+  }, [song.id, stopTempo]);
+
+  useEffect(() => {
+    clearTempoInterval();
+    if (!tempoRunning || !songBpm) {
+      setActiveTempoBeat(null);
+      if (tempoRunning && !songBpm) setTempoRunning(false);
+      return;
+    }
+    const intervalMs = tempoIntervalMs(songBpm);
+    setActiveTempoBeat(0);
+    tempoIntervalRef.current = window.setInterval(() => {
+      setActiveTempoBeat((beat) => nextTempoBeat(beat));
+    }, intervalMs);
+    return clearTempoInterval;
+  }, [clearTempoInterval, songBpm, tempoRunning]);
+
+  useEffect(() => {
     if (activePopover || speedPopoverOpen || selectionAction) return;
     const timer = window.setTimeout(() => {
       setToolbarVisible(false);
@@ -4924,7 +4981,9 @@ function PerformanceView({
   useEffect(() => () => {
     clearAutoscrollLongPressTimer();
     if (speedPopoverHideTimerRef.current) window.clearTimeout(speedPopoverHideTimerRef.current);
-  }, [clearAutoscrollLongPressTimer]);
+    if (tempoMessageTimerRef.current !== null) window.clearTimeout(tempoMessageTimerRef.current);
+    clearTempoInterval();
+  }, [clearAutoscrollLongPressTimer, clearTempoInterval]);
 
   return (
     <main
@@ -4971,6 +5030,7 @@ function PerformanceView({
           </div>
 
           <div className="stage-right-actions relative flex items-center gap-1 rounded-full border border-white/10 bg-black/25 p-1 backdrop-blur-md">
+            <StageIconButton icon={<Gauge size={19} />} label="Tempo" tone={toolbarButton} active={tempoRunning} onClick={toggleTempo} />
             <span className="stage-secondary-action inline-flex">
               <StageIconButton icon={<Pencil size={19} />} label="Edit Song" tone={toolbarButton} onClick={onEdit} />
             </span>
@@ -4990,6 +5050,8 @@ function PerformanceView({
         <div style={{ fontSize: '0.78em' }}>Key {song.key || '-'}</div>
         <div style={{ fontSize: '0.78em' }}>Capo {effectiveCapo}</div>
       </div>
+
+      <TempoBeatIndicator activeBeat={activeTempoBeat} message={tempoMessage} />
 
       {activePopover && (
         <div className="fixed inset-0 z-30" onClick={() => setActivePopover(null)}>
@@ -5453,6 +5515,35 @@ function StageIconButton({
     >
       {icon}
     </button>
+  );
+}
+
+function TempoBeatIndicator({ activeBeat, message }: { activeBeat: number | null; message: string }) {
+  const visible = activeBeat !== null || Boolean(message);
+  return (
+    <div
+      className={`stage-tempo-indicator fixed z-40 flex items-center gap-2 rounded-full border border-white/15 bg-black/55 px-3 py-2 text-xs font-semibold text-slate-100 shadow-xl backdrop-blur-md transition-opacity duration-200 ${visible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+      aria-live="polite"
+    >
+      <div className="flex items-center gap-1.5" aria-label={activeBeat === null ? 'Tempo inactive' : `Beat ${activeBeat + 1}`}>
+        {[0, 1, 2, 3].map((beat) => {
+          const tone = tempoDotTone(beat, activeBeat);
+          return (
+            <span
+              key={beat}
+              className={`h-2.5 w-2.5 rounded-full transition-colors duration-100 ${
+                tone === 'gold'
+                  ? 'bg-amber-300 shadow-[0_0_12px_rgba(252,211,77,0.7)]'
+                  : tone === 'purple'
+                    ? 'bg-violet-400 shadow-[0_0_12px_rgba(167,139,250,0.65)]'
+                    : 'bg-slate-500/45'
+              }`}
+            />
+          );
+        })}
+      </div>
+      {message && <span className="max-w-36 text-[0.7rem] text-amber-100">{message}</span>}
+    </div>
   );
 }
 

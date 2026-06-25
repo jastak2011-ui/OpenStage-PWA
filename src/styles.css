@@ -102,6 +102,12 @@ label,
   @apply inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-600 bg-white/5 text-lg font-bold transition hover:bg-white/10 active:scale-95;
 }
 
+.stage-tempo-indicator {
+  left: max(0.75rem, env(safe-area-inset-left));
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .stage-autoscroll-paused {
   opacity: 0.72;
   color: rgba(226, 232, 240, 0.82);
@@ -619,6 +625,14 @@ label,
     max-width: 9rem;
     font-size: 0.62rem !important;
     opacity: 0.7;
+  }
+
+  .stage-tempo-indicator {
+    left: max(0.5rem, env(safe-area-inset-left));
+    top: auto;
+    bottom: max(4.25rem, calc(env(safe-area-inset-bottom) + 4.25rem));
+    transform: none;
+    max-width: min(11rem, calc(100vw - 1rem));
   }
 
   .stage-popover {
