@@ -123,6 +123,35 @@ label,
   max-width: min(12rem, calc(100vw - 4.75rem));
 }
 
+.stage-tempo-panel {
+  left: max(3.75rem, calc(env(safe-area-inset-left) + 3.75rem));
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.stage-tempo-slider {
+  width: 34px;
+  height: 172px;
+  accent-color: rgb(252 211 77);
+  writing-mode: vertical-lr;
+  direction: rtl;
+}
+
+.stage-tempo-step-button {
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.45rem 0.75rem;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
+  color: white;
+}
+
+.stage-tempo-step-button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
 .stage-autoscroll-paused {
   opacity: 0.72;
   color: rgba(226, 232, 240, 0.82);
@@ -663,6 +692,19 @@ label,
 
   .stage-tempo-message {
     max-width: min(9rem, calc(100vw - 3.5rem));
+  }
+
+  .stage-tempo-panel {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: max(1rem, calc(env(safe-area-inset-bottom) + 1rem));
+    transform: translateX(-50%);
+    width: min(17rem, calc(100vw - 1.25rem));
+  }
+
+  .stage-tempo-slider {
+    height: 154px;
   }
 
   .stage-popover {

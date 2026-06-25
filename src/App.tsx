@@ -78,7 +78,7 @@ import {
 import { formatDuration, isValidDurationInput, parseDurationInput } from './lib/format';
 import { getStageSwipeDirection } from './lib/stageGestures';
 import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/stageHarmonyEdit';
-import { nextTempoBeat, normalizeTempoBpm, tempoDotTone, tempoIntervalMs } from './lib/tempo';
+import { clampTempoBpm, maxTempoBpm, minTempoBpm, nextTempoBeat, normalizeTempoBpm, parseTempoBpmInput, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './lib/tempo';
 import { createId } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
@@ -1062,6 +1062,20 @@ export default function App() {
     }
   }
 
+  async function updateSongBpm(songId: string, bpm: number) {
+    const song = songMap.get(songId);
+    if (!song) return;
+    const nextBpm = clampTempoBpm(bpm, song.bpm || 120);
+    const nextSong = {
+      ...song,
+      bpm: nextBpm,
+      updatedAt: new Date().toISOString()
+    };
+    await db.songs.put(nextSong);
+    setSongs((current) => current.map((item) => (item.id === songId ? nextSong : item)));
+    if (selectedSongId === songId) setSelectedSongId(songId);
+  }
+
   async function deleteSong(id: string) {
     await db.transaction('rw', db.songs, db.setlist, db.setlists, async () => {
       await db.songs.delete(id);
@@ -2040,6 +2054,7 @@ export default function App() {
           onSync={() => setActiveMode('settings')}
           onExit={() => setActiveMode('library')}
           onChangeSongCapo={(capo) => updateSongCapo(selectedSong.id, capo)}
+          onChangeSongBpm={(bpm) => updateSongBpm(selectedSong.id, bpm)}
           onToggleDisplayPreference={() =>
             saveSong({
               ...selectedSong,
@@ -2111,6 +2126,7 @@ export default function App() {
             exitFullscreenSafe();
           }}
           onChangeSongCapo={(capo) => updateSongCapo(selectedSong.id, capo)}
+          onChangeSongBpm={(bpm) => updateSongBpm(selectedSong.id, bpm)}
           onToggleDisplayPreference={() =>
             saveSong({
               ...selectedSong,
@@ -4641,6 +4657,7 @@ function PerformanceView({
   onSync,
   onExit,
   onChangeSongCapo,
+  onChangeSongBpm,
   onToggleDisplayPreference,
   onLiveHarmonyEdit,
   onScroll,
@@ -4680,6 +4697,7 @@ function PerformanceView({
   onSync: () => void;
   onExit: () => void;
   onChangeSongCapo: (capo: number) => void;
+  onChangeSongBpm: (bpm: number) => void;
   onToggleDisplayPreference: () => void;
   onLiveHarmonyEdit: (operation: StageHarmonyEditOperation, start: number, end: number) => void | Promise<void>;
   onScroll: (scrollTop: number) => void;
@@ -4734,12 +4752,20 @@ function PerformanceView({
   const [tempoRunning, setTempoRunning] = useState(false);
   const [activeTempoBeat, setActiveTempoBeat] = useState<number | null>(null);
   const [tempoMessage, setTempoMessage] = useState('');
+  const [tempoPanelOpen, setTempoPanelOpen] = useState(false);
+  const [stageTempoBpm, setStageTempoBpm] = useState(() => normalizeTempoBpm(song.bpm) ?? 0);
+  const [tempoInput, setTempoInput] = useState(() => {
+    const bpm = normalizeTempoBpm(song.bpm);
+    return bpm ? String(Math.round(bpm)) : '';
+  });
   const autoscrollButtonRef = useRef<HTMLButtonElement | null>(null);
   const autoscrollLongPressTimerRef = useRef<number | null>(null);
   const autoscrollLongPressActivatedRef = useRef(false);
   const speedPopoverHideTimerRef = useRef<number | null>(null);
   const tempoIntervalRef = useRef<number | null>(null);
   const tempoMessageTimerRef = useRef<number | null>(null);
+  const tempoLongPressTimerRef = useRef<number | null>(null);
+  const tempoLongPressActivatedRef = useRef(false);
   const swipeStartRef = useRef<{ x: number; y: number; target: EventTarget | null } | null>(null);
   const stageTheme = getStageTheme(state.stageTheme);
   const stageBackground = stageTheme.className;
@@ -4791,6 +4817,7 @@ function PerformanceView({
   const menuSurface = isWarmTheme ? 'border-[#5b452f] bg-[#1b130e]/95 text-[#f4ead2]' : 'border-slate-700 bg-slate-950/95 text-slate-100';
   const toolbarButton = isWarmTheme ? 'border-[#8c6b38] bg-[#2a1d14]/80 text-[#f4ead2] hover:bg-[#3a281b]' : 'border-slate-700 bg-slate-900/80 text-slate-100 hover:bg-slate-800';
   const songBpm = normalizeTempoBpm(song.bpm);
+  const activeTempoBpm = normalizeTempoBpm(stageTempoBpm) ?? songBpm;
 
   const revealMenu = useCallback(() => {
     setToolbarVisible(true);
@@ -4821,12 +4848,69 @@ function PerformanceView({
       stopTempo();
       return;
     }
-    if (!songBpm) {
+    if (!activeTempoBpm) {
       showTempoMessage('No BPM set for this song.');
       return;
     }
     setTempoRunning(true);
-  }, [revealMenu, showTempoMessage, songBpm, stopTempo, tempoRunning]);
+  }, [activeTempoBpm, revealMenu, showTempoMessage, stopTempo, tempoRunning]);
+  const clearTempoLongPressTimer = useCallback(() => {
+    if (!tempoLongPressTimerRef.current) return;
+    window.clearTimeout(tempoLongPressTimerRef.current);
+    tempoLongPressTimerRef.current = null;
+  }, []);
+  const openTempoPanel = useCallback(() => {
+    revealMenu();
+    setActivePopover(null);
+    setSpeedPopoverOpen(false);
+    if (speedPopoverHideTimerRef.current) {
+      window.clearTimeout(speedPopoverHideTimerRef.current);
+      speedPopoverHideTimerRef.current = null;
+    }
+    const bpm = activeTempoBpm ?? minTempoBpm;
+    setStageTempoBpm(clampTempoBpm(bpm, 120));
+    setTempoInput(String(clampTempoBpm(bpm, 120)));
+    setTempoMessage('');
+    setTempoPanelOpen(true);
+  }, [activeTempoBpm, revealMenu]);
+  const commitTempoBpm = useCallback((value: number) => {
+    const nextBpm = clampTempoBpm(value, activeTempoBpm ?? 120);
+    setStageTempoBpm(nextBpm);
+    setTempoInput(String(nextBpm));
+    setTempoMessage('');
+    void onChangeSongBpm(nextBpm);
+  }, [activeTempoBpm, onChangeSongBpm]);
+  const applyTempoInput = useCallback(() => {
+    const value = parseTempoBpmInput(tempoInput);
+    if (value === null) {
+      showTempoMessage('Enter BPM between 40 and 240.');
+      return;
+    }
+    commitTempoBpm(value);
+  }, [commitTempoBpm, showTempoMessage, tempoInput]);
+  const handleTempoPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    clearTempoLongPressTimer();
+    tempoLongPressActivatedRef.current = false;
+    tempoLongPressTimerRef.current = window.setTimeout(() => {
+      tempoLongPressActivatedRef.current = true;
+      tempoLongPressTimerRef.current = null;
+      openTempoPanel();
+    }, 500);
+  }, [clearTempoLongPressTimer, openTempoPanel]);
+  const handleTempoPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    clearTempoLongPressTimer();
+  }, [clearTempoLongPressTimer]);
+  const handleTempoContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    tempoLongPressActivatedRef.current = true;
+    openTempoPanel();
+  }, [openTempoPanel]);
   const closeSpeedPopover = useCallback(() => {
     setSpeedPopoverOpen(false);
     if (speedPopoverHideTimerRef.current) {
@@ -4940,32 +5024,40 @@ function PerformanceView({
   }, [song.id]);
 
   useEffect(() => {
+    const nextBpm = songBpm ?? 0;
+    setStageTempoBpm(nextBpm);
+    setTempoInput(songBpm ? String(Math.round(songBpm)) : '');
+  }, [song.id, songBpm]);
+
+  useEffect(() => {
+    setTempoPanelOpen(false);
     stopTempo();
-  }, [song.id, stopTempo]);
+    clearTempoLongPressTimer();
+  }, [clearTempoLongPressTimer, song.id, stopTempo]);
 
   useEffect(() => {
     clearTempoInterval();
-    if (!tempoRunning || !songBpm) {
+    if (!tempoRunning || !activeTempoBpm) {
       setActiveTempoBeat(null);
-      if (tempoRunning && !songBpm) setTempoRunning(false);
+      if (tempoRunning && !activeTempoBpm) setTempoRunning(false);
       return;
     }
-    const intervalMs = tempoIntervalMs(songBpm);
+    const intervalMs = tempoIntervalMs(activeTempoBpm);
     setActiveTempoBeat(0);
     tempoIntervalRef.current = window.setInterval(() => {
       setActiveTempoBeat((beat) => nextTempoBeat(beat));
     }, intervalMs);
     return clearTempoInterval;
-  }, [clearTempoInterval, songBpm, tempoRunning]);
+  }, [activeTempoBpm, clearTempoInterval, tempoRunning]);
 
   useEffect(() => {
-    if (activePopover || speedPopoverOpen || selectionAction) return;
+    if (activePopover || speedPopoverOpen || tempoPanelOpen || selectionAction) return;
     const timer = window.setTimeout(() => {
       setToolbarVisible(false);
       setCursorHidden(true);
     }, 5000);
     return () => window.clearTimeout(timer);
-  }, [activePopover, selectionAction, speedPopoverOpen, toolbarVisible]);
+  }, [activePopover, selectionAction, speedPopoverOpen, tempoPanelOpen, toolbarVisible]);
 
   useEffect(() => {
     if (!speedPopoverOpen) return;
@@ -4980,17 +5072,18 @@ function PerformanceView({
 
   useEffect(() => () => {
     clearAutoscrollLongPressTimer();
+    clearTempoLongPressTimer();
     if (speedPopoverHideTimerRef.current) window.clearTimeout(speedPopoverHideTimerRef.current);
     if (tempoMessageTimerRef.current !== null) window.clearTimeout(tempoMessageTimerRef.current);
     clearTempoInterval();
-  }, [clearAutoscrollLongPressTimer, clearTempoInterval]);
+  }, [clearAutoscrollLongPressTimer, clearTempoInterval, clearTempoLongPressTimer]);
 
   return (
     <main
       className={`stage-shell stage-profile-${state.activeProfile} relative h-screen overflow-hidden transition-colors duration-300 ${stageBackground} ${cursorHidden && !activePopover ? 'cursor-none' : ''}`}
       data-stage-profile={state.activeProfile}
       data-mobile-reflow={mobileReflowMode ? 'true' : 'false'}
-      data-controls-visible={toolbarVisible || activePopover || speedPopoverOpen || selectionAction ? 'true' : 'false'}
+      data-controls-visible={toolbarVisible || activePopover || speedPopoverOpen || tempoPanelOpen || selectionAction ? 'true' : 'false'}
       style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
       onPointerMove={revealMenu}
       onPointerDown={revealMenu}
@@ -5051,7 +5144,30 @@ function PerformanceView({
         <div style={{ fontSize: '0.78em' }}>Capo {effectiveCapo}</div>
       </div>
 
-      <TempoBeatIndicator activeBeat={activeTempoBeat} message={tempoMessage} />
+      <TempoBeatIndicator
+        activeBeat={activeTempoBeat}
+        message={tempoMessage}
+        panelOpen={tempoPanelOpen}
+        onPointerDown={handleTempoPointerDown}
+        onPointerUp={handleTempoPointerEnd}
+        onPointerCancel={handleTempoPointerEnd}
+        onContextMenu={handleTempoContextMenu}
+      />
+
+      {tempoPanelOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onPointerDown={() => setTempoPanelOpen(false)} />
+          <TempoAdjustmentPanel
+            bpm={activeTempoBpm ?? stageTempoBpm}
+            inputValue={tempoInput}
+            message={tempoMessage}
+            onInputChange={setTempoInput}
+            onApplyInput={applyTempoInput}
+            onChangeBpm={commitTempoBpm}
+            onClose={() => setTempoPanelOpen(false)}
+          />
+        </>
+      )}
 
       {activePopover && (
         <div className="fixed inset-0 z-30" onClick={() => setActivePopover(null)}>
@@ -5518,15 +5634,35 @@ function StageIconButton({
   );
 }
 
-function TempoBeatIndicator({ activeBeat, message }: { activeBeat: number | null; message: string }) {
-  const visible = activeBeat !== null || Boolean(message);
+function TempoBeatIndicator({
+  activeBeat,
+  message,
+  panelOpen,
+  onPointerDown,
+  onPointerUp,
+  onPointerCancel,
+  onContextMenu
+}: {
+  activeBeat: number | null;
+  message: string;
+  panelOpen: boolean;
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
+}) {
+  const visible = activeBeat !== null || Boolean(message) || panelOpen;
   return (
     <div
       className={`stage-tempo-indicator fixed z-40 flex items-center transition-opacity duration-200 ${visible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
       aria-live="polite"
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onContextMenu={onContextMenu}
     >
       <div
-        className="stage-tempo-pill flex flex-col items-center justify-center rounded-full border border-white/15 bg-black/55 shadow-xl backdrop-blur-md"
+        className="stage-tempo-pill flex touch-none select-none flex-col items-center justify-center rounded-full border border-white/15 bg-black/55 shadow-xl backdrop-blur-md"
         aria-label={activeBeat === null ? 'Tempo inactive' : `Beat ${activeBeat + 1}`}
       >
         {[0, 1, 2, 3].map((beat) => {
@@ -5546,6 +5682,73 @@ function TempoBeatIndicator({ activeBeat, message }: { activeBeat: number | null
         })}
       </div>
       {message && <span className="stage-tempo-message ml-2 rounded-full border border-amber-200/20 bg-black/60 px-3 py-1.5 text-[0.7rem] font-semibold text-amber-100 shadow-lg backdrop-blur-md">{message}</span>}
+    </div>
+  );
+}
+
+function TempoAdjustmentPanel({
+  bpm,
+  inputValue,
+  message,
+  onInputChange,
+  onApplyInput,
+  onChangeBpm,
+  onClose
+}: {
+  bpm: number | null;
+  inputValue: string;
+  message: string;
+  onInputChange: (value: string) => void;
+  onApplyInput: () => void;
+  onChangeBpm: (bpm: number) => void;
+  onClose: () => void;
+}) {
+  const currentBpm = clampTempoBpm(bpm, 120);
+  return (
+    <div
+      className="stage-tempo-panel fixed z-50 rounded-3xl border border-white/15 bg-black/75 p-3 text-slate-100 shadow-2xl backdrop-blur-md"
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-400">Tempo BPM</div>
+          <div className="text-xl font-bold">{currentBpm}</div>
+        </div>
+        <button className="rounded-full border border-white/15 px-2 py-1 text-xs hover:bg-white/10" type="button" aria-label="Close Tempo Controls" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      <div className="flex items-center gap-3">
+        <input
+          className="stage-tempo-slider"
+          aria-label="Tempo Slider"
+          type="range"
+          min={minTempoBpm}
+          max={maxTempoBpm}
+          step={1}
+          value={currentBpm}
+          onChange={(event) => onChangeBpm(Number(event.target.value))}
+        />
+        <div className="flex flex-col gap-2">
+          <button className="stage-tempo-step-button" type="button" aria-label="Increase Tempo" onClick={() => onChangeBpm(stepTempoBpm(currentBpm, 1))}>+</button>
+          <input
+            className="w-20 rounded-xl border border-white/15 bg-white/10 px-2 py-2 text-center text-base font-semibold text-white outline-none focus:border-amber-300"
+            aria-label="Tempo BPM"
+            inputMode="numeric"
+            value={inputValue}
+            onChange={(event) => onInputChange(event.target.value)}
+            onBlur={onApplyInput}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') onApplyInput();
+            }}
+          />
+          <button className="stage-tempo-step-button" type="button" aria-label="Decrease Tempo" onClick={() => onChangeBpm(stepTempoBpm(currentBpm, -1))}>-</button>
+          <button className="rounded-xl bg-amber-300 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-amber-200" type="button" onClick={onApplyInput}>
+            Apply
+          </button>
+        </div>
+      </div>
+      {message && <div className="mt-2 max-w-44 text-xs font-semibold text-amber-100">{message}</div>}
     </div>
   );
 }
