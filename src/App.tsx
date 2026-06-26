@@ -262,6 +262,7 @@ type SetlistEntry = {
 type SetlistSortMode = 'manual' | 'title' | 'artist' | 'key' | 'bpm' | 'duration';
 type StagePopoverName = 'library' | 'setlists' | 'format' | 'more';
 type StageFormatTab = 'document' | 'format' | 'chords' | 'harmony' | 'sections' | 'display' | 'autoscroll' | 'external';
+type NewSongAction = 'scratch' | 'ai';
 type StageSelectionAction = {
   start: number;
   end: number;
@@ -532,6 +533,42 @@ const emptySong = (): Song => ({
   updatedAt: new Date().toISOString()
 });
 
+const openStageApiBaseUrl = 'https://openstage-api.onrender.com';
+
+type AiImportedSong = {
+  title?: string;
+  artist?: string;
+  key?: string;
+  capo?: number | null;
+  bpm?: number | null;
+  chart?: string;
+};
+
+function songFromAiImport(imported: AiImportedSong): Song {
+  const title = imported.title?.trim() || 'AI Imported Song';
+  const artist = imported.artist?.trim() || 'Unknown artist';
+  const key = imported.key?.trim() || '';
+  const capo = Math.max(0, Math.round(Number(imported.capo ?? 0) || 0));
+  const bpm = Number.isFinite(Number(imported.bpm)) && Number(imported.bpm) > 0 ? Math.round(Number(imported.bpm)) : 0;
+  const chart = imported.chart || '';
+
+  return {
+    ...emptySong(),
+    title,
+    artist,
+    key,
+    originalKey: key,
+    performanceKey: key,
+    capo,
+    bpm,
+    chart,
+    rawChordPro: chart,
+    displayPreference: 'chords-over',
+    parsedChordPro: parseChordPro(chart),
+    updatedAt: new Date().toISOString()
+  };
+}
+
 function withSongDefaults(song: Song): Song {
   return {
     ...song,
@@ -556,6 +593,8 @@ export default function App() {
   const [selectedSongId, setSelectedSongId] = useState('');
   const [activeMode, setActiveMode] = useState<StageMode>('library');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [newSongMenuOpen, setNewSongMenuOpen] = useState(false);
+  const [aiImportOpen, setAiImportOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [smartFilter, setSmartFilter] = useState('all');
   const [quickEdit, setQuickEdit] = useState(false);
@@ -973,6 +1012,30 @@ export default function App() {
       setToast({ message: 'Save failed', type: 'error' });
       reportError('Song save failed', error);
     }
+  }
+
+  async function createSongFromScratch(returnMode: StageMode = activeMode) {
+    const song = emptySong();
+    setNewSongMenuOpen(false);
+    setAiImportOpen(false);
+    await saveSong(song);
+    setSelectedSongId(song.id);
+    setEditorReturnMode(returnMode);
+    setActiveMode('editor');
+  }
+
+  function openAiImport() {
+    setNewSongMenuOpen(false);
+    setAiImportOpen(true);
+  }
+
+  async function importAiSong(song: Song) {
+    await saveSong(song);
+    setSelectedSongId(song.id);
+    setEditorReturnMode(activeMode);
+    setActiveMode('editor');
+    setAiImportOpen(false);
+    setToast({ message: 'AI song imported', type: 'success' });
   }
 
   async function updateStageHarmony(songId: string, start: number, end: number, operation: StageHarmonyEditOperation) {
@@ -1766,9 +1829,20 @@ export default function App() {
             <ModeButton icon={<HelpCircle size={17} />} label="Help" mode="help" active={activeMode} setActive={setActiveMode} />
           </nav>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <button className="icon-button" title="New song" onClick={() => saveSong(emptySong())}>
-              <Plus size={18} />
-            </button>
+            <div className="relative">
+              <button className="icon-button" title="New song" onClick={() => setNewSongMenuOpen((open) => !open)}>
+                <Plus size={18} />
+              </button>
+              {newSongMenuOpen && (
+                <NewSongMenu
+                  align="right"
+                  onSelect={(action) => {
+                    if (action === 'scratch') void createSongFromScratch('library');
+                    if (action === 'ai') openAiImport();
+                  }}
+                />
+              )}
+            </div>
             <button className="icon-button" title="Import songs" onClick={() => setActiveMode('import')}>
               <Upload size={18} />
             </button>
@@ -1849,8 +1923,11 @@ export default function App() {
               <div className="mt-5 border-t border-slate-800 pt-4">
                 <div className="mb-2 text-xs font-semibold uppercase tracking-normal text-slate-400">Quick Actions</div>
                 <div className="grid gap-2">
-                  <button className="stage-menu-button justify-start" type="button" onClick={() => { void saveSong(emptySong()); setMobileNavOpen(false); }}>
-                    <Plus size={18} /> Add Song
+                  <button className="stage-menu-button justify-start" type="button" onClick={() => { setMobileNavOpen(false); void createSongFromScratch('library'); }}>
+                    <Plus size={18} /> Create From Scratch
+                  </button>
+                  <button className="stage-menu-button justify-start" type="button" onClick={() => { setMobileNavOpen(false); openAiImport(); }}>
+                    <Sparkles size={18} /> AI Import
                   </button>
                   <button className="stage-menu-button justify-start" type="button" onClick={() => setTopLevelMode('import')}>
                     <Upload size={18} /> Import
@@ -1878,6 +1955,10 @@ export default function App() {
           setQuery={setQuery}
           smartFilter={smartFilter}
           setSmartFilter={setSmartFilter}
+          onNewSongAction={(action) => {
+            if (action === 'scratch') void createSongFromScratch('library');
+            if (action === 'ai') openAiImport();
+          }}
           onSelect={(id) => {
             setNavigationContext('library');
             setSelectedSongId(id);
@@ -2046,6 +2127,10 @@ export default function App() {
           }}
           onSettings={() => setActiveMode('settings')}
           onSelectStageSong={selectStageLibrarySong}
+          onNewSongAction={(action) => {
+            if (action === 'scratch') void createSongFromScratch('perform');
+            if (action === 'ai') openAiImport();
+          }}
           onToggleFavorite={toggleSongFavorite}
           onRunStageSetlist={runSavedSetlist}
           onDiagnostics={() => setActiveMode('diagnostics')}
@@ -2098,6 +2183,10 @@ export default function App() {
           onStageMode={requestFullscreenSafe}
           onSettings={() => setActiveMode('settings')}
           onSelectStageSong={selectStageLibrarySong}
+          onNewSongAction={(action) => {
+            if (action === 'scratch') void createSongFromScratch('stage');
+            if (action === 'ai') openAiImport();
+          }}
           onToggleFavorite={toggleSongFavorite}
           onRunStageSetlist={runSavedSetlist}
           onDiagnostics={() => {
@@ -2144,6 +2233,12 @@ export default function App() {
         IndexedDB offline storage active. Supabase sync: {syncState}
         {syncEmail ? ` as ${syncEmail}` : supabase ? ', signed out' : ''}.
       </footer>}
+      {aiImportOpen && (
+        <AiImportSongModal
+          onClose={() => setAiImportOpen(false)}
+          onImport={importAiSong}
+        />
+      )}
       {toast && <Toast toast={toast} />}
     </div>
   );
@@ -3339,12 +3434,187 @@ function StorageErrorView({ message }: { message: string }) {
   );
 }
 
+function NewSongMenu({ align, onSelect }: { align: 'left' | 'right'; onSelect: (action: NewSongAction) => void }) {
+  return (
+    <div className={`absolute top-full z-50 mt-2 w-56 overflow-hidden rounded-md border border-slate-700 bg-slate-950 text-sm text-white shadow-2xl ${align === 'right' ? 'right-0' : 'left-0'}`}>
+      <button className="flex w-full items-center gap-2 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('scratch')}>
+        <Pencil size={16} /> Create From Scratch
+      </button>
+      <button className="flex w-full items-center gap-2 border-t border-slate-800 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('ai')}>
+        <Sparkles size={16} /> AI Import
+      </button>
+    </div>
+  );
+}
+
+function AiImportSongModal({ onClose, onImport }: { onClose: () => void; onImport: (song: Song) => Promise<void> }) {
+  const [title, setTitle] = useState('');
+  const [artist, setArtist] = useState('');
+  const [preferredKey, setPreferredKey] = useState('');
+  const [capo, setCapo] = useState('0');
+  const [preview, setPreview] = useState<Song | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const generate = async () => {
+    const requestTitle = title.trim();
+    const requestArtist = artist.trim();
+    if (!requestTitle || !requestArtist) {
+      setError('Song title and artist are required.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch(`${openStageApiBaseUrl}/api/ai-import-song`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: requestTitle,
+          artist: requestArtist,
+          key: preferredKey.trim(),
+          capo: capo.trim() === '' ? 0 : Number(capo)
+        })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok || !data.song) throw new Error('AI import failed');
+      const nextSong = songFromAiImport(data.song);
+      setPreview(nextSong);
+      setTitle(nextSong.title);
+      setArtist(nextSong.artist);
+      setPreferredKey(nextSong.key);
+      setCapo(String(nextSong.capo ?? 0));
+    } catch {
+      setError('AI Import failed. Try again or use Paste Webpage Chart.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const importPreview = async () => {
+    if (!preview) return;
+    setSaving(true);
+    setError('');
+    try {
+      await onImport({
+        ...preview,
+        title: preview.title.trim() || title.trim(),
+        artist: preview.artist.trim() || artist.trim(),
+        key: preview.key.trim(),
+        capo: Math.max(0, Math.round(Number(preview.capo ?? 0) || 0)),
+        bpm: Number.isFinite(Number(preview.bpm)) && Number(preview.bpm) > 0 ? Math.round(Number(preview.bpm)) : 0,
+        chart: preview.chart,
+        rawChordPro: preview.chart,
+        parsedChordPro: parseChordPro(preview.chart),
+        updatedAt: new Date().toISOString()
+      });
+    } catch {
+      setError('AI Import failed. Try again or use Paste Webpage Chart.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-3">
+      <div className="max-h-[min(92vh,760px)] w-[min(56rem,100%)] overflow-hidden rounded-xl border border-slate-700 bg-slate-950 text-slate-100 shadow-2xl">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+          <div>
+            <h2 className="text-lg font-semibold">AI Import Song</h2>
+            <p className="text-xs text-slate-400">Generate a draft chart through OpenStage-API, then preview before saving.</p>
+          </div>
+          <button className="icon-button" type="button" aria-label="Close AI Import" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(min(92vh,760px)-4rem)] overflow-y-auto p-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="grid gap-1 text-sm font-semibold">
+              Song Title <span className="text-red-300">*</span>
+              <input className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-teal-400" value={title} onChange={(event) => setTitle(event.target.value)} />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold">
+              Artist <span className="text-red-300">*</span>
+              <input className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-teal-400" value={artist} onChange={(event) => setArtist(event.target.value)} />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold">
+              Preferred Key <span className="text-slate-500">optional</span>
+              <input className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-teal-400" value={preferredKey} onChange={(event) => setPreferredKey(event.target.value)} />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold">
+              Capo <span className="text-slate-500">optional</span>
+              <input className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-teal-400" type="number" min="0" max="12" step="1" value={capo} onChange={(event) => setCapo(event.target.value)} />
+            </label>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-60" type="button" disabled={loading || !title.trim() || !artist.trim()} onClick={generate}>
+              {loading ? 'Generating chart...' : preview ? 'Regenerate' : 'Generate Chart'}
+            </button>
+            <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-white/10" type="button" onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+          {error && <div className="mt-3 rounded-md border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</div>}
+
+          {preview && (
+            <div className="mt-5 grid gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+              <h3 className="font-semibold">Preview Before Saving</h3>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="grid gap-1 text-sm font-semibold">
+                  Title
+                  <input className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-teal-400" value={preview.title} onChange={(event) => setPreview({ ...preview, title: event.target.value })} />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold">
+                  Artist
+                  <input className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-teal-400" value={preview.artist} onChange={(event) => setPreview({ ...preview, artist: event.target.value })} />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold">
+                  Key
+                  <input className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-teal-400" value={preview.key} onChange={(event) => setPreview({ ...preview, key: event.target.value })} />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold">
+                  Capo
+                  <input className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-teal-400" type="number" min="0" max="12" step="1" value={preview.capo ?? 0} onChange={(event) => setPreview({ ...preview, capo: Number(event.target.value) || 0 })} />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold">
+                  BPM
+                  <input className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-teal-400" type="number" min="0" step="1" value={preview.bpm || ''} onChange={(event) => setPreview({ ...preview, bpm: Number(event.target.value) || 0 })} />
+                </label>
+              </div>
+              <label className="grid gap-1 text-sm font-semibold">
+                Chart
+                <textarea className="min-h-[18rem] rounded-md border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 outline-none focus:border-teal-400" value={preview.chart} onChange={(event) => setPreview({ ...preview, chart: event.target.value })} />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-60" type="button" disabled={saving} onClick={importPreview}>
+                  {saving ? 'Importing...' : 'Import Song'}
+                </button>
+                <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-white/10 disabled:cursor-wait disabled:opacity-60" type="button" disabled={loading} onClick={generate}>
+                  Regenerate
+                </button>
+                <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-white/10" type="button" onClick={onClose}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LibraryView({
   songs,
   query,
   setQuery,
   smartFilter,
   setSmartFilter,
+  onNewSongAction,
   onSelect,
   onToggleFavorite
 }: {
@@ -3353,11 +3623,13 @@ function LibraryView({
   setQuery: (query: string) => void;
   smartFilter: string;
   setSmartFilter: (filter: string) => void;
+  onNewSongAction: (action: NewSongAction) => void;
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
 }) {
   const [visibleCount, setVisibleCount] = useState(80);
   const visibleSongs = songs.slice(0, visibleCount);
+  const [newSongMenuOpen, setNewSongMenuOpen] = useState(false);
 
   useEffect(() => setVisibleCount(80), [query, smartFilter]);
 
@@ -3386,6 +3658,24 @@ function LibraryView({
             <option value="easy">Easy songs</option>
             <option value="fast">90 BPM+</option>
           </select>
+          <div className="relative">
+            <button
+              className="h-11 rounded-md bg-teal-600 px-4 text-sm font-semibold text-white hover:bg-teal-500"
+              type="button"
+              onClick={() => setNewSongMenuOpen((open) => !open)}
+            >
+              + New Song
+            </button>
+            {newSongMenuOpen && (
+              <NewSongMenu
+                align="right"
+                onSelect={(action) => {
+                  setNewSongMenuOpen(false);
+                  onNewSongAction(action);
+                }}
+              />
+            )}
+          </div>
         </div>
         <div className="overflow-hidden rounded-md border border-slate-300 bg-white">
           <div className="library-header grid grid-cols-[2.5rem_minmax(12rem,2fr)_minmax(9rem,1fr)_5rem_5rem_5rem_minmax(10rem,1fr)] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase text-slate-500">
@@ -4649,6 +4939,7 @@ function PerformanceView({
   onStageMode,
   onSettings,
   onSelectStageSong,
+  onNewSongAction,
   onToggleFavorite,
   onRunStageSetlist,
   onDiagnostics,
@@ -4689,6 +4980,7 @@ function PerformanceView({
   onStageMode: () => void;
   onSettings: () => void;
   onSelectStageSong: (songId: string) => void;
+  onNewSongAction: (action: NewSongAction) => void;
   onToggleFavorite: (songId: string) => void;
   onRunStageSetlist: (setlist: SavedSetlist) => void;
   onDiagnostics: () => void;
@@ -5188,6 +5480,10 @@ function PerformanceView({
             onToggleAutoscroll={onToggleAutoscroll}
             onSelectStageSong={(songId) => {
               onSelectStageSong(songId);
+              setActivePopover(null);
+            }}
+            onNewSongAction={(action) => {
+              onNewSongAction(action);
               setActivePopover(null);
             }}
             onToggleFavorite={onToggleFavorite}
@@ -5769,6 +6065,7 @@ function StageControlPopover({
   isAutoscrolling,
   onToggleAutoscroll,
   onSelectStageSong,
+  onNewSongAction,
   onToggleFavorite,
   onRunStageSetlist,
   effectiveCapo,
@@ -5801,6 +6098,7 @@ function StageControlPopover({
   isAutoscrolling: boolean;
   onToggleAutoscroll: () => void;
   onSelectStageSong: (songId: string) => void;
+  onNewSongAction: (action: NewSongAction) => void;
   onToggleFavorite: (songId: string) => void;
   onRunStageSetlist: (setlist: SavedSetlist) => void;
   effectiveCapo: number;
@@ -5819,6 +6117,7 @@ function StageControlPopover({
   onSync: () => void;
 }) {
   const [libraryQuery, setLibraryQuery] = useState('');
+  const [newSongMenuOpen, setNewSongMenuOpen] = useState(false);
   const [selectedDisplayProfile, setSelectedDisplayProfile] = useState<DeviceProfile>(state.activeProfile);
   const [profileMessage, setProfileMessage] = useState('');
   const popoverPosition = active === 'library' || active === 'setlists' ? 'left-3 sm:left-5' : 'right-3 sm:right-5';
@@ -5881,6 +6180,24 @@ function StageControlPopover({
       {active === 'library' && (
         <div className="grid gap-3">
           <StagePopoverTitle title="Library" />
+          <div className="relative">
+            <button
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-md bg-teal-600 px-3 text-sm font-semibold text-white hover:bg-teal-500"
+              type="button"
+              onClick={() => setNewSongMenuOpen((open) => !open)}
+            >
+              <Plus size={17} /> New Song
+            </button>
+            {newSongMenuOpen && (
+              <NewSongMenu
+                align="left"
+                onSelect={(action) => {
+                  setNewSongMenuOpen(false);
+                  onNewSongAction(action);
+                }}
+              />
+            )}
+          </div>
           <label className="flex h-11 items-center gap-2 rounded-md border border-slate-700 bg-black/20 px-3">
             <Search size={17} />
             <input
