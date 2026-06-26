@@ -6070,19 +6070,19 @@ function TempoAdjustmentPanel({
   const currentBpm = clampTempoBpm(bpm, 120);
   return (
     <div
-      className="stage-tempo-panel fixed z-50 rounded-3xl border border-white/15 bg-black/75 p-3 text-slate-100 shadow-2xl backdrop-blur-md"
+      className="stage-tempo-panel fixed z-50 rounded-3xl border border-white/15 bg-black/75 p-2.5 text-slate-100 shadow-2xl backdrop-blur-md"
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="mb-2 flex items-center justify-between gap-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
         <div>
           <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-400">Tempo BPM</div>
-          <div className="text-xl font-bold">{currentBpm}</div>
+          <div className="text-lg font-bold">{currentBpm}</div>
         </div>
         <button className="rounded-full border border-white/15 px-2 py-1 text-xs hover:bg-white/10" type="button" aria-label="Close Tempo Controls" onClick={onClose}>
           Close
         </button>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2.5">
         <input
           className="stage-tempo-slider"
           aria-label="Tempo Slider"
@@ -6093,10 +6093,10 @@ function TempoAdjustmentPanel({
           value={currentBpm}
           onChange={(event) => onChangeBpm(Number(event.target.value))}
         />
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
           <button className="stage-tempo-step-button" type="button" aria-label="Increase Tempo" onClick={() => onChangeBpm(stepTempoBpm(currentBpm, 1))}>+</button>
           <input
-            className="w-20 rounded-xl border border-white/15 bg-white/10 px-2 py-2 text-center text-base font-semibold text-white outline-none focus:border-amber-300"
+            className="w-16 rounded-xl border border-white/15 bg-white/10 px-2 py-1.5 text-center text-base font-semibold text-white outline-none focus:border-amber-300"
             aria-label="Tempo BPM"
             inputMode="numeric"
             value={inputValue}
@@ -6113,17 +6113,14 @@ function TempoAdjustmentPanel({
           <button className="stage-tempo-step-button" type="button" aria-label="Decrease Tempo" onClick={() => onChangeBpm(stepTempoBpm(currentBpm, -1))}>-</button>
         </div>
       </div>
-      <label className="mt-5 flex items-center gap-3 rounded-2xl border border-white/15 bg-white/10 px-3 py-3">
+      <label className="mt-3 flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-2.5 py-2">
         <input
-          className="h-5 w-5 shrink-0 accent-blue-500 outline outline-1 outline-white/80"
+          className="h-4 w-4 shrink-0 accent-blue-500 outline outline-1 outline-white/80"
           type="checkbox"
           checked={stopAfter10Sec}
           onChange={(event) => onToggleStopAfter10Sec(event.target.checked)}
         />
-        <span className="grid gap-0.5">
-          <span className="text-base font-medium leading-tight text-white">Stop after 10 sec</span>
-          <span className="text-xs font-normal leading-snug text-slate-300">Automatically stops the visual tempo guide after 10 seconds.</span>
-        </span>
+        <span className="text-sm font-medium leading-tight text-white">Stop after 10 sec</span>
       </label>
       {message && <div className="mt-2 max-w-44 text-xs font-semibold text-amber-100">{message}</div>}
     </div>
