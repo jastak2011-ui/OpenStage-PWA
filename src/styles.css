@@ -127,6 +127,7 @@ label,
   left: max(3.75rem, calc(env(safe-area-inset-left) + 3.75rem));
   top: 50%;
   transform: translateY(-50%);
+  width: 250px;
 }
 
 .stage-tempo-slider {
@@ -700,7 +701,7 @@ label,
     top: auto;
     bottom: max(1rem, calc(env(safe-area-inset-bottom) + 1rem));
     transform: translateX(-50%);
-    width: min(17rem, calc(100vw - 1.25rem));
+    width: min(18.5rem, calc(100vw - 1.25rem));
   }
 
   .stage-tempo-slider {

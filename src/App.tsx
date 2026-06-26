@@ -6082,7 +6082,7 @@ function TempoAdjustmentPanel({
           Close
         </button>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4">
         <input
           className="stage-tempo-slider"
           aria-label="Tempo Slider"
@@ -6112,13 +6112,17 @@ function TempoAdjustmentPanel({
           </button>
         </div>
       </div>
-      <label className="mt-3 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold">
+      <label className="mt-3 flex items-center gap-3 rounded-2xl border border-white/15 bg-white/10 px-3 py-3">
         <input
+          className="h-5 w-5 shrink-0 accent-blue-500 outline outline-1 outline-white/80"
           type="checkbox"
           checked={stopAfter10Sec}
           onChange={(event) => onToggleStopAfter10Sec(event.target.checked)}
         />
-        Stop after 10 sec
+        <span className="grid gap-0.5">
+          <span className="text-base font-medium leading-tight text-white">Stop after 10 sec</span>
+          <span className="text-xs font-normal leading-snug text-slate-300">Automatically stops the visual tempo guide after 10 seconds.</span>
+        </span>
       </label>
       {message && <div className="mt-2 max-w-44 text-xs font-semibold text-amber-100">{message}</div>}
     </div>
