@@ -5,7 +5,7 @@ import express from 'express';
 const app = express();
 const port = Number(process.env.PORT) || 10000;
 const defaultPrompt = 'Say hello from OpenStage';
-const anthropicModel = 'claude-sonnet-4-20250514';
+const defaultAnthropicModel = 'claude-sonnet-4-6';
 
 const allowedOrigins = new Set([
   'https://openstage-pwa.onrender.com',
@@ -71,6 +71,8 @@ app.post('/api/test-anthropic', async (request, response) => {
   }
 
   try {
+    const anthropicModel = process.env.ANTHROPIC_MODEL || defaultAnthropicModel;
+    console.log('Anthropic model:', anthropicModel);
     const anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY
     });
