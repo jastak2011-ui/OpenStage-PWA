@@ -6100,19 +6100,20 @@ function TempoAdjustmentPanel({
             aria-label="Tempo BPM"
             inputMode="numeric"
             value={inputValue}
-            onChange={(event) => onInputChange(event.target.value)}
+            onChange={(event) => {
+              onInputChange(event.target.value);
+              const value = parseTempoBpmInput(event.target.value);
+              if (value !== null) onChangeBpm(value);
+            }}
             onBlur={onApplyInput}
             onKeyDown={(event) => {
               if (event.key === 'Enter') onApplyInput();
             }}
           />
           <button className="stage-tempo-step-button" type="button" aria-label="Decrease Tempo" onClick={() => onChangeBpm(stepTempoBpm(currentBpm, -1))}>-</button>
-          <button className="rounded-xl bg-amber-300 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-amber-200" type="button" onClick={onApplyInput}>
-            Apply
-          </button>
         </div>
       </div>
-      <label className="mt-3 flex items-center gap-3 rounded-2xl border border-white/15 bg-white/10 px-3 py-3">
+      <label className="mt-5 flex items-center gap-3 rounded-2xl border border-white/15 bg-white/10 px-3 py-3">
         <input
           className="h-5 w-5 shrink-0 accent-blue-500 outline outline-1 outline-white/80"
           type="checkbox"
