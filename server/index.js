@@ -5,7 +5,7 @@ import express from 'express';
 const app = express();
 const port = Number(process.env.PORT) || 10000;
 const defaultPrompt = 'Say hello from OpenStage';
-const anthropicModel = 'claude-3-5-haiku-20241022';
+const anthropicModel = 'claude-sonnet-4-20250514';
 
 const allowedOrigins = new Set([
   'https://openstage-pwa.onrender.com',
