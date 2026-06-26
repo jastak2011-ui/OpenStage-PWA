@@ -5,6 +5,7 @@ import express from 'express';
 const app = express();
 const port = Number(process.env.PORT) || 10000;
 const defaultPrompt = 'Say hello from OpenStage';
+const anthropicModel = 'claude-3-5-haiku-20241022';
 
 const allowedOrigins = new Set([
   'https://openstage-pwa.onrender.com',
@@ -22,6 +23,26 @@ app.use(cors({
   }
 }));
 app.use(express.json({ limit: '1mb' }));
+
+function getAnthropicErrorDetails(error) {
+  const status = error?.status;
+  const type = error?.error?.type || error?.type;
+  const message = error?.message;
+  const responseBody = error?.error || error?.response?.data || error?.response?.body;
+
+  console.error('Anthropic test failed:', {
+    status,
+    message,
+    type,
+    responseBody
+  });
+
+  if (status === 401 || type === 'authentication_error') return 'authentication_error';
+  if (status === 402 || type === 'billing_error' || /credit|billing|payment/i.test(message || '')) return 'billing_error';
+  if (status === 400 && /model/i.test(message || '')) return 'model_error';
+  if (type === 'invalid_request_error' && /model/i.test(message || '')) return 'model_error';
+  return 'unknown_error';
+}
 
 app.get('/health', (_request, response) => {
   response.json({
@@ -54,7 +75,7 @@ app.post('/api/test-anthropic', async (request, response) => {
       apiKey: process.env.ANTHROPIC_API_KEY
     });
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-haiku-latest',
+      model: anthropicModel,
       max_tokens: 120,
       messages: [
         {
@@ -74,10 +95,11 @@ app.post('/api/test-anthropic', async (request, response) => {
       text
     });
   } catch (error) {
-    console.error('Anthropic test failed:', error);
+    const details = getAnthropicErrorDetails(error);
     response.status(500).json({
       ok: false,
-      error: 'Anthropic request failed.'
+      error: 'Anthropic request failed.',
+      details
     });
   }
 });
