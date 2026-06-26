@@ -734,6 +734,11 @@ export default function App() {
   const previousNavigationSong = activeNavigationIndex >= 0 ? activeNavigationSongs[activeNavigationIndex - 1] : undefined;
   const isStageSurface = activeMode === 'perform' || activeMode === 'stage';
   const selectedEffectiveCapo = selectedSong ? getEffectiveCapo(selectedSong, performanceState) : 0;
+
+  useEffect(() => {
+    clearRenderCache();
+  }, [selectedSong?.id]);
+
   const setTopLevelMode = useCallback((mode: StageMode) => {
     if ((mode === 'perform' || mode === 'stage') && !selectedSongId && songs[0]) {
       setSelectedSongId(songs[0].id);
@@ -7632,16 +7637,38 @@ function ChordProDisplayLine({
   if (displayPreference === 'chords-over') {
     const anchoredLine = chordTokensToAnchoredLine(line.tokens);
     const tokenSourceRanges = buildLyricSourceRangesFromRenderedTokens(line.tokens);
-    if (mobileReflowMode) {
+    if (anchoredLine.anchors.length > 0) {
+      if (mobileReflowMode) {
+        return (
+          <MobileReflowChordLine
+            anchoredLine={anchoredLine}
+            sourceRanges={tokenSourceRanges}
+            lineIndex={lineIndex}
+            chordClassName={chordClassName}
+            chordStyle={chordStyle}
+            lyricLineStyle={lyricLineStyle}
+            rowSpacingStyle={rowSpacingStyle}
+            showChords={showChords}
+            showHarmonyCues={showHarmonyCues}
+            harmonyStyle={harmonyStyle}
+            harmonyIconColor={resolvedHarmonyIconColor}
+            harmonyIconVisible={harmonyIconVisible}
+            showHarmonyDebug={showHarmonyDebug}
+          />
+        );
+      }
       return (
-        <MobileReflowChordLine
+        <AnchoredChordDisplayLine
           anchoredLine={anchoredLine}
           sourceRanges={tokenSourceRanges}
           lineIndex={lineIndex}
           chordClassName={chordClassName}
           chordStyle={chordStyle}
-          lyricLineStyle={lyricLineStyle}
-          rowSpacingStyle={rowSpacingStyle}
+          chordFontSize={chordFontSize}
+          lyricFontSize={lyricFontSize}
+          lineSpacing={lineSpacing}
+          chordVerticalOffset={chordVerticalOffset}
+          showAnchorDebug={showAnchorDebug}
           showChords={showChords}
           showHarmonyCues={showHarmonyCues}
           harmonyStyle={harmonyStyle}
@@ -7651,26 +7678,6 @@ function ChordProDisplayLine({
         />
       );
     }
-    return (
-      <AnchoredChordDisplayLine
-        anchoredLine={anchoredLine}
-        sourceRanges={tokenSourceRanges}
-        lineIndex={lineIndex}
-        chordClassName={chordClassName}
-        chordStyle={chordStyle}
-        chordFontSize={chordFontSize}
-        lyricFontSize={lyricFontSize}
-        lineSpacing={lineSpacing}
-        chordVerticalOffset={chordVerticalOffset}
-        showAnchorDebug={showAnchorDebug}
-        showChords={showChords}
-        showHarmonyCues={showHarmonyCues}
-        harmonyStyle={harmonyStyle}
-        harmonyIconColor={resolvedHarmonyIconColor}
-        harmonyIconVisible={harmonyIconVisible}
-        showHarmonyDebug={showHarmonyDebug}
-      />
-    );
   }
 
   const inlineAnchoredLine = chordTokensToAnchoredLine(line.tokens);

@@ -895,6 +895,38 @@ const standaloneRendered = renderSong(standaloneChordRow, { transpose: 1, capo: 
 assert.equal(standaloneRendered.lines[0].type, 'chord-over');
 assert.equal(standaloneRendered.lines[0].chordLine, 'E   A   F#m   E   E');
 
+const funeralExcerptSong = {
+  ...chordOverSong,
+  id: 'funeral-for-a-friend-excerpt',
+  chart: `Intro:
+
+Em                 C                 G
+(Instrumental opening - slow build)
+Em                 D                 Am`,
+  updatedAt: '2026-06-26T00:00:00.000Z'
+};
+clearRenderCache();
+const funeralRendered = renderSong(funeralExcerptSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'Em' });
+const funeralChordRows = funeralRendered.lines.filter((line) => line.type === 'chord-over');
+assert.equal(funeralChordRows[0].chordLine, 'Em                 C                 G');
+assert.equal(funeralChordRows[0].chordLine.split(/\s+/)[0], 'Em');
+assert.equal(funeralChordRows[0].chordLine.includes('Gm'), false);
+assert.equal(funeralChordRows[1].chordLine, 'Em                 D                 Am');
+
+const staleCacheOriginal = {
+  ...chordOverSong,
+  id: 'same-id-cache-swap',
+  chart: 'Gm',
+  updatedAt: '2026-06-26T00:01:00.000Z'
+};
+const staleCacheUpdated = {
+  ...staleCacheOriginal,
+  chart: 'Em'
+};
+clearRenderCache();
+assert.equal(renderSong(staleCacheOriginal, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'Gm' }).lines[0].chordLine, 'Gm');
+assert.equal(renderSong(staleCacheUpdated, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'Em' }).lines[0].chordLine, 'Em');
+
 const standaloneSlashRow = {
   ...chordOverSong,
   id: 'standalone-slash-row',
