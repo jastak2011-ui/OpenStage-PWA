@@ -5186,11 +5186,14 @@ function PerformanceView({
       window.clearTimeout(speedPopoverHideTimerRef.current);
       speedPopoverHideTimerRef.current = null;
     }
-    const bpm = activeTempoBpm ?? minTempoBpm;
-    setStageTempoBpm(clampTempoBpm(bpm, 120));
-    setTempoInput(String(clampTempoBpm(bpm, 120)));
-    setTempoMessage('');
-    setTempoPanelOpen(true);
+    setTempoPanelOpen((open) => {
+      if (open) return false;
+      const bpm = activeTempoBpm ?? minTempoBpm;
+      setStageTempoBpm(clampTempoBpm(bpm, 120));
+      setTempoInput(String(clampTempoBpm(bpm, 120)));
+      setTempoMessage('');
+      return true;
+    });
   }, [activeTempoBpm, revealMenu]);
   const commitTempoBpm = useCallback((value: number) => {
     const nextBpm = clampTempoBpm(value, activeTempoBpm ?? 120);
@@ -5512,7 +5515,6 @@ function PerformanceView({
             onApplyInput={applyTempoInput}
             onChangeBpm={commitTempoBpm}
             onToggleStopAfter10Sec={(checked) => setState({ tempoStopAfter10Sec: checked })}
-            onClose={() => setTempoPanelOpen(false)}
           />
         </>
       )}
@@ -6054,8 +6056,7 @@ function TempoAdjustmentPanel({
   onInputChange,
   onApplyInput,
   onChangeBpm,
-  onToggleStopAfter10Sec,
-  onClose
+  onToggleStopAfter10Sec
 }: {
   bpm: number | null;
   inputValue: string;
@@ -6065,24 +6066,18 @@ function TempoAdjustmentPanel({
   onApplyInput: () => void;
   onChangeBpm: (bpm: number) => void;
   onToggleStopAfter10Sec: (checked: boolean) => void;
-  onClose: () => void;
 }) {
   const currentBpm = clampTempoBpm(bpm, 120);
   return (
     <div
-      className="stage-tempo-panel fixed z-50 rounded-3xl border border-white/15 bg-black/75 p-2.5 text-slate-100 shadow-2xl backdrop-blur-md"
+      className="stage-tempo-panel fixed z-50 rounded-2xl border border-white/15 bg-black/75 p-2.5 text-center text-slate-100 shadow-2xl backdrop-blur-md"
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <div>
-          <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-400">Tempo BPM</div>
-          <div className="text-lg font-bold">{currentBpm}</div>
-        </div>
-        <button className="rounded-full border border-white/15 px-2 py-1 text-xs hover:bg-white/10" type="button" aria-label="Close Tempo Controls" onClick={onClose}>
-          Close
-        </button>
+      <div className="mb-2 grid gap-0.5">
+        <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-400">Tempo BPM</div>
+        <div className="text-lg font-bold leading-tight">{currentBpm} BPM</div>
       </div>
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center justify-center gap-2">
         <input
           className="stage-tempo-slider"
           aria-label="Tempo Slider"
@@ -6093,10 +6088,10 @@ function TempoAdjustmentPanel({
           value={currentBpm}
           onChange={(event) => onChangeBpm(Number(event.target.value))}
         />
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col items-center gap-1">
           <button className="stage-tempo-step-button" type="button" aria-label="Increase Tempo" onClick={() => onChangeBpm(stepTempoBpm(currentBpm, 1))}>+</button>
           <input
-            className="w-16 rounded-xl border border-white/15 bg-white/10 px-2 py-1.5 text-center text-base font-semibold text-white outline-none focus:border-amber-300"
+            className="h-11 w-14 rounded-xl border border-white/15 bg-white/10 px-1.5 text-center text-base font-semibold text-white outline-none focus:border-amber-300"
             aria-label="Tempo BPM"
             inputMode="numeric"
             value={inputValue}
@@ -6113,14 +6108,14 @@ function TempoAdjustmentPanel({
           <button className="stage-tempo-step-button" type="button" aria-label="Decrease Tempo" onClick={() => onChangeBpm(stepTempoBpm(currentBpm, -1))}>-</button>
         </div>
       </div>
-      <label className="mt-3 flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-2.5 py-2">
+      <label className="mt-2 flex min-h-11 items-center justify-center gap-2 text-sm font-medium text-white">
         <input
           className="h-4 w-4 shrink-0 accent-blue-500 outline outline-1 outline-white/80"
           type="checkbox"
           checked={stopAfter10Sec}
           onChange={(event) => onToggleStopAfter10Sec(event.target.checked)}
         />
-        <span className="text-sm font-medium leading-tight text-white">Stop after 10 sec</span>
+        <span className="leading-tight">Stop after 10 sec</span>
       </label>
       {message && <div className="mt-2 max-w-44 text-xs font-semibold text-amber-100">{message}</div>}
     </div>

@@ -127,22 +127,24 @@ label,
   left: max(3.75rem, calc(env(safe-area-inset-left) + 3.75rem));
   top: 50%;
   transform: translateY(-50%);
-  width: 220px;
+  width: 140px;
 }
 
 .stage-tempo-slider {
   width: 30px;
-  height: 148px;
+  height: 142px;
   accent-color: rgb(252 211 77);
   writing-mode: vertical-lr;
   direction: rtl;
 }
 
 .stage-tempo-step-button {
+  min-height: 44px;
+  min-width: 44px;
   border-radius: 9999px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   background: rgba(255, 255, 255, 0.1);
-  padding: 0.45rem 0.75rem;
+  padding: 0.45rem 0.65rem;
   font-size: 1rem;
   font-weight: 800;
   line-height: 1;
@@ -701,11 +703,11 @@ label,
     top: auto;
     bottom: max(1rem, calc(env(safe-area-inset-bottom) + 1rem));
     transform: translateX(-50%);
-    width: min(12.75rem, calc(100vw - 1.25rem));
+    width: min(8.75rem, calc(100vw - 1.25rem));
   }
 
   .stage-tempo-slider {
-    height: 138px;
+    height: 132px;
   }
 
   .stage-popover {
