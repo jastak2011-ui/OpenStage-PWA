@@ -27,6 +27,12 @@ app.get('/health', (_request, response) => {
   });
 });
 
+app.get('/anthropic-status', (_request, response) => {
+  response.json({
+    configured: Boolean(process.env.ANTHROPIC_API_KEY)
+  });
+});
+
 app.listen(port, () => {
   console.log(`openstage-api listening on port ${port}`);
 });
