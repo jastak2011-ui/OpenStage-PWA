@@ -26,7 +26,7 @@ import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './import
 import { parseWebpageChartText } from './webpageChartImport-test-target.mjs';
 import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
 import { applyStageHarmonyEdit } from './stageHarmonyEdit-test-target.mjs';
-import { clampTempoBpm, nextTempoBeat, normalizeTempoBpm, parseTempoBpmInput, shouldOpenTempoAdjustmentPanel, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './tempo-test-target.mjs';
+import { clampTempoBpm, nextTempoBeat, nextTempoCountdownSeconds, normalizeTempoBpm, parseTempoBpmInput, shouldOpenTempoAdjustmentPanel, shouldShowTempoMeter, shouldToggleTempoOnPointerEnd, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './tempo-test-target.mjs';
 import { appleTvPortraitPrompterSettings, calculateExternalPrompterLayout, normalizeExternalDisplaySettings } from '../services/externalDisplay-test-target.mjs';
 import {
   anchoredChordLineLayout,
@@ -80,6 +80,16 @@ assert.equal(stepTempoBpm(40, -1), 40);
 assert.equal(stepTempoBpm(240, 1), 240);
 assert.equal(shouldOpenTempoAdjustmentPanel(499), false);
 assert.equal(shouldOpenTempoAdjustmentPanel(500), true);
+assert.equal(shouldToggleTempoOnPointerEnd(false), true);
+assert.equal(shouldToggleTempoOnPointerEnd(true), false);
+assert.equal(shouldShowTempoMeter(false, false), false);
+assert.equal(shouldShowTempoMeter(false, true), true);
+assert.equal(shouldShowTempoMeter(true, false), true);
+assert.equal(shouldShowTempoMeter(false, false, true), true);
+assert.equal(nextTempoCountdownSeconds(1000, 1000), 10);
+assert.equal(nextTempoCountdownSeconds(1000, 1550), 10);
+assert.equal(nextTempoCountdownSeconds(1000, 2000), 9);
+assert.equal(nextTempoCountdownSeconds(1000, 11000), 0);
 assert.equal(tempoIntervalMs(120), 500);
 assert.equal(tempoIntervalMs(60), 1000);
 assert.equal(nextTempoBeat(null), 0);

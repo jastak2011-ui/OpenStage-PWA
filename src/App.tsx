@@ -78,7 +78,7 @@ import {
 import { formatDuration, isValidDurationInput, parseDurationInput } from './lib/format';
 import { getStageSwipeDirection } from './lib/stageGestures';
 import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/stageHarmonyEdit';
-import { clampTempoBpm, maxTempoBpm, minTempoBpm, nextTempoBeat, normalizeTempoBpm, parseTempoBpmInput, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './lib/tempo';
+import { clampTempoBpm, maxTempoBpm, minTempoBpm, nextTempoBeat, nextTempoCountdownSeconds, normalizeTempoBpm, parseTempoBpmInput, shouldShowTempoMeter, shouldToggleTempoOnPointerEnd, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './lib/tempo';
 import { createId } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
@@ -5050,6 +5050,7 @@ function PerformanceView({
   const [activeTempoBeat, setActiveTempoBeat] = useState<number | null>(null);
   const [tempoMessage, setTempoMessage] = useState('');
   const [tempoPanelOpen, setTempoPanelOpen] = useState(false);
+  const [tempoCountdownSeconds, setTempoCountdownSeconds] = useState<number | null>(null);
   const [stageTempoBpm, setStageTempoBpm] = useState(() => normalizeTempoBpm(song.bpm) ?? 0);
   const [tempoInput, setTempoInput] = useState(() => {
     const bpm = normalizeTempoBpm(song.bpm);
@@ -5063,6 +5064,8 @@ function PerformanceView({
   const tempoMessageTimerRef = useRef<number | null>(null);
   const tempoLongPressTimerRef = useRef<number | null>(null);
   const tempoLongPressActivatedRef = useRef(false);
+  const tempoAutoStopTimerRef = useRef<number | null>(null);
+  const tempoCountdownTimerRef = useRef<number | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number; target: EventTarget | null } | null>(null);
   const stageTheme = getStageTheme(state.stageTheme);
   const stageBackground = stageTheme.className;
@@ -5115,6 +5118,13 @@ function PerformanceView({
   const toolbarButton = isWarmTheme ? 'border-[#8c6b38] bg-[#2a1d14]/80 text-[#f4ead2] hover:bg-[#3a281b]' : 'border-slate-700 bg-slate-900/80 text-slate-100 hover:bg-slate-800';
   const songBpm = normalizeTempoBpm(song.bpm);
   const activeTempoBpm = normalizeTempoBpm(stageTempoBpm) ?? songBpm;
+  const tempoStopAfter10Sec = Boolean(state.tempoStopAfter10Sec);
+  const tempoMeterVisible = shouldShowTempoMeter(
+    tempoRunning,
+    toolbarVisible || Boolean(activePopover) || speedPopoverOpen || Boolean(selectionAction),
+    tempoPanelOpen,
+    Boolean(tempoMessage)
+  );
 
   const revealMenu = useCallback(() => {
     setToolbarVisible(true);
@@ -5126,11 +5136,23 @@ function PerformanceView({
       tempoIntervalRef.current = null;
     }
   }, []);
+  const clearTempoAutoStopTimers = useCallback(() => {
+    if (tempoAutoStopTimerRef.current !== null) {
+      window.clearTimeout(tempoAutoStopTimerRef.current);
+      tempoAutoStopTimerRef.current = null;
+    }
+    if (tempoCountdownTimerRef.current !== null) {
+      window.clearInterval(tempoCountdownTimerRef.current);
+      tempoCountdownTimerRef.current = null;
+    }
+    setTempoCountdownSeconds(null);
+  }, []);
   const stopTempo = useCallback(() => {
     clearTempoInterval();
+    clearTempoAutoStopTimers();
     setTempoRunning(false);
     setActiveTempoBeat(null);
-  }, [clearTempoInterval]);
+  }, [clearTempoAutoStopTimers, clearTempoInterval]);
   const showTempoMessage = useCallback((message: string) => {
     setTempoMessage(message);
     if (tempoMessageTimerRef.current !== null) window.clearTimeout(tempoMessageTimerRef.current);
@@ -5201,6 +5223,14 @@ function PerformanceView({
     event.preventDefault();
     event.stopPropagation();
     clearTempoLongPressTimer();
+    if (shouldToggleTempoOnPointerEnd(tempoLongPressActivatedRef.current)) toggleTempo();
+    tempoLongPressActivatedRef.current = false;
+  }, [clearTempoLongPressTimer, toggleTempo]);
+  const handleTempoPointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    clearTempoLongPressTimer();
+    tempoLongPressActivatedRef.current = false;
   }, [clearTempoLongPressTimer]);
   const handleTempoContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -5348,6 +5378,22 @@ function PerformanceView({
   }, [activeTempoBpm, clearTempoInterval, tempoRunning]);
 
   useEffect(() => {
+    clearTempoAutoStopTimers();
+    if (!tempoRunning || !tempoStopAfter10Sec) return;
+
+    const startedAtMs = Date.now();
+    setTempoCountdownSeconds(10);
+    tempoCountdownTimerRef.current = window.setInterval(() => {
+      setTempoCountdownSeconds(nextTempoCountdownSeconds(startedAtMs, Date.now()));
+    }, 250);
+    tempoAutoStopTimerRef.current = window.setTimeout(() => {
+      stopTempo();
+    }, 10000);
+
+    return clearTempoAutoStopTimers;
+  }, [clearTempoAutoStopTimers, stopTempo, tempoRunning, tempoStopAfter10Sec]);
+
+  useEffect(() => {
     if (activePopover || speedPopoverOpen || tempoPanelOpen || selectionAction) return;
     const timer = window.setTimeout(() => {
       setToolbarVisible(false);
@@ -5370,10 +5416,11 @@ function PerformanceView({
   useEffect(() => () => {
     clearAutoscrollLongPressTimer();
     clearTempoLongPressTimer();
+    clearTempoAutoStopTimers();
     if (speedPopoverHideTimerRef.current) window.clearTimeout(speedPopoverHideTimerRef.current);
     if (tempoMessageTimerRef.current !== null) window.clearTimeout(tempoMessageTimerRef.current);
     clearTempoInterval();
-  }, [clearAutoscrollLongPressTimer, clearTempoInterval, clearTempoLongPressTimer]);
+  }, [clearAutoscrollLongPressTimer, clearTempoAutoStopTimers, clearTempoInterval, clearTempoLongPressTimer]);
 
   return (
     <main
@@ -5444,10 +5491,12 @@ function PerformanceView({
       <TempoBeatIndicator
         activeBeat={activeTempoBeat}
         message={tempoMessage}
+        visible={tempoMeterVisible}
+        countdownSeconds={tempoRunning && tempoStopAfter10Sec ? tempoCountdownSeconds : null}
         panelOpen={tempoPanelOpen}
         onPointerDown={handleTempoPointerDown}
         onPointerUp={handleTempoPointerEnd}
-        onPointerCancel={handleTempoPointerEnd}
+        onPointerCancel={handleTempoPointerCancel}
         onContextMenu={handleTempoContextMenu}
       />
 
@@ -5458,9 +5507,11 @@ function PerformanceView({
             bpm={activeTempoBpm ?? stageTempoBpm}
             inputValue={tempoInput}
             message={tempoMessage}
+            stopAfter10Sec={tempoStopAfter10Sec}
             onInputChange={setTempoInput}
             onApplyInput={applyTempoInput}
             onChangeBpm={commitTempoBpm}
+            onToggleStopAfter10Sec={(checked) => setState({ tempoStopAfter10Sec: checked })}
             onClose={() => setTempoPanelOpen(false)}
           />
         </>
@@ -5938,6 +5989,8 @@ function StageIconButton({
 function TempoBeatIndicator({
   activeBeat,
   message,
+  visible,
+  countdownSeconds,
   panelOpen,
   onPointerDown,
   onPointerUp,
@@ -5946,13 +5999,14 @@ function TempoBeatIndicator({
 }: {
   activeBeat: number | null;
   message: string;
+  visible: boolean;
+  countdownSeconds: number | null;
   panelOpen: boolean;
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
   onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
-  const visible = activeBeat !== null || Boolean(message) || panelOpen;
   return (
     <div
       className={`stage-tempo-indicator fixed z-40 flex items-center transition-opacity duration-200 ${visible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
@@ -5982,6 +6036,11 @@ function TempoBeatIndicator({
           );
         })}
       </div>
+      {countdownSeconds !== null && (
+        <span className="stage-tempo-countdown ml-2 rounded-full border border-white/15 bg-black/60 px-2 py-1 text-[0.68rem] font-bold text-amber-100 shadow-lg backdrop-blur-md">
+          {countdownSeconds}s
+        </span>
+      )}
       {message && <span className="stage-tempo-message ml-2 rounded-full border border-amber-200/20 bg-black/60 px-3 py-1.5 text-[0.7rem] font-semibold text-amber-100 shadow-lg backdrop-blur-md">{message}</span>}
     </div>
   );
@@ -5991,17 +6050,21 @@ function TempoAdjustmentPanel({
   bpm,
   inputValue,
   message,
+  stopAfter10Sec,
   onInputChange,
   onApplyInput,
   onChangeBpm,
+  onToggleStopAfter10Sec,
   onClose
 }: {
   bpm: number | null;
   inputValue: string;
   message: string;
+  stopAfter10Sec: boolean;
   onInputChange: (value: string) => void;
   onApplyInput: () => void;
   onChangeBpm: (bpm: number) => void;
+  onToggleStopAfter10Sec: (checked: boolean) => void;
   onClose: () => void;
 }) {
   const currentBpm = clampTempoBpm(bpm, 120);
@@ -6049,6 +6112,14 @@ function TempoAdjustmentPanel({
           </button>
         </div>
       </div>
+      <label className="mt-3 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold">
+        <input
+          type="checkbox"
+          checked={stopAfter10Sec}
+          onChange={(event) => onToggleStopAfter10Sec(event.target.checked)}
+        />
+        Stop after 10 sec
+      </label>
       {message && <div className="mt-2 max-w-44 text-xs font-semibold text-amber-100">{message}</div>}
     </div>
   );

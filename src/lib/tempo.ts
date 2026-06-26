@@ -31,6 +31,19 @@ export function shouldOpenTempoAdjustmentPanel(pressDurationMs: number, threshol
   return pressDurationMs >= thresholdMs;
 }
 
+export function shouldShowTempoMeter(isRunning: boolean, controlsVisible: boolean, panelOpen = false, hasMessage = false) {
+  return isRunning || controlsVisible || panelOpen || hasMessage;
+}
+
+export function shouldToggleTempoOnPointerEnd(longPressActivated: boolean) {
+  return !longPressActivated;
+}
+
+export function nextTempoCountdownSeconds(startedAtMs: number, nowMs: number, durationMs = 10000) {
+  const remainingMs = Math.max(0, durationMs - (nowMs - startedAtMs));
+  return Math.ceil(remainingMs / 1000);
+}
+
 export function tempoIntervalMs(bpm: number) {
   return (60 / bpm) * 1000;
 }

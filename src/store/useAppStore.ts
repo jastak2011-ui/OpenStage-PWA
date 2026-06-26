@@ -326,6 +326,17 @@ export const defaultPerformanceState: PerformanceState = {
   activeProfile: 'desktop',
   stageTheme: 'standard-dark',
   showAutoscrollDebug: false,
+  tempoStopAfter10Sec: false,
+  tempoStopAfter10SecByProfile: {
+    desktop: false,
+    'ipad-portrait': false,
+    'ipad-landscape': false,
+    iphone: false,
+    'prompter-display': false,
+    'stage-device': false,
+    tablet: false,
+    'portrait-prompter': false
+  },
   castReceiverEnabled: false,
   castReceiverLastSync: '',
   externalDisplay: {
@@ -408,6 +419,7 @@ export const useAppStore = create<AppStore>()(
           const currentItalicChords = state.performance.italicChordsByProfile ?? {};
           const currentShowChords = state.performance.showChordsByProfile ?? {};
           const currentAutoscrollSpeeds = state.performance.autoscrollSpeedsByProfile ?? {};
+          const currentTempoStopAfter10Sec = state.performance.tempoStopAfter10SecByProfile ?? {};
           const nextFontSize =
             next.fontSize ??
             currentLyricSizes[activeProfile] ??
@@ -583,6 +595,11 @@ export const useAppStore = create<AppStore>()(
             currentAutoscrollSpeeds[activeProfile] ??
             state.performance.autoscrollSpeed ??
             defaultPerformanceState.autoscrollSpeed;
+          const nextTempoStopAfter10Sec =
+            next.tempoStopAfter10Sec ??
+            currentTempoStopAfter10Sec[activeProfile] ??
+            state.performance.tempoStopAfter10Sec ??
+            defaultPerformanceState.tempoStopAfter10Sec;
           return {
             performance: {
               ...state.performance,
@@ -797,6 +814,12 @@ export const useAppStore = create<AppStore>()(
                 ...currentAutoscrollSpeeds,
                 ...(next.autoscrollSpeedsByProfile ?? {}),
                 [activeProfile]: nextAutoscrollSpeed
+              },
+              tempoStopAfter10Sec: nextTempoStopAfter10Sec,
+              tempoStopAfter10SecByProfile: {
+                ...currentTempoStopAfter10Sec,
+                ...(next.tempoStopAfter10SecByProfile ?? {}),
+                [activeProfile]: nextTempoStopAfter10Sec
               },
               pedalMappings: {
                 ...state.performance.pedalMappings,
