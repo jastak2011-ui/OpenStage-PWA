@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>OpenStage API Test</title>
+    <title>OpenStage API Diagnostics</title>
     <style>
       :root {
-        color-scheme: light dark;
+        color-scheme: dark;
         font-family: Arial, Helvetica, sans-serif;
       }
 
@@ -19,9 +19,13 @@
 
       main {
         box-sizing: border-box;
-        width: min(900px, 100%);
+        width: min(1040px, 100%);
         margin: 0 auto;
         padding: 32px 18px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
       }
 
       label {
@@ -30,6 +34,8 @@
         font-weight: 700;
       }
 
+      input,
+      select,
       textarea,
       pre {
         box-sizing: border-box;
@@ -41,6 +47,12 @@
         font: 16px/1.45 Consolas, "Courier New", monospace;
       }
 
+      input,
+      select {
+        height: 44px;
+        padding: 0 12px;
+      }
+
       textarea {
         min-height: 120px;
         padding: 12px;
@@ -48,7 +60,6 @@
       }
 
       button {
-        margin: 16px 0;
         border: 0;
         border-radius: 8px;
         background: #0f766e;
@@ -59,13 +70,18 @@
         padding: 12px 16px;
       }
 
+      button.secondary {
+        border: 1px solid #3b4253;
+        background: #1d2430;
+      }
+
       button:disabled {
         cursor: wait;
         opacity: 0.65;
       }
 
       pre {
-        min-height: 260px;
+        min-height: 180px;
         overflow: auto;
         padding: 14px;
         white-space: pre-wrap;
@@ -74,77 +90,264 @@
       .hint {
         color: #aab4c5;
         font-size: 14px;
-        margin-bottom: 18px;
+        margin: 0 0 18px;
+      }
+
+      .panel {
+        border: 1px solid #2a3242;
+        border-radius: 12px;
+        background: #121722;
+        margin-top: 18px;
+        padding: 18px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .field {
+        margin-bottom: 14px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .status-line {
+        color: #aab4c5;
+        font-size: 14px;
+        margin-top: 8px;
+        min-height: 20px;
+      }
+
+      @media (max-width: 700px) {
+        main {
+          padding: 22px 12px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>OpenStage API Test</h1>
-      <p class="hint">Temporary test page. This is not part of the OpenStage app navigation.</p>
+      <h1>OpenStage API Diagnostics</h1>
+      <p class="hint">Developer/testing page only. This is not part of the normal OpenStage navigation.</p>
 
-      <label for="prompt">Prompt</label>
-      <textarea id="prompt">Say hello from OpenStage</textarea>
+      <section class="panel">
+        <div class="field">
+          <label for="endpoint">Endpoint</label>
+          <select id="endpoint">
+            <option value="test-anthropic">Test Anthropic</option>
+            <option value="ai-import-song">AI Import Song</option>
+          </select>
+        </div>
 
-      <button id="send" type="button">Send to Anthropic</button>
+        <div id="test-anthropic-fields">
+          <label for="prompt">Prompt</label>
+          <textarea id="prompt">Say hello from OpenStage</textarea>
+        </div>
 
-      <label for="response">Response</label>
-      <pre id="response">Waiting...</pre>
+        <div id="ai-import-song-fields" hidden>
+          <div class="grid">
+            <div class="field">
+              <label for="song-title">Song Title</label>
+              <input id="song-title" value="Alison">
+            </div>
+            <div class="field">
+              <label for="artist">Artist</label>
+              <input id="artist" value="Elvis Costello">
+            </div>
+            <div class="field">
+              <label for="key">Key <span class="hint">optional</span></label>
+              <input id="key" value="E">
+            </div>
+            <div class="field">
+              <label for="capo">Capo <span class="hint">optional</span></label>
+              <input id="capo" type="number" min="0" max="12" step="1" value="0">
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="send" type="button">Send Request</button>
+          <button id="copy-response" class="secondary" type="button">Copy Response</button>
+        </div>
+        <div id="status" class="status-line"></div>
+      </section>
+
+      <section class="panel">
+        <label for="request-url">Request URL</label>
+        <pre id="request-url">Waiting...</pre>
+
+        <label for="request-json">Request JSON</label>
+        <pre id="request-json">Waiting...</pre>
+
+        <label for="http-status">HTTP Status</label>
+        <pre id="http-status">Waiting...</pre>
+
+        <label for="response-json">Response JSON</label>
+        <pre id="response-json">Waiting...</pre>
+      </section>
     </main>
 
     <script>
-      const apiUrl = 'https://openstage-api.onrender.com/api/test-anthropic';
-      const promptBox = document.getElementById('prompt');
-      const sendButton = document.getElementById('send');
-      const responseBox = document.getElementById('response');
+      const backendBaseUrl = 'https://openstage-api.onrender.com';
+      const endpoints = {
+        'test-anthropic': '/api/test-anthropic',
+        'ai-import-song': '/api/ai-import-song'
+      };
 
-      sendButton.addEventListener('click', async () => {
-        sendButton.disabled = true;
-        responseBox.textContent = 'Sending...';
+      const endpointSelect = document.getElementById('endpoint');
+      const testAnthropicFields = document.getElementById('test-anthropic-fields');
+      const aiImportFields = document.getElementById('ai-import-song-fields');
+      const promptBox = document.getElementById('prompt');
+      const songTitleInput = document.getElementById('song-title');
+      const artistInput = document.getElementById('artist');
+      const keyInput = document.getElementById('key');
+      const capoInput = document.getElementById('capo');
+      const sendButton = document.getElementById('send');
+      const copyButton = document.getElementById('copy-response');
+      const statusBox = document.getElementById('status');
+      const requestUrlBox = document.getElementById('request-url');
+      const requestJsonBox = document.getElementById('request-json');
+      const httpStatusBox = document.getElementById('http-status');
+      const responseJsonBox = document.getElementById('response-json');
+
+      function pretty(value) {
+        return JSON.stringify(value, null, 2);
+      }
+
+      function buildRequest() {
+        const selected = endpointSelect.value;
+        const path = endpoints[selected];
+        const url = `${backendBaseUrl}${path}`;
+
+        if (selected === 'ai-import-song') {
+          const capoValue = capoInput.value === '' ? undefined : Number(capoInput.value);
+          return {
+            url,
+            body: {
+              title: songTitleInput.value,
+              artist: artistInput.value,
+              key: keyInput.value,
+              ...(capoValue === undefined ? {} : { capo: capoValue })
+            }
+          };
+        }
+
+        return {
+          url,
+          body: {
+            prompt: promptBox.value
+          }
+        };
+      }
+
+      function updateVisibleFields() {
+        const isImport = endpointSelect.value === 'ai-import-song';
+        testAnthropicFields.hidden = isImport;
+        aiImportFields.hidden = !isImport;
+        const request = buildRequest();
+        requestUrlBox.textContent = request.url;
+        requestJsonBox.textContent = pretty(request.body);
+        httpStatusBox.textContent = 'Waiting...';
+        responseJsonBox.textContent = 'Waiting...';
+        statusBox.textContent = '';
+      }
+
+      async function parseResponse(response) {
+        const text = await response.text();
+        if (!text) return null;
 
         try {
-          const response = await fetch(apiUrl, {
+          return JSON.parse(text);
+        } catch {
+          return {
+            parseError: 'Invalid JSON returned by backend.',
+            raw: text
+          };
+        }
+      }
+
+      sendButton.addEventListener('click', async () => {
+        const request = buildRequest();
+        sendButton.disabled = true;
+        statusBox.textContent = 'Sending request...';
+        requestUrlBox.textContent = request.url;
+        requestJsonBox.textContent = pretty(request.body);
+        httpStatusBox.textContent = 'Pending...';
+        responseJsonBox.textContent = 'Pending...';
+
+        try {
+          const response = await fetch(request.url, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-              prompt: promptBox.value
-            })
+            body: JSON.stringify(request.body)
           });
-          const text = await response.text();
-          let body;
-
-          try {
-            body = JSON.parse(text);
-          } catch {
-            body = text;
-          }
-
+          const body = await parseResponse(response);
           const result = {
+            ok: response.ok,
             status: response.status,
             statusText: response.statusText,
-            ok: response.ok,
             body
           };
 
           if (!response.ok) {
-            result.error = typeof body === 'object' && body && 'error' in body
+            result.error = body && typeof body === 'object' && 'error' in body
               ? body.error
-              : 'Backend returned an error response.';
+              : 'Backend returned a non-200 response.';
           }
 
-          responseBox.textContent = JSON.stringify(result, null, 2);
+          if (body && typeof body === 'object' && body.ok === false && body.error) {
+            result.backendError = body.error;
+          }
+
+          httpStatusBox.textContent = `${response.status} ${response.statusText || ''}`.trim();
+          responseJsonBox.textContent = pretty(result);
+          statusBox.textContent = response.ok ? 'Request completed.' : 'Backend returned an error response.';
         } catch (error) {
-          responseBox.textContent = JSON.stringify({
+          const result = {
             ok: false,
-            status: null,
+            errorType: 'network_error',
             error: error instanceof Error ? error.message : String(error)
-          }, null, 2);
+          };
+          httpStatusBox.textContent = 'Network error';
+          responseJsonBox.textContent = pretty(result);
+          statusBox.textContent = 'Network error. Check backend URL, deployment, or CORS.';
         } finally {
           sendButton.disabled = false;
         }
       });
+
+      copyButton.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(responseJsonBox.textContent);
+          statusBox.textContent = 'Response copied.';
+        } catch {
+          statusBox.textContent = 'Copy failed. Select the response text manually.';
+        }
+      });
+
+      endpointSelect.addEventListener('change', updateVisibleFields);
+      [promptBox, songTitleInput, artistInput, keyInput, capoInput].forEach((input) => {
+        input.addEventListener('input', () => {
+          const request = buildRequest();
+          requestUrlBox.textContent = request.url;
+          requestJsonBox.textContent = pretty(request.body);
+        });
+      });
+
+      updateVisibleFields();
     </script>
   </body>
 </html>
