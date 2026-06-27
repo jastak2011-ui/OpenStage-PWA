@@ -25,6 +25,7 @@ import { createId } from './ids-test-target.mjs';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './importExport-test-target.mjs';
 import { parseWebpageChartText } from './webpageChartImport-test-target.mjs';
 import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
+import { findSharedSongDuplicate } from './sharedSongImport-test-target.mjs';
 import { applyStageHarmonyEdit } from './stageHarmonyEdit-test-target.mjs';
 import { clampTempoBpm, nextTempoBeat, nextTempoCountdownSeconds, normalizeTempoBpm, parseTempoBpmInput, shouldOpenTempoAdjustmentPanel, shouldShowTempoMeter, shouldToggleTempoOnPointerEnd, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './tempo-test-target.mjs';
 import { appleTvPortraitPrompterSettings, calculateExternalPrompterLayout, normalizeExternalDisplaySettings } from '../services/externalDisplay-test-target.mjs';
@@ -145,6 +146,49 @@ assert.equal(webpageInline.song.title, 'Take On Me');
 assert.equal(webpageInline.song.artist, 'A-ha');
 assert.equal(webpageInline.song.displayPreference, 'inline');
 assert.equal(webpageInline.cleanedText, '[G]Talking away');
+
+const sharedSongImportedOnce = {
+  id: 'local-shared-song',
+  songUuid: 'shared-song-uuid',
+  version: 2,
+  importedFromShareId: 'abc123',
+  sourceShareId: 'abc123',
+  title: 'Shared Tune',
+  artist: 'OpenStage',
+  key: 'G',
+  capo: 0,
+  bpm: 100,
+  timeSignature: '4/4',
+  tags: [],
+  notes: '',
+  chart: 'Intro:\nC G Am F',
+  favorite: false,
+  updatedAt: '2026-01-01T00:00:00.000Z'
+};
+const sameSharedLinkIncoming = {
+  ...sharedSongImportedOnce,
+  id: 'incoming-shared-song',
+  importedAt: '2026-01-02T00:00:00.000Z',
+  sharedSource: 'OpenStage Share'
+};
+const sameSharedLinkDuplicate = findSharedSongDuplicate([sharedSongImportedOnce], sameSharedLinkIncoming);
+assert.equal(sameSharedLinkDuplicate?.matchType, 'shareId');
+assert.equal(sameSharedLinkDuplicate?.existing.id, 'local-shared-song');
+
+const sharedSongWithoutShareMetadata = {
+  ...sameSharedLinkIncoming,
+  importedFromShareId: '',
+  sourceShareId: ''
+};
+const sharedSongUuidDuplicate = findSharedSongDuplicate([sharedSongImportedOnce], sharedSongWithoutShareMetadata);
+assert.equal(sharedSongUuidDuplicate?.matchType, 'songUuid');
+
+const sharedSongTitleArtistFallback = findSharedSongDuplicate(
+  [{ ...sharedSongImportedOnce, songUuid: '', importedFromShareId: '', sourceShareId: '' }],
+  { ...sameSharedLinkIncoming, songUuid: '', importedFromShareId: '', sourceShareId: '' }
+);
+assert.equal(sharedSongTitleArtistFallback?.matchType, 'title-artist');
+
 const harmonyText = parseHarmonyText('Take it [HARMONY]easy[/HARMONY]');
 assert.equal(harmonyText.text, 'Take it easy');
 assert.deepEqual(harmonyText.ranges, [{ start: 8, end: 12 }]);

@@ -79,6 +79,7 @@ import {
 } from './lib/autoscrollButton';
 import { formatDuration, isValidDurationInput, parseDurationInput } from './lib/format';
 import { getStageSwipeDirection } from './lib/stageGestures';
+import { findSharedSongDuplicate, sharedDuplicateHasSameSongUuid, type SharedSongDuplicate } from './lib/sharedSongImport';
 import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/stageHarmonyEdit';
 import { clampTempoBpm, maxTempoBpm, minTempoBpm, nextTempoBeat, nextTempoCountdownSeconds, normalizeTempoBpm, parseTempoBpmInput, shouldShowTempoMeter, shouldToggleTempoOnPointerEnd, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './lib/tempo';
 import { createId, createSongUuid } from './lib/ids';
@@ -561,12 +562,6 @@ type SharedSongImportState =
   | { status: 'ready'; song: Song; error: '' }
   | { status: 'error'; song: null; error: string };
 
-type SharedSongDuplicate = {
-  existing: Song;
-  incoming: Song;
-  matchType: 'songUuid' | 'title-artist';
-};
-
 type SongVersionComparison = 'incoming-newer' | 'same-version' | 'local-newer';
 
 function buildPublishSongPayload(song: Song) {
@@ -631,34 +626,6 @@ function getSharedImportIdFromPath() {
   if (typeof window === 'undefined') return '';
   const match = window.location.pathname.match(/^\/import-song\/([^/?#]+)/);
   return match ? decodeURIComponent(match[1]) : '';
-}
-
-function normalizeDuplicateText(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function findSharedSongDuplicate(songs: Song[], incoming: Song): SharedSongDuplicate | null {
-  const incomingSongUuid = incoming.songUuid?.trim();
-  if (incomingSongUuid) {
-    const songUuidMatch = songs.find((song) => song.songUuid?.trim() === incomingSongUuid);
-    if (songUuidMatch) return { existing: songUuidMatch, incoming, matchType: 'songUuid' };
-    return null;
-  }
-
-  const incomingTitle = normalizeDuplicateText(incoming.title);
-  const incomingArtist = normalizeDuplicateText(incoming.artist);
-  if (!incomingTitle || !incomingArtist) return null;
-
-  const titleArtistMatch = songs.find((song) =>
-    normalizeDuplicateText(song.title) === incomingTitle &&
-    normalizeDuplicateText(song.artist) === incomingArtist
-  );
-
-  return titleArtistMatch ? { existing: titleArtistMatch, incoming, matchType: 'title-artist' } : null;
 }
 
 function songFromSharedSong(shared: Partial<Song>, shareId: string): Song {
@@ -1225,11 +1192,16 @@ export default function App() {
   }
 
   async function importSharedSongAsCopy(song: Song) {
+    const sourceShareId = song.importedFromShareId || song.sourceShareId;
     const nextSong = {
       ...song,
       id: createId('song'),
       songUuid: createSongUuid(),
       version: 1,
+      importedFromShareId: undefined,
+      sourceShareId: undefined,
+      copiedFromShareId: sourceShareId,
+      sharedSource: sourceShareId ? 'OpenStage Share Copy' : song.sharedSource,
       title: songs.some((existing) => existing.title === song.title && existing.artist === song.artist)
         ? `${song.title} Copy`
         : song.title,
@@ -2663,7 +2635,7 @@ function SharedSongImportView({
             {duplicate && (
               <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-sm">
                 <section className="w-full max-w-lg rounded-xl border border-slate-300 bg-white p-5 shadow-2xl">
-                  {duplicate.matchType === 'songUuid' ? (
+                  {sharedDuplicateHasSameSongUuid(duplicate) ? (
                     <VersionAwareSharedSongDialog
                       duplicate={duplicate}
                       importing={importing}
@@ -2888,7 +2860,9 @@ function GenericSharedSongDuplicateDialog({
           <div className="font-semibold text-slate-950">{duplicate.incoming.title}</div>
           <div className="text-slate-600">{duplicate.incoming.artist || 'Unknown artist'}</div>
         </div>
-        <div className="text-xs text-slate-500">Match: matching title and artist</div>
+        <div className="text-xs text-slate-500">
+          Match: {duplicate.matchType === 'shareId' ? 'same shared song link' : 'matching title and artist'}
+        </div>
       </div>
       <div className="mt-5 grid gap-2 sm:grid-cols-2">
         <button className="primary-button" type="button" disabled={importing} onClick={onKeepCurrent}>
