@@ -146,7 +146,7 @@
           <label for="endpoint">Endpoint</label>
           <select id="endpoint">
             <option value="test-anthropic">Test Anthropic</option>
-            <option value="ai-import-song">AI Import Song</option>
+            <option value="share-song">Share Song</option>
           </select>
         </div>
 
@@ -155,25 +155,15 @@
           <textarea id="prompt">Say hello from OpenStage</textarea>
         </div>
 
-        <div id="ai-import-song-fields" hidden>
-          <div class="grid">
-            <div class="field">
-              <label for="song-title">Song Title</label>
-              <input id="song-title" value="Alison">
-            </div>
-            <div class="field">
-              <label for="artist">Artist</label>
-              <input id="artist" value="Elvis Costello">
-            </div>
-            <div class="field">
-              <label for="key">Key <span class="hint">optional</span></label>
-              <input id="key" value="E">
-            </div>
-            <div class="field">
-              <label for="capo">Capo <span class="hint">optional</span></label>
-              <input id="capo" type="number" min="0" max="12" step="1" value="0">
-            </div>
-          </div>
+        <div id="share-song-fields" hidden>
+          <label for="share-json">Share Song Request JSON</label>
+          <textarea id="share-json">{
+  "song": {
+    "title": "Test Song",
+    "artist": "OpenStage",
+    "chart": "Intro:\nC G Am F"
+  }
+}</textarea>
         </div>
 
         <div class="actions">
@@ -202,17 +192,14 @@
       const backendBaseUrl = 'https://openstage-api.onrender.com';
       const endpoints = {
         'test-anthropic': '/api/test-anthropic',
-        'ai-import-song': '/api/ai-import-song'
+        'share-song': '/api/share-song'
       };
 
       const endpointSelect = document.getElementById('endpoint');
       const testAnthropicFields = document.getElementById('test-anthropic-fields');
-      const aiImportFields = document.getElementById('ai-import-song-fields');
+      const shareSongFields = document.getElementById('share-song-fields');
       const promptBox = document.getElementById('prompt');
-      const songTitleInput = document.getElementById('song-title');
-      const artistInput = document.getElementById('artist');
-      const keyInput = document.getElementById('key');
-      const capoInput = document.getElementById('capo');
+      const shareJsonBox = document.getElementById('share-json');
       const sendButton = document.getElementById('send');
       const copyButton = document.getElementById('copy-response');
       const statusBox = document.getElementById('status');
@@ -230,21 +217,27 @@
         const path = endpoints[selected];
         const url = `${backendBaseUrl}${path}`;
 
-        if (selected === 'ai-import-song') {
-          const capoValue = capoInput.value === '' ? undefined : Number(capoInput.value);
+        if (selected === 'share-song') {
+          let body;
+          try {
+            body = JSON.parse(shareJsonBox.value);
+          } catch {
+            body = {
+              error: 'Invalid JSON in Share Song request editor.'
+            };
+          }
+
           return {
             url,
-            body: {
-              title: songTitleInput.value,
-              artist: artistInput.value,
-              key: keyInput.value,
-              ...(capoValue === undefined ? {} : { capo: capoValue })
-            }
+            displayUrl: `POST ${url}`,
+            body,
+            rawBody: shareJsonBox.value
           };
         }
 
         return {
           url,
+          displayUrl: `POST ${url}`,
           body: {
             prompt: promptBox.value
           }
@@ -252,11 +245,11 @@
       }
 
       function updateVisibleFields() {
-        const isImport = endpointSelect.value === 'ai-import-song';
-        testAnthropicFields.hidden = isImport;
-        aiImportFields.hidden = !isImport;
+        const isShareSong = endpointSelect.value === 'share-song';
+        testAnthropicFields.hidden = isShareSong;
+        shareSongFields.hidden = !isShareSong;
         const request = buildRequest();
-        requestUrlBox.textContent = request.url;
+        requestUrlBox.textContent = request.displayUrl;
         requestJsonBox.textContent = pretty(request.body);
         httpStatusBox.textContent = 'Waiting...';
         responseJsonBox.textContent = 'Waiting...';
@@ -279,9 +272,22 @@
 
       sendButton.addEventListener('click', async () => {
         const request = buildRequest();
+
+        if (request.body && request.body.error === 'Invalid JSON in Share Song request editor.') {
+          requestUrlBox.textContent = request.displayUrl;
+          requestJsonBox.textContent = request.body.error;
+          httpStatusBox.textContent = 'Not sent';
+          responseJsonBox.textContent = pretty({
+            ok: false,
+            error: request.body.error
+          });
+          statusBox.textContent = 'Fix the Share Song JSON before sending.';
+          return;
+        }
+
         sendButton.disabled = true;
         statusBox.textContent = 'Sending request...';
-        requestUrlBox.textContent = request.url;
+        requestUrlBox.textContent = request.displayUrl;
         requestJsonBox.textContent = pretty(request.body);
         httpStatusBox.textContent = 'Pending...';
         responseJsonBox.textContent = 'Pending...';
@@ -292,7 +298,7 @@
             headers: {
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify(request.body)
+            body: request.rawBody || JSON.stringify(request.body)
           });
           const body = await parseResponse(response);
           const result = {
@@ -339,10 +345,10 @@
       });
 
       endpointSelect.addEventListener('change', updateVisibleFields);
-      [promptBox, songTitleInput, artistInput, keyInput, capoInput].forEach((input) => {
+      [promptBox, shareJsonBox].forEach((input) => {
         input.addEventListener('input', () => {
           const request = buildRequest();
-          requestUrlBox.textContent = request.url;
+          requestUrlBox.textContent = request.displayUrl;
           requestJsonBox.textContent = pretty(request.body);
         });
       });
