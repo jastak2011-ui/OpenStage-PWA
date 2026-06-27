@@ -567,6 +567,8 @@ type SharedSongDuplicate = {
   matchType: 'songUuid' | 'title-artist';
 };
 
+type SongVersionComparison = 'incoming-newer' | 'same-version' | 'local-newer';
+
 function buildPublishSongPayload(song: Song) {
   return {
     songUuid: song.songUuid || createSongUuid(),
@@ -2569,6 +2571,7 @@ function SharedSongImportView({
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState('');
   const [duplicate, setDuplicate] = useState<SharedSongDuplicate | null>(null);
+  const [comparisonDuplicate, setComparisonDuplicate] = useState<SharedSongDuplicate | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2660,38 +2663,37 @@ function SharedSongImportView({
             {duplicate && (
               <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-sm">
                 <section className="w-full max-w-lg rounded-xl border border-slate-300 bg-white p-5 shadow-2xl">
-                  <h2 className="text-xl font-semibold text-slate-950">This song already exists in your library.</h2>
-                  <div className="mt-4 grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Existing song</div>
-                      <div className="font-semibold text-slate-950">{duplicate.existing.title}</div>
-                      <div className="text-slate-600">{duplicate.existing.artist || 'Unknown artist'}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Shared song</div>
-                      <div className="font-semibold text-slate-950">{duplicate.incoming.title}</div>
-                      <div className="text-slate-600">{duplicate.incoming.artist || 'Unknown artist'}</div>
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      Match: {duplicate.matchType === 'songUuid' ? 'same song UUID' : 'matching title and artist'}
-                    </div>
-                  </div>
-                  <div className="mt-5 grid gap-2 sm:grid-cols-2">
-                    <button className="primary-button" type="button" disabled={importing} onClick={() => onKeepExisting(duplicate.existing)}>
-                      Keep Current
-                    </button>
-                    <button className="secondary-button" type="button" disabled={importing} onClick={() => void replaceExisting()}>
-                      Replace Existing
-                    </button>
-                    <button className="secondary-button" type="button" disabled={importing} onClick={() => { setDuplicate(null); void importCopy(); }}>
-                      Import as Copy
-                    </button>
-                    <button className="secondary-button" type="button" disabled={importing} onClick={() => setDuplicate(null)}>
-                      Cancel
-                    </button>
-                  </div>
+                  {duplicate.matchType === 'songUuid' ? (
+                    <VersionAwareSharedSongDialog
+                      duplicate={duplicate}
+                      importing={importing}
+                      onUpdateMine={() => void replaceExisting()}
+                      onCompareVersions={() => setComparisonDuplicate(duplicate)}
+                      onKeepCurrent={() => onKeepExisting(duplicate.existing)}
+                      onImportCopy={() => { setDuplicate(null); void importCopy(); }}
+                      onCancel={() => setDuplicate(null)}
+                    />
+                  ) : (
+                    <GenericSharedSongDuplicateDialog
+                      duplicate={duplicate}
+                      importing={importing}
+                      onKeepCurrent={() => onKeepExisting(duplicate.existing)}
+                      onReplaceExisting={() => void replaceExisting()}
+                      onImportCopy={() => { setDuplicate(null); void importCopy(); }}
+                      onCancel={() => setDuplicate(null)}
+                    />
+                  )}
                 </section>
               </div>
+            )}
+
+            {comparisonDuplicate && (
+              <SharedSongComparisonScreen
+                duplicate={comparisonDuplicate}
+                onClose={() => setComparisonDuplicate(null)}
+                onUpdateMine={() => void replaceExisting()}
+                importing={importing}
+              />
             )}
 
             <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
@@ -2744,6 +2746,235 @@ function SharedSongImportView({
         )}
       </section>
     </main>
+  );
+}
+
+function VersionAwareSharedSongDialog({
+  duplicate,
+  importing,
+  onUpdateMine,
+  onCompareVersions,
+  onKeepCurrent,
+  onImportCopy,
+  onCancel
+}: {
+  duplicate: SharedSongDuplicate;
+  importing: boolean;
+  onUpdateMine: () => void;
+  onCompareVersions: () => void;
+  onKeepCurrent: () => void;
+  onImportCopy: () => void;
+  onCancel: () => void;
+}) {
+  const comparison = compareSongVersions(duplicate.existing, duplicate.incoming);
+  const localVersion = normalizeSongVersion(duplicate.existing.version);
+  const incomingVersion = normalizeSongVersion(duplicate.incoming.version);
+
+  if (comparison === 'incoming-newer') {
+    return (
+      <>
+        <h2 className="text-xl font-semibold text-slate-950">Update Available</h2>
+        <div className="mt-4 grid gap-2 rounded-md border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950">
+          <div className="text-lg font-semibold">{duplicate.incoming.title}</div>
+          <div>Your Version: {localVersion}</div>
+          <div>Incoming Version: {incomingVersion}</div>
+          <p>A newer version of this song is available.</p>
+        </div>
+        <div className="mt-5 grid gap-2 sm:grid-cols-2">
+          <button className="primary-button" type="button" disabled={importing} onClick={onUpdateMine}>
+            Update Mine
+          </button>
+          <button className="secondary-button" type="button" disabled={importing} onClick={onCompareVersions}>
+            Compare Versions
+          </button>
+          <button className="secondary-button" type="button" disabled={importing} onClick={onKeepCurrent}>
+            Keep Current
+          </button>
+          <button className="secondary-button" type="button" disabled={importing} onClick={onImportCopy}>
+            Import as Copy
+          </button>
+          <button className="secondary-button sm:col-span-2" type="button" disabled={importing} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  if (comparison === 'same-version') {
+    return (
+      <>
+        <h2 className="text-xl font-semibold text-slate-950">You already have this version.</h2>
+        <SharedSongVersionSummary duplicate={duplicate} />
+        <div className="mt-5 grid gap-2 sm:grid-cols-3">
+          <button className="primary-button" type="button" disabled={importing} onClick={onKeepCurrent}>
+            Open Existing
+          </button>
+          <button className="secondary-button" type="button" disabled={importing} onClick={onImportCopy}>
+            Import as Copy
+          </button>
+          <button className="secondary-button" type="button" disabled={importing} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <h2 className="text-xl font-semibold text-slate-950">Your copy is newer than the shared version.</h2>
+      <SharedSongVersionSummary duplicate={duplicate} />
+      <div className="mt-5 grid gap-2 sm:grid-cols-3">
+        <button className="primary-button" type="button" disabled={importing} onClick={onKeepCurrent}>
+          Keep Mine
+        </button>
+        <button className="secondary-button" type="button" disabled={importing} onClick={onImportCopy}>
+          Import as Copy
+        </button>
+        <button className="secondary-button" type="button" disabled={importing} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </>
+  );
+}
+
+function SharedSongVersionSummary({ duplicate }: { duplicate: SharedSongDuplicate }) {
+  return (
+    <div className="mt-4 grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Current song</div>
+        <div className="font-semibold text-slate-950">{duplicate.existing.title}</div>
+        <div className="text-slate-600">{duplicate.existing.artist || 'Unknown artist'}</div>
+        <div className="mt-1 text-xs text-slate-500">Version {normalizeSongVersion(duplicate.existing.version)}</div>
+      </div>
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Incoming song</div>
+        <div className="font-semibold text-slate-950">{duplicate.incoming.title}</div>
+        <div className="text-slate-600">{duplicate.incoming.artist || 'Unknown artist'}</div>
+        <div className="mt-1 text-xs text-slate-500">Version {normalizeSongVersion(duplicate.incoming.version)}</div>
+      </div>
+    </div>
+  );
+}
+
+function GenericSharedSongDuplicateDialog({
+  duplicate,
+  importing,
+  onKeepCurrent,
+  onReplaceExisting,
+  onImportCopy,
+  onCancel
+}: {
+  duplicate: SharedSongDuplicate;
+  importing: boolean;
+  onKeepCurrent: () => void;
+  onReplaceExisting: () => void;
+  onImportCopy: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <>
+      <h2 className="text-xl font-semibold text-slate-950">This song already exists in your library.</h2>
+      <div className="mt-4 grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Existing song</div>
+          <div className="font-semibold text-slate-950">{duplicate.existing.title}</div>
+          <div className="text-slate-600">{duplicate.existing.artist || 'Unknown artist'}</div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Shared song</div>
+          <div className="font-semibold text-slate-950">{duplicate.incoming.title}</div>
+          <div className="text-slate-600">{duplicate.incoming.artist || 'Unknown artist'}</div>
+        </div>
+        <div className="text-xs text-slate-500">Match: matching title and artist</div>
+      </div>
+      <div className="mt-5 grid gap-2 sm:grid-cols-2">
+        <button className="primary-button" type="button" disabled={importing} onClick={onKeepCurrent}>
+          Keep Current
+        </button>
+        <button className="secondary-button" type="button" disabled={importing} onClick={onReplaceExisting}>
+          Replace Existing
+        </button>
+        <button className="secondary-button" type="button" disabled={importing} onClick={onImportCopy}>
+          Import as Copy
+        </button>
+        <button className="secondary-button" type="button" disabled={importing} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </>
+  );
+}
+
+function SharedSongComparisonScreen({
+  duplicate,
+  onClose,
+  onUpdateMine,
+  importing
+}: {
+  duplicate: SharedSongDuplicate;
+  onClose: () => void;
+  onUpdateMine: () => void;
+  importing: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-[90] overflow-auto bg-slate-100 px-4 py-6 text-slate-950 sm:px-6">
+      <section className="mx-auto grid max-w-6xl gap-4 rounded-xl border border-slate-300 bg-white p-5 shadow-2xl">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-normal text-teal-700">Compare Versions</p>
+            <h2 className="mt-1 text-2xl font-semibold">{duplicate.incoming.title}</h2>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button className="secondary-button" type="button" onClick={onClose}>
+              Back
+            </button>
+            <button className="primary-button" type="button" disabled={importing} onClick={onUpdateMine}>
+              Update Mine
+            </button>
+          </div>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <SongVersionPanel label="Current song" song={duplicate.existing} />
+          <SongVersionPanel label="Incoming song" song={duplicate.incoming} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SongVersionPanel({ label, song }: { label: string; song: Song }) {
+  return (
+    <section className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">{label}</div>
+        <div className="mt-1 text-lg font-semibold text-slate-950">Version {normalizeSongVersion(song.version)}</div>
+      </div>
+      <SongCompareField label="Title" value={song.title} />
+      <SongCompareField label="Artist" value={song.artist || 'Unknown artist'} />
+      <div className="grid grid-cols-3 gap-2">
+        <SongCompareField label="Key" value={song.key || '-'} />
+        <SongCompareField label="Capo" value={String(song.capo ?? 0)} />
+        <SongCompareField label="BPM" value={song.bpm ? String(song.bpm) : '-'} />
+      </div>
+      <div>
+        <div className="mb-1 text-xs font-semibold uppercase tracking-normal text-slate-500">Chart</div>
+        <pre className="max-h-[55vh] overflow-auto rounded-md border border-slate-300 bg-slate-950 p-3 font-mono text-sm leading-relaxed text-slate-50 whitespace-pre-wrap">
+          {song.chart || 'No chart text included.'}
+        </pre>
+      </div>
+    </section>
+  );
+}
+
+function SongCompareField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">{label}</div>
+      <div className="mt-1 font-semibold text-slate-950">{value}</div>
+    </div>
   );
 }
 
@@ -8979,6 +9210,14 @@ function nextSongVersion(previous: Song | undefined, next: Song) {
   if (!previous) return normalizeSongVersion(next.version);
   const previousVersion = normalizeSongVersion(previous.version);
   return songVersionContentSnapshot(previous) === songVersionContentSnapshot(next) ? previousVersion : previousVersion + 1;
+}
+
+function compareSongVersions(localSong: Song, incomingSong: Song): SongVersionComparison {
+  const localVersion = normalizeSongVersion(localSong.version);
+  const incomingVersion = normalizeSongVersion(incomingSong.version);
+  if (incomingVersion > localVersion) return 'incoming-newer';
+  if (incomingVersion < localVersion) return 'local-newer';
+  return 'same-version';
 }
 
 function songVersionContentSnapshot(song: Song) {
