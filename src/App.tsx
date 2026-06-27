@@ -4016,50 +4016,335 @@ function PedalConfigView({
   onChange: (mappings: PedalMappings) => void;
   onReset: () => void;
 }) {
-  const actions: Array<{ action: PedalAction; label: string; hint: string }> = [
-    { action: 'nextSong', label: 'Next song', hint: 'Common pedals: ArrowRight, PageDown' },
-    { action: 'previousSong', label: 'Previous song', hint: 'Common pedals: ArrowLeft, PageUp' },
-    { action: 'toggleAutoscroll', label: 'Pause / resume autoscroll', hint: 'Common pedals: Space, Enter' },
-    { action: 'scrollDown', label: 'Scroll down', hint: 'Common pedals: ArrowDown' },
-    { action: 'scrollUp', label: 'Scroll up', hint: 'Common pedals: ArrowUp' }
+  type PedalSectionAction = {
+    id: string;
+    action?: PedalAction;
+    label: string;
+    hint: string;
+  };
+  type PedalSection = {
+    title: string;
+    icon: React.ReactNode;
+    actions: PedalSectionAction[];
+  };
+
+  const [testMode, setTestMode] = useState(false);
+  const [testEvents, setTestEvents] = useState<Array<{ key: string; actionLabel?: string; recognized: boolean; createdAt: number }>>([]);
+  const [duplicateRequest, setDuplicateRequest] = useState<{ key: string; fromAction: PedalAction; toAction: PedalAction } | null>(null);
+
+  const actionLabels: Record<PedalAction, string> = {
+    toggleAutoscroll: 'Toggle Autoscroll',
+    nextSong: 'Next Song',
+    previousSong: 'Previous Song',
+    scrollDown: 'Scroll Down',
+    scrollUp: 'Scroll Up'
+  };
+
+  const sections: PedalSection[] = [
+    {
+      title: 'Performance',
+      icon: <Gauge size={20} />,
+      actions: [
+        { id: 'toggleAutoscroll', action: 'toggleAutoscroll', label: 'Toggle Autoscroll', hint: 'Start or pause Stage autoscroll.' },
+        { id: 'tempoGuide', label: 'Tempo Guide On/Off', hint: 'Reserved for tempo meter pedal control.' },
+        { id: 'scrollFaster', label: 'Scroll Faster', hint: 'Reserved for quick autoscroll speed changes.' },
+        { id: 'scrollSlower', label: 'Scroll Slower', hint: 'Reserved for quick autoscroll speed changes.' }
+      ]
+    },
+    {
+      title: 'Navigation',
+      icon: <ListMusic size={20} />,
+      actions: [
+        { id: 'nextSong', action: 'nextSong', label: 'Next Song', hint: 'Common pedals: ArrowRight, PageDown.' },
+        { id: 'previousSong', action: 'previousSong', label: 'Previous Song', hint: 'Common pedals: ArrowLeft, PageUp.' },
+        { id: 'scrollDown', action: 'scrollDown', label: 'Scroll Down', hint: 'Common pedals: ArrowDown.' },
+        { id: 'scrollUp', action: 'scrollUp', label: 'Scroll Up', hint: 'Common pedals: ArrowUp.' }
+      ]
+    },
+    {
+      title: 'Display',
+      icon: <Monitor size={20} />,
+      actions: [
+        { id: 'showChords', label: 'Show / Hide Chords', hint: 'Reserved for vocalist and chart display profiles.' },
+        { id: 'showHarmony', label: 'Show / Hide Harmony Cues', hint: 'Reserved for harmony cue display control.' },
+        { id: 'increaseFont', label: 'Increase Font Size', hint: 'Reserved for live display size adjustment.' },
+        { id: 'decreaseFont', label: 'Decrease Font Size', hint: 'Reserved for live display size adjustment.' }
+      ]
+    }
   ];
+
+  const supportedActions = sections.flatMap((section) => section.actions).filter((item): item is PedalSectionAction & { action: PedalAction } => Boolean(item.action));
 
   function updateAction(action: PedalAction, keys: string[]) {
     onChange({ ...mappings, [action]: keys });
   }
 
+  function findMappedAction(key: string, exceptAction?: PedalAction) {
+    return supportedActions.find(({ action }) => action !== exceptAction && (mappings[action] ?? []).includes(key));
+  }
+
+  function addKeyToAction(action: PedalAction, key: string) {
+    if ((mappings[action] ?? []).includes(key)) return;
+    const duplicate = findMappedAction(key, action);
+    if (duplicate) {
+      setDuplicateRequest({ key, fromAction: duplicate.action, toAction: action });
+      return;
+    }
+    updateAction(action, [...(mappings[action] ?? []), key]);
+  }
+
+  function moveDuplicateAssignment() {
+    if (!duplicateRequest) return;
+    const nextMappings = { ...mappings };
+    nextMappings[duplicateRequest.fromAction] = (nextMappings[duplicateRequest.fromAction] ?? []).filter((key) => key !== duplicateRequest.key);
+    nextMappings[duplicateRequest.toAction] = Array.from(new Set([...(nextMappings[duplicateRequest.toAction] ?? []), duplicateRequest.key]));
+    onChange(nextMappings);
+    setDuplicateRequest(null);
+  }
+
+  function resetDefaultsWithConfirmation() {
+    if (window.confirm('Reset pedal mappings to the OpenStage defaults?')) {
+      onReset();
+    }
+  }
+
+  useEffect(() => {
+    if (!testMode) return;
+    function handleTestKeyDown(event: KeyboardEvent) {
+      event.preventDefault();
+      const key = normalizeKeyEvent(event);
+      const match = supportedActions.find(({ action }) => (mappings[action] ?? []).includes(key));
+      setTestEvents((events) => [
+        { key, actionLabel: match?.label, recognized: Boolean(match), createdAt: Date.now() },
+        ...events
+      ].slice(0, 12));
+    }
+    window.addEventListener('keydown', handleTestKeyDown, true);
+    return () => window.removeEventListener('keydown', handleTestKeyDown, true);
+  }, [mappings, supportedActions, testMode]);
+
   return (
-    <main className="min-h-[calc(100vh-105px)] p-4">
-      <div className="mx-auto max-w-4xl">
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <div>
-            <h2 className="text-xl font-semibold">Pedal Configuration</h2>
-            <p className="mt-1 text-sm text-slate-600">Map Bluetooth pedals, USB pedals, and page up/down devices to stage actions.</p>
+    <main className="min-h-[calc(100vh-105px)] bg-slate-50 p-4">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-5 rounded-md border border-slate-300 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start gap-3">
+            <div>
+              <h2 className="text-2xl font-semibold">Pedal Configuration</h2>
+              <p className="mt-1 max-w-2xl text-sm text-slate-600">
+                Set up Bluetooth pedals, USB pedals, and page up/down devices for live Stage control.
+              </p>
+            </div>
+            <div className="ml-auto flex flex-wrap gap-2">
+              <button
+                className={testMode ? 'primary-button' : 'secondary-button'}
+                type="button"
+                onClick={() => {
+                  setTestMode(true);
+                  setTestEvents([]);
+                }}
+              >
+                <CheckCircle size={18} />
+                Test Pedals
+              </button>
+              <button className="secondary-button" type="button" onClick={resetDefaultsWithConfirmation}>
+                <RotateCcw size={18} />
+                Reset Defaults
+              </button>
+            </div>
           </div>
-          <button className="secondary-button ml-auto" onClick={onReset}>
-            <RotateCcw size={18} />
-            Reset defaults
-          </button>
+
+          {testMode && (
+            <section className="mt-4 rounded-md border border-teal-200 bg-teal-50 p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div>
+                  <h3 className="font-semibold text-teal-950">Waiting for pedal input...</h3>
+                  <p className="mt-1 text-sm text-teal-800">Press pedals repeatedly to verify what OpenStage receives.</p>
+                </div>
+                <button className="secondary-button ml-auto bg-white" type="button" onClick={() => setTestMode(false)}>
+                  Done
+                </button>
+              </div>
+              <div className="mt-3 grid gap-2">
+                {testEvents.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-teal-300 bg-white/70 p-3 text-sm text-teal-800">No pedal input detected yet.</div>
+                ) : (
+                  testEvents.map((item) => (
+                    <div
+                      key={`${item.key}-${item.createdAt}`}
+                      className={`flex flex-wrap items-center gap-3 rounded-md border p-3 text-sm ${
+                        item.recognized ? 'border-teal-300 bg-white text-teal-950' : 'border-amber-300 bg-amber-50 text-amber-950'
+                      }`}
+                    >
+                      <span className={item.recognized ? 'text-teal-600' : 'text-amber-600'}>
+                        {item.recognized ? <CheckCircle size={19} /> : <AlertTriangle size={19} />}
+                      </span>
+                      <span className="rounded-md border border-slate-300 bg-slate-950 px-3 py-1 font-mono font-semibold text-white">{item.key}</span>
+                      {item.recognized ? (
+                        <span>Mapped to: <strong>{item.actionLabel}</strong></span>
+                      ) : (
+                        <span className="font-semibold">Unmapped key</span>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          )}
         </div>
 
-        <div className="grid gap-3">
-          {actions.map(({ action, label, hint }) => (
-            <section key={action} className="rounded-md border border-slate-300 bg-white p-4">
-              <div className="grid gap-3 md:grid-cols-[1fr_1.4fr] md:items-center">
-                <div>
-                  <h3 className="font-semibold">{label}</h3>
-                  <p className="mt-1 text-sm text-slate-600">{hint}</p>
-                </div>
-                <KeyCapture
-                  keys={mappings[action] ?? []}
-                  onChange={(keys) => updateAction(action, keys)}
-                />
+        <div className="grid gap-5">
+          {sections.map((section) => (
+            <section key={section.title} className="rounded-md border border-slate-300 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center gap-2 border-b border-slate-200 pb-3 text-slate-900">
+                <span className="rounded-md bg-slate-100 p-2 text-teal-700">{section.icon}</span>
+                <h3 className="text-lg font-semibold">{section.title}</h3>
+              </div>
+              <div className="grid gap-3">
+                {section.actions.map((item) => (
+                  <PedalActionRow
+                    key={item.id}
+                    label={item.label}
+                    hint={item.hint}
+                    keys={item.action ? mappings[item.action] ?? [] : []}
+                    supported={Boolean(item.action)}
+                    onRemoveKey={item.action ? (key) => updateAction(item.action!, (mappings[item.action!] ?? []).filter((mappedKey) => mappedKey !== key)) : undefined}
+                    onLearnKey={item.action ? (key) => addKeyToAction(item.action!, key) : undefined}
+                  />
+                ))}
               </div>
             </section>
           ))}
+
+          <section className="rounded-md border border-dashed border-slate-300 bg-white/80 p-5">
+            <h3 className="font-semibold text-slate-800">Future Pedal Actions</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Reserved space for Blank Screen, Leader Mode, External Display, Receive Song, and other live workflows as those actions become stage-ready.
+            </p>
+          </section>
         </div>
+
+        {duplicateRequest && (
+          <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-sm">
+            <section className="w-full max-w-md rounded-md border border-amber-300 bg-white p-5 shadow-2xl">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-1 text-amber-600" size={22} />
+                <div>
+                  <h3 className="text-lg font-semibold">Duplicate Mapping</h3>
+                  <p className="mt-2 text-sm text-slate-700">
+                    This key is already assigned to <strong>{actionLabels[duplicateRequest.fromAction]}</strong>.
+                  </p>
+                  <p className="mt-2 text-sm text-slate-600">
+                    Move <span className="font-mono font-semibold">{duplicateRequest.key}</span> to <strong>{actionLabels[duplicateRequest.toAction]}</strong>?
+                  </p>
+                </div>
+              </div>
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                <button className="secondary-button" type="button" onClick={() => setDuplicateRequest(null)}>Cancel</button>
+                <button className="primary-button" type="button" onClick={moveDuplicateAssignment}>Move Assignment</button>
+              </div>
+            </section>
+          </div>
+        )}
       </div>
     </main>
+  );
+}
+
+function PedalActionRow({
+  label,
+  hint,
+  keys,
+  supported,
+  onRemoveKey,
+  onLearnKey
+}: {
+  label: string;
+  hint: string;
+  keys: string[];
+  supported: boolean;
+  onRemoveKey?: (key: string) => void;
+  onLearnKey?: (key: string) => void;
+}) {
+  return (
+    <div className={`rounded-md border p-4 ${supported ? 'border-slate-200 bg-slate-50' : 'border-slate-200 bg-slate-100/70'}`}>
+      <div className="grid gap-3 md:grid-cols-[1fr_1.5fr] md:items-center">
+        <div>
+          <h4 className="font-semibold text-slate-950">{label}</h4>
+          <p className="mt-1 text-sm text-slate-600">{hint}</p>
+          {!supported && <span className="mt-2 inline-flex rounded-full border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-500">Reserved</span>}
+        </div>
+        {supported ? (
+          <KeyCapture
+            keys={keys}
+            onRemoveKey={(key) => onRemoveKey?.(key)}
+            onLearnKey={(key) => onLearnKey?.(key)}
+          />
+        ) : (
+          <div className="rounded-md border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">Mapping will be available when this Stage action is implemented.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function KeyCapture({
+  keys,
+  onRemoveKey,
+  onLearnKey
+}: {
+  keys: string[];
+  onRemoveKey: (key: string) => void;
+  onLearnKey: (key: string) => void;
+}) {
+  const [isCapturing, setIsCapturing] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (isCapturing) buttonRef.current?.focus();
+  }, [isCapturing]);
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap gap-2">
+        {keys.map((key) => (
+          <button
+            key={key}
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm font-semibold text-slate-900 shadow-sm hover:border-red-300 hover:text-red-700"
+            title={`Remove ${key}`}
+            type="button"
+            onClick={() => onRemoveKey(key)}
+          >
+            {key}
+          </button>
+        ))}
+        {keys.length === 0 && <span className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-500">No keys mapped.</span>}
+      </div>
+      <button
+        ref={buttonRef}
+        className="primary-button w-fit"
+        type="button"
+        onClick={() => setIsCapturing(true)}
+        onBlur={() => {
+          if (isCapturing) window.setTimeout(() => setIsCapturing(false), 120);
+        }}
+        onKeyDown={(event) => {
+          if (!isCapturing) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const normalized = normalizeKeyEvent(event.nativeEvent);
+          onLearnKey(normalized);
+          setIsCapturing(false);
+        }}
+      >
+        <Settings size={18} />
+        {isCapturing ? 'Press pedal or key...' : 'Learn Button'}
+      </button>
+      {isCapturing && (
+        <div className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-900">
+          Press the pedal or keyboard key you want to assign...
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -4319,41 +4604,6 @@ function DiagnosticsView({
         </section>
       </div>
     </main>
-  );
-}
-
-function KeyCapture({ keys, onChange }: { keys: string[]; onChange: (keys: string[]) => void }) {
-  const [isCapturing, setIsCapturing] = useState(false);
-
-  return (
-    <div className="grid gap-2">
-      <div className="flex flex-wrap gap-2">
-        {keys.map((key) => (
-          <button
-            key={key}
-            className="rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold"
-            onClick={() => onChange(keys.filter((item) => item !== key))}
-          >
-            {key}
-          </button>
-        ))}
-        {keys.length === 0 && <span className="text-sm text-slate-500">No keys mapped.</span>}
-      </div>
-      <button
-        className="primary-button w-fit"
-        onClick={() => setIsCapturing(true)}
-        onKeyDown={(event) => {
-          if (!isCapturing) return;
-          event.preventDefault();
-          const normalized = normalizeKeyEvent(event.nativeEvent);
-          if (normalized && !keys.includes(normalized)) onChange([...keys, normalized]);
-          setIsCapturing(false);
-        }}
-      >
-        <Settings size={18} />
-        {isCapturing ? 'Press pedal or key' : 'Add mapping'}
-      </button>
-    </div>
   );
 }
 
