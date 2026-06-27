@@ -10,7 +10,6 @@ const defaultPrompt = 'Say hello from OpenStage';
 const defaultAnthropicModel = 'claude-sonnet-4-6';
 const shareTtlMs = 7 * 24 * 60 * 60 * 1000;
 const openStageFrontendBaseUrl = 'https://openstage-pwa.onrender.com';
-const sharedSongs = new Map();
 
 const allowedOrigins = new Set([
   'https://openstage-pwa.onrender.com',
@@ -84,12 +83,6 @@ function createShareId() {
   return randomBytes(4).toString('base64url');
 }
 
-function createUniqueShareId() {
-  let id = createShareId();
-  while (sharedSongs.has(id)) id = createShareId();
-  return id;
-}
-
 function normalizeSharedSong(song) {
   return {
     title: typeof song?.title === 'string' ? song.title.trim() : '',
@@ -104,14 +97,51 @@ function normalizeSharedSong(song) {
   };
 }
 
-function isShareExpired(share) {
-  return !share || new Date(share.expiresAt).getTime() <= Date.now();
+function createSupabaseClient() {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) {
+    throw new Error('Supabase is not configured.');
+  }
+
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false
+    }
+  });
 }
 
-function deleteExpiredShares() {
-  for (const [id, share] of sharedSongs.entries()) {
-    if (isShareExpired(share)) sharedSongs.delete(id);
+function logSupabaseError(context, error, extra = {}) {
+  console.error(`${context}:`, {
+    message: error?.message,
+    code: error?.code,
+    details: error?.details,
+    hint: error?.hint,
+    ...extra
+  });
+}
+
+async function insertSharedSong(supabase, song, expiresAt) {
+  let lastError;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const shareCode = createShareId();
+    const { data, error } = await supabase
+      .from('shared_songs')
+      .insert({
+        share_code: shareCode,
+        song_json: song,
+        expires_at: expiresAt.toISOString()
+      })
+      .select('share_code')
+      .single();
+
+    if (!error) return data.share_code;
+
+    lastError = error;
+    if (error.code !== '23505') break;
   }
+
+  throw lastError || new Error('Failed to create shared song.');
 }
 
 app.get('/health', (_request, response) => {
@@ -134,21 +164,8 @@ app.get('/supabase-status', (_request, response) => {
 });
 
 app.get('/supabase-test', async (_request, response) => {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) {
-    response.status(500).json({
-      ok: false,
-      error: 'Supabase is not configured.'
-    });
-    return;
-  }
-
   try {
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    });
+    const supabase = createSupabaseClient();
     const { count, error } = await supabase
       .from('shared_songs')
       .select('*', { count: 'exact', head: true });
@@ -160,11 +177,15 @@ app.get('/supabase-test', async (_request, response) => {
       count: count ?? 0
     });
   } catch (error) {
-    console.error('Supabase test failed:', {
-      message: error?.message,
-      code: error?.code,
-      details: error?.details
-    });
+    if (error?.message === 'Supabase is not configured.') {
+      response.status(500).json({
+        ok: false,
+        error: 'Supabase is not configured.'
+      });
+      return;
+    }
+
+    logSupabaseError('Supabase test failed', error);
     response.status(500).json({
       ok: false,
       error: 'Supabase test failed.'
@@ -288,8 +309,7 @@ app.post('/api/ai-import-song', async (request, response) => {
   }
 });
 
-app.post('/api/share-song', (request, response) => {
-  deleteExpiredShares();
+app.post('/api/share-song', async (request, response) => {
   const song = normalizeSharedSong(request.body?.song);
 
   if (!song.title || !song.chart) {
@@ -300,54 +320,90 @@ app.post('/api/share-song', (request, response) => {
     return;
   }
 
-  const id = createUniqueShareId();
-  const createdAt = new Date();
-  const expiresAt = new Date(createdAt.getTime() + shareTtlMs);
-  sharedSongs.set(id, {
-    id,
-    song,
-    createdAt: createdAt.toISOString(),
-    expiresAt: expiresAt.toISOString()
-  });
+  try {
+    const supabase = createSupabaseClient();
+    const expiresAt = new Date(Date.now() + shareTtlMs);
+    const shareCode = await insertSharedSong(supabase, song, expiresAt);
 
-  console.log('Shared song created:', {
-    id,
-    title: song.title,
-    artist: song.artist,
-    expiresAt: expiresAt.toISOString()
-  });
+    console.log('Shared song created:', {
+      shareCode,
+      title: song.title,
+      artist: song.artist,
+      expiresAt: expiresAt.toISOString()
+    });
 
-  response.json({
-    ok: true,
-    shareId: id,
-    shareUrl: `${openStageFrontendBaseUrl}/import-song/${id}`
-  });
+    response.json({
+      ok: true,
+      shareId: shareCode,
+      shareUrl: `${openStageFrontendBaseUrl}/import-song/${shareCode}`
+    });
+  } catch (error) {
+    if (error?.message === 'Supabase is not configured.') {
+      response.status(500).json({
+        ok: false,
+        error: 'Supabase is not configured.'
+      });
+      return;
+    }
+
+    logSupabaseError('Shared song create failed', error, {
+      title: song.title,
+      artist: song.artist
+    });
+    response.status(500).json({
+      ok: false,
+      error: 'Shared song could not be created.'
+    });
+  }
 });
 
-app.get('/api/shared-song/:id', (request, response) => {
-  deleteExpiredShares();
+app.get('/api/shared-song/:id', async (request, response) => {
   const id = String(request.params.id || '').trim();
-  const share = sharedSongs.get(id);
 
-  if (!share || isShareExpired(share)) {
-    if (share) sharedSongs.delete(id);
-    response.status(404).json({
-      ok: false,
-      error: 'Shared song not found or expired.'
+  try {
+    const supabase = createSupabaseClient();
+    const { data, error } = await supabase
+      .from('shared_songs')
+      .select('song_json')
+      .eq('share_code', id)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data?.song_json) {
+      response.status(404).json({
+        ok: false,
+        error: 'Shared song not found or expired.'
+      });
+      return;
+    }
+
+    console.log('Shared song retrieved:', {
+      id,
+      title: data.song_json.title,
+      artist: data.song_json.artist
     });
-    return;
+
+    response.json({
+      ok: true,
+      song: data.song_json
+    });
+  } catch (error) {
+    if (error?.message === 'Supabase is not configured.') {
+      response.status(500).json({
+        ok: false,
+        error: 'Supabase is not configured.'
+      });
+      return;
+    }
+
+    logSupabaseError('Shared song retrieve failed', error, { shareCode: id });
+    response.status(500).json({
+      ok: false,
+      error: 'Shared song could not be retrieved.'
+    });
   }
-
-  console.log('Shared song retrieved:', {
-    id,
-    title: share.song.title,
-    artist: share.song.artist
-  });
-
-  response.json({
-    ok: true,
-    song: share.song
-  });
 });
 
 app.listen(port, () => {
