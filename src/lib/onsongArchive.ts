@@ -1,7 +1,7 @@
 import type { ParsedChordPro, Song } from '../types';
 import { parseBinaryPlist, type BinaryPlistUid, type BinaryPlistValue } from './binaryPlist';
 import { parseChordPro } from './chordpro';
-import { createId } from './ids';
+import { createId, createSongUuid } from './ids';
 
 export type OnSongImportResult = {
   fileName: string;
@@ -135,6 +135,7 @@ function songFromOnSongObject(object: ArchiveObject, archiveFileName: string, in
   const content = stringValue(object.content);
   const filepath = stringValue(object.filepath);
   const tags = keywordsValue(object.keywords);
+  const songUuid = stringValue(object.songUuid) || stringValue(object.uuid) || createSongUuid();
   const displayPreference = detectOnSongDisplayPreference(content);
   const parsedChordPro: ParsedChordPro = parseChordPro(content);
   const warnings: string[] = [];
@@ -145,6 +146,7 @@ function songFromOnSongObject(object: ArchiveObject, archiveFileName: string, in
     fileName: archiveFileName,
     song: {
       id: createId('onsong'),
+      songUuid,
       title,
       artist,
       key,

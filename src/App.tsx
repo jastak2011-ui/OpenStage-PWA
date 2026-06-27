@@ -81,7 +81,7 @@ import { formatDuration, isValidDurationInput, parseDurationInput } from './lib/
 import { getStageSwipeDirection } from './lib/stageGestures';
 import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/stageHarmonyEdit';
 import { clampTempoBpm, maxTempoBpm, minTempoBpm, nextTempoBeat, nextTempoCountdownSeconds, normalizeTempoBpm, parseTempoBpmInput, shouldShowTempoMeter, shouldToggleTempoOnPointerEnd, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './lib/tempo';
-import { createId } from './lib/ids';
+import { createId, createSongUuid } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
 import {
@@ -501,6 +501,7 @@ const displayProfileDefaults: Record<DeviceProfile, DisplayProfileSizing> = {
 
 const emptySong = (): Song => ({
   id: createId('song'),
+  songUuid: createSongUuid(),
   title: 'New Song',
   artist: '',
   key: 'C',
@@ -538,6 +539,7 @@ const emptySong = (): Song => ({
 const openStageApiBaseUrl = 'https://openstage-api.onrender.com';
 
 type AiImportedSong = {
+  songUuid?: string;
   title?: string;
   artist?: string;
   key?: string;
@@ -560,11 +562,12 @@ type SharedSongImportState =
 type SharedSongDuplicate = {
   existing: Song;
   incoming: Song;
-  matchType: 'origin' | 'title-artist';
+  matchType: 'songUuid' | 'title-artist';
 };
 
 function buildPublishSongPayload(song: Song) {
   return {
+    songUuid: song.songUuid || createSongUuid(),
     title: song.title,
     subtitle: song.subtitle,
     artist: song.artist,
@@ -633,21 +636,13 @@ function normalizeDuplicateText(value: string) {
     .trim();
 }
 
-function getSharedSongOriginIdentifiers(song: Partial<Song>, shareId?: string) {
-  return [
-    shareId,
-    song.importedFromShareId,
-    song.sourceShareId,
-    song.sharedSongId,
-    song.originSongId,
-    song.songUuid
-  ].filter((value): value is string => Boolean(typeof value === 'string' && value.trim())).map((value) => value.trim());
-}
-
-function findSharedSongDuplicate(songs: Song[], incoming: Song, shareId: string): SharedSongDuplicate | null {
-  const incomingIds = new Set(getSharedSongOriginIdentifiers(incoming, shareId));
-  const originMatch = songs.find((song) => getSharedSongOriginIdentifiers(song).some((id) => incomingIds.has(id)));
-  if (originMatch) return { existing: originMatch, incoming, matchType: 'origin' };
+function findSharedSongDuplicate(songs: Song[], incoming: Song): SharedSongDuplicate | null {
+  const incomingSongUuid = incoming.songUuid?.trim();
+  if (incomingSongUuid) {
+    const songUuidMatch = songs.find((song) => song.songUuid?.trim() === incomingSongUuid);
+    if (songUuidMatch) return { existing: songUuidMatch, incoming, matchType: 'songUuid' };
+    return null;
+  }
 
   const incomingTitle = normalizeDuplicateText(incoming.title);
   const incomingArtist = normalizeDuplicateText(incoming.artist);
@@ -672,6 +667,7 @@ function songFromSharedSong(shared: Partial<Song>, shareId: string): Song {
     ...emptySong(),
     ...shared,
     id: createId('song'),
+    songUuid: typeof shared.songUuid === 'string' && shared.songUuid.trim() ? shared.songUuid.trim() : createSongUuid(),
     title: typeof shared.title === 'string' && shared.title.trim() ? shared.title.trim() : 'Shared Song',
     artist: typeof shared.artist === 'string' ? shared.artist.trim() : '',
     key,
@@ -713,6 +709,7 @@ function songFromAiImport(imported: AiImportedSong): Song {
 
   return {
     ...emptySong(),
+    songUuid: imported.songUuid?.trim() || createSongUuid(),
     title,
     artist,
     key,
@@ -731,6 +728,7 @@ function songFromAiImport(imported: AiImportedSong): Song {
 function withSongDefaults(song: Song): Song {
   return {
     ...song,
+    songUuid: song.songUuid?.trim() || createSongUuid(),
     favorite: Boolean(song.favorite),
     referenceAudioUrl: song.referenceAudioUrl || ''
   };
@@ -1129,7 +1127,10 @@ export default function App() {
       db.setlist.orderBy('order').toArray(),
       db.setlists.orderBy('updatedAt').reverse().toArray()
     ]);
-    setSongs(storedSongs.map(withSongDefaults));
+    const normalizedSongs = storedSongs.map(withSongDefaults);
+    const songsNeedingUuid = normalizedSongs.filter((song, index) => !storedSongs[index]?.songUuid?.trim());
+    if (songsNeedingUuid.length > 0) await db.songs.bulkPut(songsNeedingUuid);
+    setSongs(normalizedSongs);
     setSetlist(storedSetlist);
     if (storedSavedSetlists.length === 0 && storedSetlist.length > 0) {
       const migrated = createSavedSetlistFromItems('Current Setlist', storedSetlist);
@@ -1155,6 +1156,7 @@ export default function App() {
       const nextCapo = Math.max(0, Math.min(12, Number(song.capo ?? 0) || 0));
       const nextSong = {
         ...song,
+        songUuid: song.songUuid?.trim() || createSongUuid(),
         favorite: Boolean(song.favorite),
         referenceAudioUrl: song.referenceAudioUrl?.trim() ?? '',
         capo: nextCapo,
@@ -1214,6 +1216,7 @@ export default function App() {
     const nextSong = {
       ...song,
       id: createId('song'),
+      songUuid: createSongUuid(),
       title: songs.some((existing) => existing.title === song.title && existing.artist === song.artist)
         ? `${song.title} Copy`
         : song.title,
@@ -1228,6 +1231,7 @@ export default function App() {
     const nextSong = {
       ...shared,
       id: existing.id,
+      songUuid: existing.songUuid?.trim() || shared.songUuid?.trim() || createSongUuid(),
       favorite: existing.favorite,
       displayPreference: existing.displayPreference ?? shared.displayPreference,
       importedAt: new Date().toISOString()
@@ -1847,7 +1851,12 @@ export default function App() {
   }
 
   async function importChordProCandidates(candidates: ImportCandidate[], strategy: DuplicateStrategy) {
-    const existingByFingerprint = new Map(songs.map((song) => [songFingerprint(song), song]));
+    const existingByFingerprint = new Map<string, Song>();
+    songs.forEach((song) => {
+      songDuplicateKeys(song).forEach((key) => {
+        if (!existingByFingerprint.has(key)) existingByFingerprint.set(key, song);
+      });
+    });
     const importedSongs: Song[] = [];
     const summary: ImportSummary = {
       fileNames: [],
@@ -1869,8 +1878,8 @@ export default function App() {
           archive.warnings.forEach((warning) => summary.parseWarnings.push(`${candidate.fileName}: ${warning}`));
 
           for (const parsed of archive.songs) {
-            const fingerprint = songFingerprint(parsed.song);
-            const existing = existingByFingerprint.get(fingerprint);
+            const duplicateKeys = songDuplicateKeys(parsed.song);
+            const existing = duplicateKeys.map((key) => existingByFingerprint.get(key)).find(Boolean);
 
             if (parsed.warnings.length > 0) {
               summary.warningGroups.push({
@@ -1887,7 +1896,9 @@ export default function App() {
               continue;
             }
 
-            const songToStore = existing && strategy === 'replace' ? { ...parsed.song, id: existing.id } : parsed.song;
+            const songToStore = existing && strategy === 'replace'
+              ? { ...parsed.song, id: existing.id, songUuid: existing.songUuid?.trim() || parsed.song.songUuid?.trim() || createSongUuid() }
+              : parsed.song;
             if (existing) {
               summary.duplicateWarnings.push(
                 `${parsed.song.title}: ${strategy === 'replace' ? 'replaced' : 'imported another copy of'} "${existing.title}".`
@@ -1895,7 +1906,7 @@ export default function App() {
             }
 
             importedSongs.push(songToStore);
-            existingByFingerprint.set(fingerprint, songToStore);
+            songDuplicateKeys(songToStore).forEach((key) => existingByFingerprint.set(key, songToStore));
             summary.importedCount += 1;
           }
         } catch (error) {
@@ -1920,8 +1931,8 @@ export default function App() {
       summary.songsFound += bundle.songsFound;
 
       for (const parsed of bundle.songs) {
-        const fingerprint = songFingerprint(parsed.song);
-        const existing = existingByFingerprint.get(fingerprint);
+        const duplicateKeys = songDuplicateKeys(parsed.song);
+        const existing = duplicateKeys.map((key) => existingByFingerprint.get(key)).find(Boolean);
 
         if (parsed.warnings.length > 0) {
           summary.warningGroups.push({
@@ -1938,7 +1949,9 @@ export default function App() {
           continue;
         }
 
-        const songToStore = existing && strategy === 'replace' ? { ...parsed.song, id: existing.id } : parsed.song;
+        const songToStore = existing && strategy === 'replace'
+          ? { ...parsed.song, id: existing.id, songUuid: existing.songUuid?.trim() || parsed.song.songUuid?.trim() || createSongUuid() }
+          : parsed.song;
         if (existing) {
           summary.duplicateWarnings.push(
             `${parsed.song.title}: ${strategy === 'replace' ? 'replaced' : 'imported another copy of'} "${existing.title}".`
@@ -1946,7 +1959,7 @@ export default function App() {
         }
 
         importedSongs.push(songToStore);
-        existingByFingerprint.set(fingerprint, songToStore);
+        songDuplicateKeys(songToStore).forEach((key) => existingByFingerprint.set(key, songToStore));
         summary.importedCount += 1;
       }
     }
@@ -2563,7 +2576,7 @@ function SharedSongImportView({
 
   async function importSong() {
     if (state.status !== 'ready' || importing) return;
-    const match = findSharedSongDuplicate(songs, state.song, shareId);
+    const match = findSharedSongDuplicate(songs, state.song);
     if (match) {
       setDuplicate(match);
       return;
@@ -2644,7 +2657,7 @@ function SharedSongImportView({
                       <div className="text-slate-600">{duplicate.incoming.artist || 'Unknown artist'}</div>
                     </div>
                     <div className="text-xs text-slate-500">
-                      Match: {duplicate.matchType === 'origin' ? 'same shared/origin id' : 'matching title and artist'}
+                      Match: {duplicate.matchType === 'songUuid' ? 'same song UUID' : 'matching title and artist'}
                     </div>
                   </div>
                   <div className="mt-5 grid gap-2 sm:grid-cols-2">
@@ -8926,6 +8939,15 @@ function DecimalStepper({
 
 function songFingerprint(song: Pick<Song, 'title' | 'artist'>) {
   return `${song.title.trim().toLowerCase()}::${song.artist.trim().toLowerCase()}`;
+}
+
+function songDuplicateKeys(song: Pick<Song, 'title' | 'artist'> & Partial<Pick<Song, 'songUuid'>>) {
+  const keys: string[] = [];
+  const songUuid = song.songUuid?.trim();
+  if (songUuid) return [`uuid:${songUuid}`];
+  const fingerprint = songFingerprint(song);
+  if (fingerprint !== '::') keys.push(`title:${fingerprint}`);
+  return keys;
 }
 
 function formatEnrichmentField(field: string) {

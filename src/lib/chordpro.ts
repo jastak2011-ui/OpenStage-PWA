@@ -1,5 +1,5 @@
 import type { ParsedChordPro, ParsedChordProLine, ParsedChordToken, Song } from '../types';
-import { createId } from './ids';
+import { createId, createSongUuid } from './ids';
 import { isHarmonyTag } from './harmony';
 
 const supportedChordProExtensions = ['.cho', '.crd', '.chordpro', '.chopro', '.pro', '.txt'];
@@ -77,6 +77,7 @@ export function parseChordProSong(rawText: string, fileName = 'ChordPro import')
 
   const song: Song = {
     id: createId('song'),
+    songUuid: createSongUuid(),
     title,
     subtitle,
     artist,

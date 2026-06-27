@@ -1,6 +1,6 @@
 import type { Song } from '../types';
 import { parseChordPro } from './chordpro';
-import { createId } from './ids';
+import { createId, createSongUuid } from './ids';
 
 export function songsToJson(songs: Song[]) {
   return JSON.stringify(songs, null, 2);
@@ -8,6 +8,7 @@ export function songsToJson(songs: Song[]) {
 
 export function songsToCsv(songs: Song[]) {
   const headers = [
+    'songUuid',
     'title',
     'subtitle',
     'artist',
@@ -71,6 +72,7 @@ export function parseCsvSongs(text: string): Song[] {
       const row = Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']));
       return normalizeSong({
         title: row.title,
+        songUuid: row.songUuid,
         artist: row.artist,
         subtitle: row.subtitle,
         album: row.album,
@@ -138,6 +140,7 @@ function splitCsvRecords(text: string) {
 function normalizeSong(song: Partial<Song>): Song {
   return {
     id: song.id || createId('song'),
+    songUuid: typeof song.songUuid === 'string' && song.songUuid.trim() ? song.songUuid.trim() : createSongUuid(),
     title: song.title || 'Untitled Song',
     subtitle: song.subtitle || '',
     artist: song.artist || '',

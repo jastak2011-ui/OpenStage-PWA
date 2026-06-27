@@ -1,5 +1,5 @@
 import type { Song, SongDisplayPreference } from '../types';
-import { createId } from './ids';
+import { createId, createSongUuid } from './ids';
 
 export type WebpageChartImportPreview = {
   song: Song;
@@ -60,6 +60,7 @@ export function parseWebpageChartText(rawText: string): WebpageChartImportPrevie
   const now = new Date().toISOString();
   const song: Song = {
     id: createId('song'),
+    songUuid: createSongUuid(),
     title: metadata.title || 'Pasted Webpage Chart',
     artist: metadata.artist || '',
     key: metadata.key || '',
