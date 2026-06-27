@@ -265,7 +265,7 @@ type SetlistEntry = {
 type SetlistSortMode = 'manual' | 'title' | 'artist' | 'key' | 'bpm' | 'duration';
 type StagePopoverName = 'library' | 'setlists' | 'format' | 'more';
 type StageFormatTab = 'document' | 'format' | 'chords' | 'harmony' | 'sections' | 'display' | 'autoscroll' | 'external';
-type NewSongAction = 'scratch' | 'ai';
+type NewSongAction = 'scratch' | 'ai' | 'receive';
 type StageSelectionAction = {
   start: number;
   end: number;
@@ -554,6 +554,7 @@ type AiImportedSong = {
 type PublishedSongResult = {
   title: string;
   artist: string;
+  shareId: string;
   shareUrl: string;
 };
 
@@ -581,6 +582,7 @@ function buildPublishSongPayload(song: Song) {
     bandNotes: song.bandNotes,
     rehearsalNotes: song.rehearsalNotes,
     referenceAudioUrl: song.referenceAudioUrl,
+    lastSharedAt: song.lastSharedAt,
     favorite: song.favorite,
     chart: song.chart,
     rawChordPro: song.rawChordPro,
@@ -749,6 +751,7 @@ export default function App() {
   const [sharedImportLandingBypassed, setSharedImportLandingBypassed] = useState(false);
   const [newSongMenuOpen, setNewSongMenuOpen] = useState(false);
   const [aiImportOpen, setAiImportOpen] = useState(false);
+  const [receiveSongOpen, setReceiveSongOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [smartFilter, setSmartFilter] = useState('all');
   const [quickEdit, setQuickEdit] = useState(false);
@@ -1196,6 +1199,17 @@ export default function App() {
     setAiImportOpen(true);
   }
 
+  function openReceiveSong() {
+    setNewSongMenuOpen(false);
+    setReceiveSongOpen(true);
+  }
+
+  function openSharedSongCode(shareId: string) {
+    setReceiveSongOpen(false);
+    window.history.replaceState({}, '', `/?pendingImportShareId=${encodeURIComponent(shareId.trim())}`);
+    window.location.reload();
+  }
+
   async function importAiSong(song: Song) {
     await saveSong(song);
     setSelectedSongId(song.id);
@@ -1203,6 +1217,20 @@ export default function App() {
     setActiveMode('editor');
     setAiImportOpen(false);
     setToast({ message: 'AI song imported', type: 'success' });
+  }
+
+  async function markSongShared(songId: string) {
+    const song = songMap.get(songId);
+    if (!song) return;
+    const sharedAt = new Date().toISOString();
+    const nextSong = {
+      ...song,
+      lastSharedAt: sharedAt,
+      updatedAt: song.updatedAt
+    };
+    await db.songs.put(nextSong);
+    setSongs((current) => current.map((item) => (item.id === songId ? nextSong : item)));
+    if (selectedSongId === songId) setSelectedSongId(songId);
   }
 
   function openSongAfterSharedImport(songId: string) {
@@ -2108,6 +2136,7 @@ export default function App() {
                   onSelect={(action) => {
                     if (action === 'scratch') void createSongFromScratch('library');
                     if (action === 'ai') openAiImport();
+                    if (action === 'receive') openReceiveSong();
                   }}
                 />
               )}
@@ -2227,6 +2256,7 @@ export default function App() {
           onNewSongAction={(action) => {
             if (action === 'scratch') void createSongFromScratch('library');
             if (action === 'ai') openAiImport();
+            if (action === 'receive') openReceiveSong();
           }}
           onSelect={(id) => {
             setNavigationContext('library');
@@ -2273,8 +2303,7 @@ export default function App() {
             setToast({ message: 'Webpage chart imported', type: 'success' });
           }}
           onSharedSongCodeImport={(shareId) => {
-            window.history.replaceState({}, '', `/?pendingImportShareId=${encodeURIComponent(shareId)}`);
-            window.location.reload();
+            openSharedSongCode(shareId);
           }}
         />
       )}
@@ -2403,6 +2432,7 @@ export default function App() {
           onNewSongAction={(action) => {
             if (action === 'scratch') void createSongFromScratch('perform');
             if (action === 'ai') openAiImport();
+            if (action === 'receive') openReceiveSong();
           }}
           onToggleFavorite={toggleSongFavorite}
           onRunStageSetlist={runSavedSetlist}
@@ -2420,6 +2450,7 @@ export default function App() {
             })
           }
           onLiveHarmonyEdit={(operation, start, end) => updateStageHarmony(selectedSong.id, start, end, operation)}
+          onSongShared={markSongShared}
           onScroll={(scrollTop) => saveStageScroll(selectedSong.id, scrollTop)}
           countdownRemaining={countdownRemaining}
         />
@@ -2459,6 +2490,7 @@ export default function App() {
           onNewSongAction={(action) => {
             if (action === 'scratch') void createSongFromScratch('stage');
             if (action === 'ai') openAiImport();
+            if (action === 'receive') openReceiveSong();
           }}
           onToggleFavorite={toggleSongFavorite}
           onRunStageSetlist={runSavedSetlist}
@@ -2496,6 +2528,7 @@ export default function App() {
             })
           }
           onLiveHarmonyEdit={(operation, start, end) => updateStageHarmony(selectedSong.id, start, end, operation)}
+          onSongShared={markSongShared}
           onScroll={(scrollTop) => saveStageScroll(selectedSong.id, scrollTop)}
           countdownRemaining={countdownRemaining}
           stageSetlistMode
@@ -2510,6 +2543,12 @@ export default function App() {
         <AiImportSongModal
           onClose={() => setAiImportOpen(false)}
           onImport={importAiSong}
+        />
+      )}
+      {receiveSongOpen && (
+        <ReceiveSongModal
+          onClose={() => setReceiveSongOpen(false)}
+          onReceive={openSharedSongCode}
         />
       )}
       {toast && <Toast toast={toast} />}
@@ -2603,7 +2642,7 @@ function SharedSongImportLanding({
           </p>
         </div>
         <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-          If Open in OpenStage still opens Safari, open your Home Screen OpenStage app, go to Import, choose Shared Song Code, and paste this code.
+          If Open in OpenStage still opens Safari, open your Home Screen OpenStage app, choose Receive Song, and paste this code.
         </div>
         <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
           <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Import code</div>
@@ -3522,7 +3561,7 @@ function ImportSongsView({
           <section className="rounded-md border border-teal-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-lg font-semibold">Shared Song Code</h3>
+                <h3 className="text-lg font-semibold">Receive Song</h3>
                 <p className="mt-1 text-sm text-slate-600">
                   Paste an OpenStage shared song code to import directly into this app storage.
                 </p>
@@ -3539,7 +3578,7 @@ function ImportSongsView({
                 }}
               />
               <button className="primary-button" type="button" onClick={importSharedSongCode}>
-                Import Shared Song
+                  Receive Song
               </button>
             </div>
             {sharedSongCodeError && (
@@ -4249,6 +4288,64 @@ function NewSongMenu({ align, onSelect }: { align: 'left' | 'right'; onSelect: (
       <button className="flex w-full items-center gap-2 border-t border-slate-800 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('ai')}>
         <Sparkles size={16} /> AI Import
       </button>
+      <button className="flex w-full items-center gap-2 border-t border-slate-800 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('receive')}>
+        <Download size={16} /> Receive Song
+      </button>
+    </div>
+  );
+}
+
+function ReceiveSongModal({ onClose, onReceive }: { onClose: () => void; onReceive: (shareId: string) => void }) {
+  const [shareCode, setShareCode] = useState('');
+  const [error, setError] = useState('');
+
+  function receive() {
+    const code = shareCode.trim();
+    if (!code) {
+      setError('Enter a share code first.');
+      return;
+    }
+    onReceive(code);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
+      <section
+        className="w-full max-w-md rounded-xl border border-slate-300 bg-white p-5 text-slate-950 shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Receive Song"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 className="text-2xl font-semibold">Receive Song</h2>
+        <label className="mt-4 grid gap-2">
+          <span className="text-sm font-semibold text-slate-700">Share Code</span>
+          <input
+            className="input font-mono text-lg font-semibold uppercase tracking-wide"
+            value={shareCode}
+            autoFocus
+            onChange={(event) => {
+              setShareCode(event.target.value);
+              if (error) setError('');
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') receive();
+            }}
+          />
+        </label>
+        <p className="mt-3 text-sm leading-6 text-slate-600">
+          Have another musician choose Share Song and send you the share code.
+        </p>
+        {error && <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">{error}</div>}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button className="secondary-button" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary-button" type="button" onClick={receive}>
+            Receive
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -5757,6 +5854,7 @@ function PerformanceView({
   onChangeSongBpm,
   onToggleDisplayPreference,
   onLiveHarmonyEdit,
+  onSongShared,
   onScroll,
   countdownRemaining,
   stageSetlistMode = false
@@ -5798,6 +5896,7 @@ function PerformanceView({
   onChangeSongBpm: (bpm: number) => void;
   onToggleDisplayPreference: () => void;
   onLiveHarmonyEdit: (operation: StageHarmonyEditOperation, start: number, end: number) => void | Promise<void>;
+  onSongShared: (songId: string) => void | Promise<void>;
   onScroll: (scrollTop: number) => void;
   countdownRemaining: number;
   stageSetlistMode?: boolean;
@@ -6113,14 +6212,23 @@ function PerformanceView({
       setPublishResult({
         title: song.title,
         artist: song.artist,
+        shareId: result.shareId,
         shareUrl: result.shareUrl
       });
+      await onSongShared(song.id);
     } catch {
       setPublishError('Could not share song. Try again.');
     } finally {
       setPublishingSong(false);
     }
-  }, [publishingSong, song]);
+  }, [onSongShared, publishingSong, song]);
+  const leaveStageWithShareCheck = useCallback(async (leave: () => void) => {
+    if (songChangedSinceLastShared(song)) {
+      const shouldShare = window.confirm('This song has changed since it was last shared.\n\nChoose OK to Share Update, or Cancel for Later.');
+      if (shouldShare) await publishCurrentSong();
+    }
+    leave();
+  }, [publishCurrentSong, song]);
   const handleStageTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     if (activePopover || selectionAction || isInteractiveSwipeTarget(event.target)) {
       swipeStartRef.current = null;
@@ -6295,7 +6403,7 @@ function PerformanceView({
           <div className="stage-right-actions relative flex items-center gap-1 rounded-full border border-white/10 bg-black/25 p-1 backdrop-blur-md">
             <StageIconButton icon={<Gauge size={19} />} label="Tempo" tone={toolbarButton} active={tempoRunning} onClick={toggleTempo} />
             <span className="stage-secondary-action inline-flex">
-              <StageIconButton icon={<Pencil size={19} />} label="Edit Song" tone={toolbarButton} onClick={onEdit} />
+              <StageIconButton icon={<Pencil size={19} />} label="Edit Song" tone={toolbarButton} onClick={() => void leaveStageWithShareCheck(onEdit)} />
             </span>
             <StageIconButton icon={<Settings size={19} />} label="Format" tone={toolbarButton} active={activePopover === 'format'} onClick={() => openFormatPopover('format')} />
             <span className="stage-secondary-action inline-flex">
@@ -6380,14 +6488,14 @@ function PerformanceView({
             displayPreference={song.displayPreference ?? 'inline'}
             chordFontSize={chordFontSize}
             externalDisplaySettings={externalDisplaySettings}
-            onEdit={onEdit}
+            onEdit={() => void leaveStageWithShareCheck(onEdit)}
             onOpenExternalDisplay={() => openFormatPopover('external')}
             onStageMode={onStageMode}
-            onSettings={onSettings}
-            onDiagnostics={onDiagnostics}
-            onPedals={onPedals}
-            onImportExport={onImportExport}
-            onSync={onSync}
+            onSettings={() => void leaveStageWithShareCheck(onSettings)}
+            onDiagnostics={() => void leaveStageWithShareCheck(onDiagnostics)}
+            onPedals={() => void leaveStageWithShareCheck(onPedals)}
+            onImportExport={() => void leaveStageWithShareCheck(onImportExport)}
+            onSync={() => void leaveStageWithShareCheck(onSync)}
           />
         </div>
       )}
@@ -6985,6 +7093,17 @@ function PublishSongModal({
     }
   }
 
+  async function copyShareCode() {
+    if (!result) return;
+
+    try {
+      await navigator.clipboard.writeText(result.shareId);
+      setCopyMessage('Share code copied.');
+    } catch {
+      setCopyMessage('Copy failed. Select the share code manually.');
+    }
+  }
+
   async function shareLink() {
     if (!result || !canShare) return;
 
@@ -7022,11 +7141,17 @@ function PublishSongModal({
             <div>
               <div className="flex items-center gap-2 text-teal-200">
                 <CheckCircle size={22} />
-                <h2 className="text-xl font-semibold text-white">Song Shared</h2>
+                <h2 className="text-xl font-semibold text-white">Share Song</h2>
               </div>
               <p className="mt-2 text-sm text-slate-300">
                 {result.title}{result.artist ? ` by ${result.artist}` : ''}
               </p>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-normal text-slate-400">Share Code</label>
+              <div className="rounded-md border border-teal-400/40 bg-teal-300/10 p-4 text-center font-mono text-3xl font-bold tracking-[0.18em] text-teal-100">
+                {result.shareId}
+              </div>
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold uppercase tracking-normal text-slate-400">Share URL</label>
@@ -7036,14 +7161,17 @@ function PublishSongModal({
             </div>
             {copyMessage && <div className="rounded-md border border-teal-300/30 bg-teal-300/10 px-3 py-2 text-sm font-semibold text-teal-100">{copyMessage}</div>}
             <div className="flex flex-wrap justify-end gap-2">
+              {canShare && (
+                <button className="stage-menu-button" type="button" onClick={shareLink}>
+                  <Share2 size={18} /> Share Link
+                </button>
+              )}
+              <button className="stage-menu-button" type="button" onClick={copyShareCode}>
+                <Copy size={18} /> Copy Share Code
+              </button>
               <button className="stage-menu-button" type="button" onClick={copyLink}>
                 <Copy size={18} /> Copy Link
               </button>
-              {canShare && (
-                <button className="stage-menu-button" type="button" onClick={shareLink}>
-                  <Share2 size={18} /> Share
-                </button>
-              )}
               <button className="stage-menu-button" type="button" onClick={onClose}>
                 <X size={18} /> Close
               </button>
@@ -9340,6 +9468,13 @@ function compareSongVersions(localSong: Song, incomingSong: Song): SongVersionCo
   if (incomingVersion > localVersion) return 'incoming-newer';
   if (incomingVersion < localVersion) return 'local-newer';
   return 'same-version';
+}
+
+function songChangedSinceLastShared(song: Song) {
+  if (!song.lastSharedAt) return false;
+  const updatedAt = Date.parse(song.updatedAt || '');
+  const lastSharedAt = Date.parse(song.lastSharedAt);
+  return Number.isFinite(updatedAt) && Number.isFinite(lastSharedAt) && updatedAt > lastSharedAt;
 }
 
 function songVersionContentSnapshot(song: Song) {

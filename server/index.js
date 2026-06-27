@@ -11,6 +11,7 @@ const defaultAnthropicModel = 'claude-sonnet-4-6';
 const shareTtlMs = 7 * 24 * 60 * 60 * 1000;
 const roomTtlMs = 12 * 60 * 60 * 1000;
 const roomCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const shareCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const openStageFrontendBaseUrl = 'https://openstage-pwa.onrender.com';
 
 const allowedOrigins = new Set([
@@ -82,7 +83,8 @@ function normalizeImportedSong(song, fallback) {
 }
 
 function createShareId() {
-  return randomBytes(4).toString('base64url');
+  const bytes = randomBytes(5);
+  return Array.from(bytes, (byte) => shareCodeAlphabet[byte % shareCodeAlphabet.length]).join('');
 }
 
 function createRoomCode() {
@@ -92,14 +94,23 @@ function createRoomCode() {
 
 function normalizeSharedSong(song) {
   return {
+    ...song,
+    songUuid: typeof song?.songUuid === 'string' ? song.songUuid.trim() : '',
+    version: Number.isFinite(Number(song?.version)) && Number(song.version) > 0 ? Math.floor(Number(song.version)) : 1,
     title: typeof song?.title === 'string' ? song.title.trim() : '',
     artist: typeof song?.artist === 'string' ? song.artist.trim() : '',
+    subtitle: typeof song?.subtitle === 'string' ? song.subtitle.trim() : '',
+    album: typeof song?.album === 'string' ? song.album.trim() : '',
     key: typeof song?.key === 'string' ? song.key.trim() : '',
     capo: Number.isFinite(Number(song?.capo)) ? Math.max(0, Math.round(Number(song.capo))) : 0,
     bpm: Number.isFinite(Number(song?.bpm)) && Number(song.bpm) > 0 ? Math.round(Number(song.bpm)) : null,
+    timeSignature: typeof song?.timeSignature === 'string' ? song.timeSignature.trim() : '',
     chart: typeof song?.chart === 'string' ? song.chart : '',
+    rawChordPro: typeof song?.rawChordPro === 'string' ? song.rawChordPro : typeof song?.chart === 'string' ? song.chart : '',
     notes: typeof song?.notes === 'string' ? song.notes : '',
+    bandNotes: typeof song?.bandNotes === 'string' ? song.bandNotes : '',
     referenceAudioUrl: typeof song?.referenceAudioUrl === 'string' ? song.referenceAudioUrl.trim() : '',
+    lastSharedAt: typeof song?.lastSharedAt === 'string' ? song.lastSharedAt : '',
     favorite: Boolean(song?.favorite)
   };
 }

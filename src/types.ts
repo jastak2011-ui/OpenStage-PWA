@@ -24,6 +24,7 @@ export type Song = {
   originSongId?: string;
   songUuid?: string;
   version?: number;
+  lastSharedAt?: string;
   importedAt?: string;
   sharedSource?: string;
   difficulty?: string;
