@@ -552,6 +552,11 @@ type PublishedSongResult = {
   shareUrl: string;
 };
 
+type SharedSongImportState =
+  | { status: 'loading'; song: null; error: '' }
+  | { status: 'ready'; song: Song; error: '' }
+  | { status: 'error'; song: null; error: string };
+
 function buildPublishSongPayload(song: Song) {
   return {
     title: song.title,
@@ -608,6 +613,49 @@ async function publishSongToOpenStageApi(song: Song) {
   };
 }
 
+function getSharedImportIdFromPath() {
+  if (typeof window === 'undefined') return '';
+  const match = window.location.pathname.match(/^\/import-song\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+function songFromSharedSong(shared: Partial<Song>): Song {
+  const chart = typeof shared.chart === 'string' ? shared.chart : '';
+  const key = typeof shared.key === 'string' ? shared.key : '';
+  const capo = Math.max(0, Math.round(Number(shared.capo ?? 0) || 0));
+  const bpm = Number.isFinite(Number(shared.bpm)) && Number(shared.bpm) > 0 ? Math.round(Number(shared.bpm)) : 0;
+
+  return {
+    ...emptySong(),
+    ...shared,
+    id: createId('song'),
+    title: typeof shared.title === 'string' && shared.title.trim() ? shared.title.trim() : 'Shared Song',
+    artist: typeof shared.artist === 'string' ? shared.artist.trim() : '',
+    key,
+    capo,
+    bpm,
+    tags: Array.isArray(shared.tags) ? shared.tags : [],
+    notes: typeof shared.notes === 'string' ? shared.notes : '',
+    referenceAudioUrl: typeof shared.referenceAudioUrl === 'string' ? shared.referenceAudioUrl.trim() : '',
+    favorite: Boolean(shared.favorite),
+    chart,
+    rawChordPro: typeof shared.rawChordPro === 'string' ? shared.rawChordPro : chart,
+    parsedChordPro: parseChordPro(chart),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function fetchSharedSong(shareId: string) {
+  const response = await fetch(`${openStageApiBaseUrl}/api/shared-song/${encodeURIComponent(shareId)}`);
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok || !body?.ok || !body.song) {
+    throw new Error(body?.error || 'Shared song not found or expired.');
+  }
+
+  return songFromSharedSong(body.song);
+}
+
 function songFromAiImport(imported: AiImportedSong): Song {
   const title = imported.title?.trim() || 'AI Imported Song';
   const artist = imported.artist?.trim() || 'Unknown artist';
@@ -645,6 +693,7 @@ export default function App() {
   if (isExternalPrompterRoute()) return <ExternalPrompterApp />;
   if (isDisplayRoute()) return <RemoteDisplayApp />;
 
+  const sharedImportId = getSharedImportIdFromPath();
   const [songs, setSongs] = useState<Song[]>([]);
   const [setlist, setSetlist] = useState<SetlistItem[]>([]);
   const [savedSetlists, setSavedSetlists] = useState<SavedSetlist[]>([]);
@@ -1105,6 +1154,15 @@ export default function App() {
     setActiveMode('editor');
     setAiImportOpen(false);
     setToast({ message: 'AI song imported', type: 'success' });
+  }
+
+  async function importSharedSong(song: Song) {
+    await saveSong(song);
+    setSelectedSongId(song.id);
+    setEditorReturnMode('library');
+    setActiveMode('editor');
+    setToast({ message: 'Song imported successfully.', type: 'success' });
+    window.history.replaceState({}, '', '/');
   }
 
   async function updateStageHarmony(songId: string, start: number, end: number, operation: StageHarmonyEditOperation) {
@@ -1875,6 +1933,26 @@ export default function App() {
     if (email) await signInWithEmail(email);
   }
 
+  if (sharedImportId) {
+    return (
+      <div className="min-h-screen bg-slate-100 text-slate-950">
+        {storageError ? (
+          <StorageErrorView message={storageError} />
+        ) : (
+          <SharedSongImportView
+            shareId={sharedImportId}
+            onImport={importSharedSong}
+            onCancel={() => {
+              window.history.replaceState({}, '', '/');
+              setActiveMode('library');
+            }}
+          />
+        )}
+        {toast && <Toast toast={toast} />}
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen ${isStageSurface ? getStageTheme(performanceState.stageTheme).className : 'bg-slate-100 text-slate-950'}`}>
       <header className={`${isStageSurface ? 'hidden' : 'sticky'} top-0 z-30 border-b border-slate-300 bg-slate-950 text-white`}>
@@ -2360,6 +2438,136 @@ function Toast({ toast }: { toast: Exclude<ToastState, null> }) {
         </button>
       )}
     </div>
+  );
+}
+
+function SharedSongImportView({
+  shareId,
+  onImport,
+  onCancel
+}: {
+  shareId: string;
+  onImport: (song: Song) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [state, setState] = useState<SharedSongImportState>({ status: 'loading', song: null, error: '' });
+  const [importing, setImporting] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSharedSong() {
+      setState({ status: 'loading', song: null, error: '' });
+      try {
+        const song = await fetchSharedSong(shareId);
+        if (!cancelled) setState({ status: 'ready', song, error: '' });
+      } catch {
+        if (!cancelled) setState({ status: 'error', song: null, error: 'Shared song not found or expired.' });
+      }
+    }
+
+    void loadSharedSong();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shareId]);
+
+  async function importSong() {
+    if (state.status !== 'ready' || importing) return;
+    setImporting(true);
+    setMessage('');
+    try {
+      await onImport(state.song);
+      setMessage('Song imported successfully.');
+    } catch {
+      setMessage('Import failed. Try again.');
+      setImporting(false);
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-100 px-4 py-8 text-slate-950 sm:px-6">
+      <section className="mx-auto grid max-w-4xl gap-5 rounded-xl border border-slate-300 bg-white p-5 shadow-xl sm:p-7">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-normal text-teal-700">OpenStage shared song</p>
+            <h1 className="mt-1 text-3xl font-semibold">Import Song</h1>
+          </div>
+          <button className="secondary-button" type="button" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+
+        {state.status === 'loading' && (
+          <div className="rounded-md border border-slate-300 bg-slate-50 p-5 text-sm font-semibold text-slate-700">
+            Loading shared song...
+          </div>
+        )}
+
+        {state.status === 'error' && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-5 text-amber-900">
+            <div className="flex items-center gap-2 font-semibold">
+              <AlertTriangle size={20} />
+              Shared song not found or expired.
+            </div>
+            <p className="mt-2 text-sm">Ask the sender to publish the song again if this link has expired.</p>
+          </div>
+        )}
+
+        {state.status === 'ready' && (
+          <>
+            <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Song title</div>
+                <div className="mt-1 text-xl font-semibold">{state.song.title}</div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Artist</div>
+                <div className="mt-1 text-xl font-semibold">{state.song.artist || 'Unknown artist'}</div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Key</div>
+                <div className="mt-1 font-semibold">{state.song.key || '-'}</div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Capo</div>
+                <div className="mt-1 font-semibold">{state.song.capo ?? 0}</div>
+              </div>
+              {state.song.bpm ? (
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">BPM</div>
+                  <div className="mt-1 font-semibold">{state.song.bpm}</div>
+                </div>
+              ) : null}
+            </div>
+
+            <div>
+              <div className="mb-2 text-sm font-semibold text-slate-700">Chart preview</div>
+              <pre className="max-h-[45vh] overflow-auto rounded-md border border-slate-300 bg-slate-950 p-4 font-mono text-sm leading-relaxed text-slate-50 whitespace-pre-wrap">
+                {state.song.chart || 'No chart text included.'}
+              </pre>
+            </div>
+
+            {message && (
+              <div className={`rounded-md border px-3 py-2 text-sm font-semibold ${message.includes('successfully') ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+                {message}
+              </div>
+            )}
+
+            <div className="flex flex-wrap justify-end gap-2">
+              <button className="secondary-button" type="button" onClick={onCancel} disabled={importing}>
+                Cancel
+              </button>
+              <button className="primary-button" type="button" onClick={() => void importSong()} disabled={importing}>
+                {importing ? 'Importing...' : 'Import to Library'}
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+    </main>
   );
 }
 
