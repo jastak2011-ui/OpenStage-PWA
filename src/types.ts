@@ -17,6 +17,13 @@ export type Song = {
   deezerTrackId?: string;
   lastFmUrl?: string;
   referenceAudioUrl?: string;
+  sharedSongId?: string;
+  sourceShareId?: string;
+  importedFromShareId?: string;
+  originSongId?: string;
+  songUuid?: string;
+  importedAt?: string;
+  sharedSource?: string;
   difficulty?: string;
   tuning?: string;
   originalKey?: string;

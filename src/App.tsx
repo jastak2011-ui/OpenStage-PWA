@@ -557,6 +557,12 @@ type SharedSongImportState =
   | { status: 'ready'; song: Song; error: '' }
   | { status: 'error'; song: null; error: string };
 
+type SharedSongDuplicate = {
+  existing: Song;
+  incoming: Song;
+  matchType: 'origin' | 'title-artist';
+};
+
 function buildPublishSongPayload(song: Song) {
   return {
     title: song.title,
@@ -619,11 +625,48 @@ function getSharedImportIdFromPath() {
   return match ? decodeURIComponent(match[1]) : '';
 }
 
-function songFromSharedSong(shared: Partial<Song>): Song {
+function normalizeDuplicateText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getSharedSongOriginIdentifiers(song: Partial<Song>, shareId?: string) {
+  return [
+    shareId,
+    song.importedFromShareId,
+    song.sourceShareId,
+    song.sharedSongId,
+    song.originSongId,
+    song.songUuid
+  ].filter((value): value is string => Boolean(typeof value === 'string' && value.trim())).map((value) => value.trim());
+}
+
+function findSharedSongDuplicate(songs: Song[], incoming: Song, shareId: string): SharedSongDuplicate | null {
+  const incomingIds = new Set(getSharedSongOriginIdentifiers(incoming, shareId));
+  const originMatch = songs.find((song) => getSharedSongOriginIdentifiers(song).some((id) => incomingIds.has(id)));
+  if (originMatch) return { existing: originMatch, incoming, matchType: 'origin' };
+
+  const incomingTitle = normalizeDuplicateText(incoming.title);
+  const incomingArtist = normalizeDuplicateText(incoming.artist);
+  if (!incomingTitle || !incomingArtist) return null;
+
+  const titleArtistMatch = songs.find((song) =>
+    normalizeDuplicateText(song.title) === incomingTitle &&
+    normalizeDuplicateText(song.artist) === incomingArtist
+  );
+
+  return titleArtistMatch ? { existing: titleArtistMatch, incoming, matchType: 'title-artist' } : null;
+}
+
+function songFromSharedSong(shared: Partial<Song>, shareId: string): Song {
   const chart = typeof shared.chart === 'string' ? shared.chart : '';
   const key = typeof shared.key === 'string' ? shared.key : '';
   const capo = Math.max(0, Math.round(Number(shared.capo ?? 0) || 0));
   const bpm = Number.isFinite(Number(shared.bpm)) && Number(shared.bpm) > 0 ? Math.round(Number(shared.bpm)) : 0;
+  const importedAt = new Date().toISOString();
 
   return {
     ...emptySong(),
@@ -641,6 +684,10 @@ function songFromSharedSong(shared: Partial<Song>): Song {
     chart,
     rawChordPro: typeof shared.rawChordPro === 'string' ? shared.rawChordPro : chart,
     parsedChordPro: parseChordPro(chart),
+    importedFromShareId: shareId,
+    sourceShareId: shareId,
+    importedAt,
+    sharedSource: 'OpenStage Share',
     updatedAt: new Date().toISOString()
   };
 }
@@ -653,7 +700,7 @@ async function fetchSharedSong(shareId: string) {
     throw new Error(body?.error || 'Shared song not found or expired.');
   }
 
-  return songFromSharedSong(body.song);
+  return songFromSharedSong(body.song, shareId);
 }
 
 function songFromAiImport(imported: AiImportedSong): Song {
@@ -1156,13 +1203,43 @@ export default function App() {
     setToast({ message: 'AI song imported', type: 'success' });
   }
 
-  async function importSharedSong(song: Song) {
-    await saveSong(song);
-    setSelectedSongId(song.id);
+  function openSongAfterSharedImport(songId: string) {
+    setSelectedSongId(songId);
     setEditorReturnMode('library');
     setActiveMode('editor');
-    setToast({ message: 'Song imported successfully.', type: 'success' });
     window.history.replaceState({}, '', '/');
+  }
+
+  async function importSharedSongAsCopy(song: Song) {
+    const nextSong = {
+      ...song,
+      id: createId('song'),
+      title: songs.some((existing) => existing.title === song.title && existing.artist === song.artist)
+        ? `${song.title} Copy`
+        : song.title,
+      importedAt: new Date().toISOString()
+    };
+    await saveSong(nextSong);
+    openSongAfterSharedImport(nextSong.id);
+    setToast({ message: 'Song imported successfully.', type: 'success' });
+  }
+
+  async function replaceSharedSong(existing: Song, shared: Song) {
+    const nextSong = {
+      ...shared,
+      id: existing.id,
+      favorite: existing.favorite,
+      displayPreference: existing.displayPreference ?? shared.displayPreference,
+      importedAt: new Date().toISOString()
+    };
+    await saveSong(nextSong);
+    openSongAfterSharedImport(existing.id);
+    setToast({ message: 'Song imported successfully.', type: 'success' });
+  }
+
+  function keepExistingSharedSong(existing: Song) {
+    openSongAfterSharedImport(existing.id);
+    setToast({ message: 'Opened existing song', type: 'info' });
   }
 
   async function updateStageHarmony(songId: string, start: number, end: number, operation: StageHarmonyEditOperation) {
@@ -1941,7 +2018,10 @@ export default function App() {
         ) : (
           <SharedSongImportView
             shareId={sharedImportId}
-            onImport={importSharedSong}
+            songs={songs}
+            onKeepExisting={keepExistingSharedSong}
+            onReplaceExisting={replaceSharedSong}
+            onImportCopy={importSharedSongAsCopy}
             onCancel={() => {
               window.history.replaceState({}, '', '/');
               setActiveMode('library');
@@ -2443,16 +2523,23 @@ function Toast({ toast }: { toast: Exclude<ToastState, null> }) {
 
 function SharedSongImportView({
   shareId,
-  onImport,
+  songs,
+  onKeepExisting,
+  onReplaceExisting,
+  onImportCopy,
   onCancel
 }: {
   shareId: string;
-  onImport: (song: Song) => Promise<void>;
+  songs: Song[];
+  onKeepExisting: (song: Song) => void;
+  onReplaceExisting: (existing: Song, shared: Song) => Promise<void>;
+  onImportCopy: (song: Song) => Promise<void>;
   onCancel: () => void;
 }) {
   const [state, setState] = useState<SharedSongImportState>({ status: 'loading', song: null, error: '' });
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState('');
+  const [duplicate, setDuplicate] = useState<SharedSongDuplicate | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2476,10 +2563,33 @@ function SharedSongImportView({
 
   async function importSong() {
     if (state.status !== 'ready' || importing) return;
+    const match = findSharedSongDuplicate(songs, state.song, shareId);
+    if (match) {
+      setDuplicate(match);
+      return;
+    }
+    await importCopy();
+  }
+
+  async function importCopy() {
+    if (state.status !== 'ready' || importing) return;
     setImporting(true);
     setMessage('');
     try {
-      await onImport(state.song);
+      await onImportCopy(state.song);
+      setMessage('Song imported successfully.');
+    } catch {
+      setMessage('Import failed. Try again.');
+      setImporting(false);
+    }
+  }
+
+  async function replaceExisting() {
+    if (state.status !== 'ready' || !duplicate || importing) return;
+    setImporting(true);
+    setMessage('');
+    try {
+      await onReplaceExisting(duplicate.existing, state.song);
       setMessage('Song imported successfully.');
     } catch {
       setMessage('Import failed. Try again.');
@@ -2518,6 +2628,43 @@ function SharedSongImportView({
 
         {state.status === 'ready' && (
           <>
+            {duplicate && (
+              <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-sm">
+                <section className="w-full max-w-lg rounded-xl border border-slate-300 bg-white p-5 shadow-2xl">
+                  <h2 className="text-xl font-semibold text-slate-950">This song already exists in your library.</h2>
+                  <div className="mt-4 grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Existing song</div>
+                      <div className="font-semibold text-slate-950">{duplicate.existing.title}</div>
+                      <div className="text-slate-600">{duplicate.existing.artist || 'Unknown artist'}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Shared song</div>
+                      <div className="font-semibold text-slate-950">{duplicate.incoming.title}</div>
+                      <div className="text-slate-600">{duplicate.incoming.artist || 'Unknown artist'}</div>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Match: {duplicate.matchType === 'origin' ? 'same shared/origin id' : 'matching title and artist'}
+                    </div>
+                  </div>
+                  <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                    <button className="primary-button" type="button" disabled={importing} onClick={() => onKeepExisting(duplicate.existing)}>
+                      Keep Current
+                    </button>
+                    <button className="secondary-button" type="button" disabled={importing} onClick={() => void replaceExisting()}>
+                      Replace Existing
+                    </button>
+                    <button className="secondary-button" type="button" disabled={importing} onClick={() => { setDuplicate(null); void importCopy(); }}>
+                      Import as Copy
+                    </button>
+                    <button className="secondary-button" type="button" disabled={importing} onClick={() => setDuplicate(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </section>
+              </div>
+            )}
+
             <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Song title</div>
