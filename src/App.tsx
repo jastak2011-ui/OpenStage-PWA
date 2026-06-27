@@ -604,7 +604,7 @@ async function publishSongToOpenStageApi(song: Song) {
   const body = await response.json().catch(() => null);
 
   if (!response.ok || !body?.ok || typeof body.shareUrl !== 'string') {
-    throw new Error(body?.error || 'Could not publish song.');
+    throw new Error(body?.error || 'Could not share song.');
   }
 
   return {
@@ -2512,7 +2512,7 @@ function SharedSongImportView({
               <AlertTriangle size={20} />
               Shared song not found or expired.
             </div>
-            <p className="mt-2 text-sm">Ask the sender to publish the song again if this link has expired.</p>
+            <p className="mt-2 text-sm">Ask the sender to share the song again if this link has expired.</p>
           </div>
         )}
 
@@ -5587,7 +5587,7 @@ function PerformanceView({
         shareUrl: result.shareUrl
       });
     } catch {
-      setPublishError('Could not publish song. Try again.');
+      setPublishError('Could not share song. Try again.');
     } finally {
       setPublishingSong(false);
     }
@@ -6476,7 +6476,7 @@ function PublishSongModal({
         className="w-full max-w-md rounded-xl border border-slate-600 bg-slate-950 p-5 text-slate-100 shadow-2xl"
         role="dialog"
         aria-modal="true"
-        aria-label={result ? 'Song Published' : publishing ? 'Publishing Song' : 'Publish Error'}
+        aria-label={result ? 'Song Shared' : publishing ? 'Sharing Song' : 'Share Error'}
         onClick={(event) => event.stopPropagation()}
       >
         {publishing && (
@@ -6484,7 +6484,7 @@ function PublishSongModal({
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-teal-300/40 bg-teal-300/10 text-teal-200">
               <Upload size={22} />
             </div>
-            <h2 className="text-xl font-semibold">Publishing song...</h2>
+            <h2 className="text-xl font-semibold">Sharing song...</h2>
           </div>
         )}
 
@@ -6493,7 +6493,7 @@ function PublishSongModal({
             <div>
               <div className="flex items-center gap-2 text-teal-200">
                 <CheckCircle size={22} />
-                <h2 className="text-xl font-semibold text-white">Song Published</h2>
+                <h2 className="text-xl font-semibold text-white">Song Shared</h2>
               </div>
               <p className="mt-2 text-sm text-slate-300">
                 {result.title}{result.artist ? ` by ${result.artist}` : ''}
@@ -6526,7 +6526,7 @@ function PublishSongModal({
           <div className="grid gap-4">
             <div className="flex items-center gap-2 text-amber-200">
               <AlertTriangle size={22} />
-              <h2 className="text-xl font-semibold text-white">Publish Failed</h2>
+              <h2 className="text-xl font-semibold text-white">Share Failed</h2>
             </div>
             <p className="text-sm text-slate-200">{error}</p>
             <div className="flex justify-end">
@@ -7100,7 +7100,7 @@ function StageControlPopover({
                 {currentStageSong.favorite ? 'Remove Favorite' : 'Add Favorite'}
               </button>
               <button className="stage-menu-button" type="button" onClick={onPublishSong} disabled={publishingSong}>
-                <Share2 size={18} /> {publishingSong ? 'Publishing song...' : 'Publish Song'}
+                <Share2 size={18} /> {publishingSong ? 'Sharing song...' : 'Share Song'}
               </button>
             </>
           )}
