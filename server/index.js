@@ -9,6 +9,8 @@ const port = Number(process.env.PORT) || 10000;
 const defaultPrompt = 'Say hello from OpenStage';
 const defaultAnthropicModel = 'claude-sonnet-4-6';
 const shareTtlMs = 7 * 24 * 60 * 60 * 1000;
+const roomTtlMs = 12 * 60 * 60 * 1000;
+const roomCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const openStageFrontendBaseUrl = 'https://openstage-pwa.onrender.com';
 
 const allowedOrigins = new Set([
@@ -83,6 +85,11 @@ function createShareId() {
   return randomBytes(4).toString('base64url');
 }
 
+function createRoomCode() {
+  const bytes = randomBytes(4);
+  return Array.from(bytes, (byte) => roomCodeAlphabet[byte % roomCodeAlphabet.length]).join('');
+}
+
 function normalizeSharedSong(song) {
   return {
     title: typeof song?.title === 'string' ? song.title.trim() : '',
@@ -153,6 +160,30 @@ async function getTableCount(supabase, tableName) {
   return count ?? 0;
 }
 
+async function insertRehearsalRoom(supabase, roomName, expiresAt) {
+  let lastError;
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const roomCode = createRoomCode();
+    const { data, error } = await supabase
+      .from('rehearsal_rooms')
+      .insert({
+        room_code: roomCode,
+        room_name: roomName,
+        expires_at: expiresAt.toISOString()
+      })
+      .select('id, room_code, room_name, expires_at')
+      .single();
+
+    if (!error) return data;
+
+    lastError = error;
+    if (error.code !== '23505') break;
+  }
+
+  throw lastError || new Error('Failed to create rehearsal room.');
+}
+
 app.get('/health', (_request, response) => {
   response.json({
     ok: true,
@@ -218,6 +249,63 @@ app.get('/api/room-status', async (_request, response) => {
     response.status(500).json({
       ok: false,
       error: 'Room status check failed.'
+    });
+  }
+});
+
+app.post('/api/rooms/create', async (request, response) => {
+  const displayName = typeof request.body?.displayName === 'string' ? request.body.displayName.trim() : '';
+  const deviceId = typeof request.body?.deviceId === 'string' ? request.body.deviceId.trim() : '';
+  const requestedRoomName = typeof request.body?.roomName === 'string' ? request.body.roomName.trim() : '';
+
+  if (!displayName || !deviceId) {
+    response.status(400).json({
+      ok: false,
+      error: 'Display name and device id are required.'
+    });
+    return;
+  }
+
+  try {
+    const supabase = createSupabaseClient();
+    const roomName = requestedRoomName || `${displayName}'s Room`;
+    const expiresAt = new Date(Date.now() + roomTtlMs);
+    const room = await insertRehearsalRoom(supabase, roomName, expiresAt);
+    const { error: memberError } = await supabase
+      .from('rehearsal_room_members')
+      .insert({
+        room_id: room.id,
+        display_name: displayName,
+        device_id: deviceId
+      });
+
+    if (memberError) throw memberError;
+
+    console.log('Rehearsal room created:', {
+      roomId: room.id,
+      roomCode: room.room_code,
+      roomName: room.room_name,
+      displayName,
+      expiresAt: room.expires_at
+    });
+
+    response.json({
+      ok: true,
+      room: {
+        id: room.id,
+        roomCode: room.room_code,
+        roomName: room.room_name,
+        expiresAt: room.expires_at
+      }
+    });
+  } catch (error) {
+    logSupabaseError('Room create failed', error, {
+      displayName,
+      deviceId
+    });
+    response.status(500).json({
+      ok: false,
+      error: 'Could not create room.'
     });
   }
 });
