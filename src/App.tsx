@@ -628,6 +628,25 @@ function getSharedImportIdFromPath() {
   return match ? decodeURIComponent(match[1]) : '';
 }
 
+function getPendingImportShareIdFromSearch() {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('pendingImportShareId')?.trim() ?? '';
+}
+
+function isIosBrowserContext() {
+  if (typeof navigator === 'undefined') return false;
+  const userAgent = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const maxTouchPoints = navigator.maxTouchPoints || 0;
+  return /iPad|iPhone|iPod/.test(userAgent) || (platform === 'MacIntel' && maxTouchPoints > 1);
+}
+
+function isStandalonePwaContext() {
+  if (typeof window === 'undefined') return false;
+  const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean };
+  return Boolean(navigatorWithStandalone.standalone || window.matchMedia?.('(display-mode: standalone)').matches);
+}
+
 function songFromSharedSong(shared: Partial<Song>, shareId: string): Song {
   const chart = typeof shared.chart === 'string' ? shared.chart : '';
   const key = typeof shared.key === 'string' ? shared.key : '';
@@ -714,6 +733,7 @@ export default function App() {
   if (isDisplayRoute()) return <RemoteDisplayApp />;
 
   const sharedImportId = getSharedImportIdFromPath();
+  const pendingImportShareId = getPendingImportShareIdFromSearch();
   const [songs, setSongs] = useState<Song[]>([]);
   const [setlist, setSetlist] = useState<SetlistItem[]>([]);
   const [savedSetlists, setSavedSetlists] = useState<SavedSetlist[]>([]);
@@ -726,6 +746,7 @@ export default function App() {
   const [selectedSongId, setSelectedSongId] = useState('');
   const [activeMode, setActiveMode] = useState<StageMode>('library');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sharedImportLandingBypassed, setSharedImportLandingBypassed] = useState(false);
   const [newSongMenuOpen, setNewSongMenuOpen] = useState(false);
   const [aiImportOpen, setAiImportOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -2013,14 +2034,32 @@ export default function App() {
     if (email) await signInWithEmail(email);
   }
 
-  if (sharedImportId) {
+  const activeSharedImportId = pendingImportShareId || sharedImportId;
+  const shouldShowSharedImportLanding = Boolean(
+    sharedImportId &&
+    !pendingImportShareId &&
+    isIosBrowserContext() &&
+    !isStandalonePwaContext() &&
+    !sharedImportLandingBypassed
+  );
+
+  if (activeSharedImportId) {
     return (
       <div className="min-h-screen bg-slate-100 text-slate-950">
         {storageError ? (
           <StorageErrorView message={storageError} />
+        ) : shouldShowSharedImportLanding ? (
+          <SharedSongImportLanding
+            shareId={sharedImportId}
+            onImportHere={() => setSharedImportLandingBypassed(true)}
+            onCancel={() => {
+              window.history.replaceState({}, '', '/');
+              setActiveMode('library');
+            }}
+          />
         ) : (
           <SharedSongImportView
-            shareId={sharedImportId}
+            shareId={activeSharedImportId}
             songs={songs}
             onKeepExisting={keepExistingSharedSong}
             onReplaceExisting={replaceSharedSong}
@@ -2232,6 +2271,10 @@ export default function App() {
           onWebpageChartImport={async (song) => {
             await saveSong(song);
             setToast({ message: 'Webpage chart imported', type: 'success' });
+          }}
+          onSharedSongCodeImport={(shareId) => {
+            window.history.replaceState({}, '', `/?pendingImportShareId=${encodeURIComponent(shareId)}`);
+            window.location.reload();
           }}
         />
       )}
@@ -2521,6 +2564,67 @@ function Toast({ toast }: { toast: Exclude<ToastState, null> }) {
         </button>
       )}
     </div>
+  );
+}
+
+function SharedSongImportLanding({
+  shareId,
+  onImportHere,
+  onCancel
+}: {
+  shareId: string;
+  onImportHere: () => void;
+  onCancel: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const pendingUrl = `/?pendingImportShareId=${encodeURIComponent(shareId)}`;
+
+  async function copyImportCode() {
+    try {
+      await navigator.clipboard?.writeText(shareId);
+      setCopied(true);
+    } catch {
+      window.prompt('Copy this OpenStage import code:', shareId);
+    }
+  }
+
+  function openInOpenStage() {
+    window.location.href = pendingUrl;
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-100 px-4 py-8 text-slate-950 sm:px-6">
+      <section className="mx-auto grid max-w-2xl gap-5 rounded-xl border border-slate-300 bg-white p-5 shadow-xl sm:p-7">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-normal text-teal-700">OpenStage shared song</p>
+          <h1 className="mt-1 text-3xl font-semibold">Import Song</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            To import into your installed OpenStage app, open this link from the Home Screen app. iOS keeps Safari storage separate from the installed app.
+          </p>
+        </div>
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+          If Open in OpenStage still opens Safari, open your Home Screen OpenStage app, go to Import, choose Shared Song Code, and paste this code.
+        </div>
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+          <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Import code</div>
+          <div className="mt-1 break-all font-mono text-lg font-semibold text-slate-950">{shareId}</div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button className="primary-button" type="button" onClick={openInOpenStage}>
+            Open in OpenStage
+          </button>
+          <button className="secondary-button" type="button" onClick={copyImportCode}>
+            {copied ? 'Copied' : 'Copy Import Code'}
+          </button>
+          <button className="secondary-button" type="button" onClick={onImportHere}>
+            Import Here
+          </button>
+          <button className="secondary-button" type="button" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -3327,12 +3431,14 @@ function ImportSongsView({
   songs,
   onImport,
   onJsonCsvImport,
-  onWebpageChartImport
+  onWebpageChartImport,
+  onSharedSongCodeImport
 }: {
   songs: Song[];
   onImport: (files: ImportCandidate[], strategy: DuplicateStrategy) => Promise<ImportSummary>;
   onJsonCsvImport: (file: File) => Promise<void>;
   onWebpageChartImport: (song: Song) => Promise<void>;
+  onSharedSongCodeImport: (shareId: string) => void;
 }) {
   const [strategy, setStrategy] = useState<DuplicateStrategy>('skip');
   const [pendingFiles, setPendingFiles] = useState<ImportCandidate[]>([]);
@@ -3342,6 +3448,8 @@ function ImportSongsView({
   const [webpagePasteText, setWebpagePasteText] = useState('');
   const [webpagePreview, setWebpagePreview] = useState<WebpageChartImportPreview | null>(null);
   const [isSavingPaste, setIsSavingPaste] = useState(false);
+  const [sharedSongCode, setSharedSongCode] = useState('');
+  const [sharedSongCodeError, setSharedSongCodeError] = useState('');
 
   async function addFiles(files: File[]) {
     const accepted = files.filter((file) => isSupportedSongImportFileName(file.name));
@@ -3390,6 +3498,16 @@ function ImportSongsView({
     }
   }
 
+  function importSharedSongCode() {
+    const code = sharedSongCode.trim();
+    if (!code) {
+      setSharedSongCodeError('Paste a shared song code first.');
+      return;
+    }
+    setSharedSongCodeError('');
+    onSharedSongCodeImport(code);
+  }
+
   return (
     <main className="min-h-[calc(100vh-105px)] p-4">
       <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[1fr_340px]">
@@ -3400,6 +3518,36 @@ function ImportSongsView({
               Import ChordPro files or OnSong .archive libraries with source chart text preserved for offline use.
             </p>
           </div>
+
+          <section className="rounded-md border border-teal-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold">Shared Song Code</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Paste an OpenStage shared song code to import directly into this app storage.
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input
+                className="input flex-1 font-mono"
+                value={sharedSongCode}
+                placeholder="Paste shared song code"
+                onChange={(event) => {
+                  setSharedSongCode(event.target.value);
+                  if (sharedSongCodeError) setSharedSongCodeError('');
+                }}
+              />
+              <button className="primary-button" type="button" onClick={importSharedSongCode}>
+                Import Shared Song
+              </button>
+            </div>
+            {sharedSongCodeError && (
+              <div className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+                {sharedSongCodeError}
+              </div>
+            )}
+          </section>
 
           <section className="rounded-md border border-teal-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
