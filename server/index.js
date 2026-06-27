@@ -144,6 +144,15 @@ async function insertSharedSong(supabase, song, expiresAt) {
   throw lastError || new Error('Failed to create shared song.');
 }
 
+async function getTableCount(supabase, tableName) {
+  const { count, error } = await supabase
+    .from(tableName)
+    .select('*', { count: 'exact', head: true });
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
 app.get('/health', (_request, response) => {
   response.json({
     ok: true,
@@ -166,15 +175,11 @@ app.get('/supabase-status', (_request, response) => {
 app.get('/supabase-test', async (_request, response) => {
   try {
     const supabase = createSupabaseClient();
-    const { count, error } = await supabase
-      .from('shared_songs')
-      .select('*', { count: 'exact', head: true });
-
-    if (error) throw error;
+    const count = await getTableCount(supabase, 'shared_songs');
 
     response.json({
       ok: true,
-      count: count ?? 0
+      count
     });
   } catch (error) {
     if (error?.message === 'Supabase is not configured.') {
@@ -189,6 +194,30 @@ app.get('/supabase-test', async (_request, response) => {
     response.status(500).json({
       ok: false,
       error: 'Supabase test failed.'
+    });
+  }
+});
+
+app.get('/api/room-status', async (_request, response) => {
+  try {
+    const supabase = createSupabaseClient();
+    const [rooms, members, events] = await Promise.all([
+      getTableCount(supabase, 'rehearsal_rooms'),
+      getTableCount(supabase, 'rehearsal_room_members'),
+      getTableCount(supabase, 'rehearsal_room_events')
+    ]);
+
+    response.json({
+      ok: true,
+      rooms,
+      members,
+      events
+    });
+  } catch (error) {
+    logSupabaseError('Room status check failed', error);
+    response.status(500).json({
+      ok: false,
+      error: 'Room status check failed.'
     });
   }
 });
