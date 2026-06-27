@@ -1,16 +1,22 @@
 import Anthropic from '@anthropic-ai/sdk';
 import cors from 'cors';
 import express from 'express';
+import { randomBytes } from 'node:crypto';
 
 const app = express();
 const port = Number(process.env.PORT) || 10000;
 const defaultPrompt = 'Say hello from OpenStage';
 const defaultAnthropicModel = 'claude-sonnet-4-6';
+const shareTtlMs = 7 * 24 * 60 * 60 * 1000;
+const openStageFrontendBaseUrl = 'https://openstage-pwa.onrender.com';
+const sharedSongs = new Map();
 
 const allowedOrigins = new Set([
   'https://openstage-pwa.onrender.com',
   'http://localhost:5173',
-  'http://127.0.0.1:5173'
+  'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173'
 ]);
 
 app.use(cors({
@@ -73,6 +79,40 @@ function normalizeImportedSong(song, fallback) {
   };
 }
 
+function createShareId() {
+  return randomBytes(4).toString('base64url');
+}
+
+function createUniqueShareId() {
+  let id = createShareId();
+  while (sharedSongs.has(id)) id = createShareId();
+  return id;
+}
+
+function normalizeSharedSong(song) {
+  return {
+    title: typeof song?.title === 'string' ? song.title.trim() : '',
+    artist: typeof song?.artist === 'string' ? song.artist.trim() : '',
+    key: typeof song?.key === 'string' ? song.key.trim() : '',
+    capo: Number.isFinite(Number(song?.capo)) ? Math.max(0, Math.round(Number(song.capo))) : 0,
+    bpm: Number.isFinite(Number(song?.bpm)) && Number(song.bpm) > 0 ? Math.round(Number(song.bpm)) : null,
+    chart: typeof song?.chart === 'string' ? song.chart : '',
+    notes: typeof song?.notes === 'string' ? song.notes : '',
+    referenceAudioUrl: typeof song?.referenceAudioUrl === 'string' ? song.referenceAudioUrl.trim() : '',
+    favorite: Boolean(song?.favorite)
+  };
+}
+
+function isShareExpired(share) {
+  return !share || new Date(share.expiresAt).getTime() <= Date.now();
+}
+
+function deleteExpiredShares() {
+  for (const [id, share] of sharedSongs.entries()) {
+    if (isShareExpired(share)) sharedSongs.delete(id);
+  }
+}
+
 app.get('/health', (_request, response) => {
   response.json({
     ok: true,
@@ -83,6 +123,12 @@ app.get('/health', (_request, response) => {
 app.get('/anthropic-status', (_request, response) => {
   response.json({
     configured: Boolean(process.env.ANTHROPIC_API_KEY)
+  });
+});
+
+app.get('/supabase-status', (_request, response) => {
+  response.json({
+    configured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY)
   });
 });
 
@@ -200,6 +246,68 @@ app.post('/api/ai-import-song', async (request, response) => {
       error: 'AI import failed.'
     });
   }
+});
+
+app.post('/api/share-song', (request, response) => {
+  deleteExpiredShares();
+  const song = normalizeSharedSong(request.body?.song);
+
+  if (!song.title || !song.chart) {
+    response.status(400).json({
+      ok: false,
+      error: 'Song title and chart are required.'
+    });
+    return;
+  }
+
+  const id = createUniqueShareId();
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + shareTtlMs);
+  sharedSongs.set(id, {
+    id,
+    song,
+    createdAt: createdAt.toISOString(),
+    expiresAt: expiresAt.toISOString()
+  });
+
+  console.log('Shared song created:', {
+    id,
+    title: song.title,
+    artist: song.artist,
+    expiresAt: expiresAt.toISOString()
+  });
+
+  response.json({
+    ok: true,
+    shareId: id,
+    shareUrl: `${openStageFrontendBaseUrl}/import-song/${id}`
+  });
+});
+
+app.get('/api/shared-song/:id', (request, response) => {
+  deleteExpiredShares();
+  const id = String(request.params.id || '').trim();
+  const share = sharedSongs.get(id);
+
+  if (!share || isShareExpired(share)) {
+    if (share) sharedSongs.delete(id);
+    response.status(404).json({
+      ok: false,
+      error: 'Shared song not found or expired.'
+    });
+    return;
+  }
+
+  console.log('Shared song retrieved:', {
+    id,
+    title: share.song.title,
+    artist: share.song.artist
+  });
+
+  response.json({
+    ok: true,
+    song: share.song
+  });
 });
 
 app.listen(port, () => {
