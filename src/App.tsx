@@ -6,6 +6,7 @@ import {
   ChevronRight,
   ChevronsDown,
   CheckCircle,
+  Copy,
   Download,
   Expand,
   FileJson,
@@ -30,6 +31,7 @@ import {
   Save,
   Search,
   Settings,
+  Share2,
   Sparkles,
   Star,
   Sun,
@@ -543,6 +545,68 @@ type AiImportedSong = {
   bpm?: number | null;
   chart?: string;
 };
+
+type PublishedSongResult = {
+  title: string;
+  artist: string;
+  shareUrl: string;
+};
+
+function buildPublishSongPayload(song: Song) {
+  return {
+    title: song.title,
+    subtitle: song.subtitle,
+    artist: song.artist,
+    album: song.album,
+    key: song.key,
+    capo: song.capo,
+    bpm: song.bpm,
+    timeSignature: song.timeSignature,
+    tags: song.tags,
+    notes: song.notes,
+    bandNotes: song.bandNotes,
+    rehearsalNotes: song.rehearsalNotes,
+    referenceAudioUrl: song.referenceAudioUrl,
+    favorite: song.favorite,
+    chart: song.chart,
+    rawChordPro: song.rawChordPro,
+    displayPreference: song.displayPreference,
+    genre: song.genre,
+    difficulty: song.difficulty,
+    tuning: song.tuning,
+    originalKey: song.originalKey,
+    performanceKey: song.performanceKey,
+    durationSeconds: song.durationSeconds,
+    year: song.year,
+    vocalRange: song.vocalRange,
+    vocalDifficulty: song.vocalDifficulty,
+    crowdScore: song.crowdScore,
+    energy: song.energy,
+    danceability: song.danceability
+  };
+}
+
+async function publishSongToOpenStageApi(song: Song) {
+  const response = await fetch(`${openStageApiBaseUrl}/api/share-song`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      song: buildPublishSongPayload(song)
+    })
+  });
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok || !body?.ok || typeof body.shareUrl !== 'string') {
+    throw new Error(body?.error || 'Could not publish song.');
+  }
+
+  return {
+    shareId: String(body.shareId || ''),
+    shareUrl: body.shareUrl
+  };
+}
 
 function songFromAiImport(imported: AiImportedSong): Song {
   const title = imported.title?.trim() || 'AI Imported Song';
@@ -5051,6 +5115,9 @@ function PerformanceView({
   const [tempoMessage, setTempoMessage] = useState('');
   const [tempoPanelOpen, setTempoPanelOpen] = useState(false);
   const [tempoCountdownSeconds, setTempoCountdownSeconds] = useState<number | null>(null);
+  const [publishingSong, setPublishingSong] = useState(false);
+  const [publishResult, setPublishResult] = useState<PublishedSongResult | null>(null);
+  const [publishError, setPublishError] = useState('');
   const [stageTempoBpm, setStageTempoBpm] = useState(() => normalizeTempoBpm(song.bpm) ?? 0);
   const [tempoInput, setTempoInput] = useState(() => {
     const bpm = normalizeTempoBpm(song.bpm);
@@ -5298,6 +5365,25 @@ function PerformanceView({
     closeSpeedPopover();
     setActivePopover((current) => current === 'format' ? null : 'format');
   }, [closeSpeedPopover]);
+  const publishCurrentSong = useCallback(async () => {
+    if (publishingSong) return;
+    setActivePopover(null);
+    setPublishError('');
+    setPublishingSong(true);
+
+    try {
+      const result = await publishSongToOpenStageApi(song);
+      setPublishResult({
+        title: song.title,
+        artist: song.artist,
+        shareUrl: result.shareUrl
+      });
+    } catch {
+      setPublishError('Could not publish song. Try again.');
+    } finally {
+      setPublishingSong(false);
+    }
+  }, [publishingSong, song]);
   const handleStageTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     if (activePopover || selectionAction || isInteractiveSwipeTarget(event.target)) {
       swipeStartRef.current = null;
@@ -5545,6 +5631,8 @@ function PerformanceView({
               setActivePopover(null);
             }}
             onToggleFavorite={onToggleFavorite}
+            onPublishSong={() => void publishCurrentSong()}
+            publishingSong={publishingSong}
             onRunStageSetlist={(setlist) => {
               onRunStageSetlist(setlist);
               setActivePopover(null);
@@ -5565,6 +5653,19 @@ function PerformanceView({
             onSync={onSync}
           />
         </div>
+      )}
+
+      {(publishingSong || publishResult || publishError) && (
+        <PublishSongModal
+          result={publishResult}
+          error={publishError}
+          publishing={publishingSong}
+          onClose={() => {
+            if (publishingSong) return;
+            setPublishResult(null);
+            setPublishError('');
+          }}
+        />
       )}
 
       <div className={`stage-autoscroll-status pointer-events-none absolute bottom-5 left-5 z-20 rounded-full px-3 py-1 text-xs font-semibold transition-opacity duration-300 ${isAutoscrolling ? 'bg-teal-500/15 text-teal-200' : 'bg-black/20 text-slate-300'}`}>
@@ -6122,6 +6223,116 @@ function TempoAdjustmentPanel({
   );
 }
 
+function PublishSongModal({
+  result,
+  error,
+  publishing,
+  onClose
+}: {
+  result: PublishedSongResult | null;
+  error: string;
+  publishing: boolean;
+  onClose: () => void;
+}) {
+  const [copyMessage, setCopyMessage] = useState('');
+  const canShare = Boolean(result && typeof navigator !== 'undefined' && 'share' in navigator);
+
+  async function copyLink() {
+    if (!result) return;
+
+    try {
+      await navigator.clipboard.writeText(result.shareUrl);
+      setCopyMessage('Link copied.');
+    } catch {
+      setCopyMessage('Copy failed. Select the link manually.');
+    }
+  }
+
+  async function shareLink() {
+    if (!result || !canShare) return;
+
+    try {
+      await navigator.share({
+        title: 'OpenStage Song',
+        text: `${result.title} by ${result.artist || 'Unknown artist'}`,
+        url: result.shareUrl
+      });
+    } catch {
+      // Native share cancellation should not become an app error.
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
+      <section
+        className="w-full max-w-md rounded-xl border border-slate-600 bg-slate-950 p-5 text-slate-100 shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label={result ? 'Song Published' : publishing ? 'Publishing Song' : 'Publish Error'}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {publishing && (
+          <div className="grid gap-3 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-teal-300/40 bg-teal-300/10 text-teal-200">
+              <Upload size={22} />
+            </div>
+            <h2 className="text-xl font-semibold">Publishing song...</h2>
+          </div>
+        )}
+
+        {!publishing && result && (
+          <div className="grid gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-teal-200">
+                <CheckCircle size={22} />
+                <h2 className="text-xl font-semibold text-white">Song Published</h2>
+              </div>
+              <p className="mt-2 text-sm text-slate-300">
+                {result.title}{result.artist ? ` by ${result.artist}` : ''}
+              </p>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-normal text-slate-400">Share URL</label>
+              <div className="break-all rounded-md border border-slate-700 bg-black/25 p-3 font-mono text-sm text-teal-100">
+                {result.shareUrl}
+              </div>
+            </div>
+            {copyMessage && <div className="rounded-md border border-teal-300/30 bg-teal-300/10 px-3 py-2 text-sm font-semibold text-teal-100">{copyMessage}</div>}
+            <div className="flex flex-wrap justify-end gap-2">
+              <button className="stage-menu-button" type="button" onClick={copyLink}>
+                <Copy size={18} /> Copy Link
+              </button>
+              {canShare && (
+                <button className="stage-menu-button" type="button" onClick={shareLink}>
+                  <Share2 size={18} /> Share
+                </button>
+              )}
+              <button className="stage-menu-button" type="button" onClick={onClose}>
+                <X size={18} /> Close
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!publishing && error && (
+          <div className="grid gap-4">
+            <div className="flex items-center gap-2 text-amber-200">
+              <AlertTriangle size={22} />
+              <h2 className="text-xl font-semibold text-white">Publish Failed</h2>
+            </div>
+            <p className="text-sm text-slate-200">{error}</p>
+            <div className="flex justify-end">
+              <button className="stage-menu-button" type="button" onClick={onClose}>
+                <X size={18} /> Close
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function StageControlPopover({
   active,
   formatTab,
@@ -6140,6 +6351,8 @@ function StageControlPopover({
   onSelectStageSong,
   onNewSongAction,
   onToggleFavorite,
+  onPublishSong,
+  publishingSong,
   onRunStageSetlist,
   effectiveCapo,
   onChangeSongCapo,
@@ -6173,6 +6386,8 @@ function StageControlPopover({
   onSelectStageSong: (songId: string) => void;
   onNewSongAction: (action: NewSongAction) => void;
   onToggleFavorite: (songId: string) => void;
+  onPublishSong: () => void;
+  publishingSong: boolean;
   onRunStageSetlist: (setlist: SavedSetlist) => void;
   effectiveCapo: number;
   onChangeSongCapo: (capo: number) => void;
@@ -6671,10 +6886,15 @@ function StageControlPopover({
         <div className="grid gap-3">
           <StagePopoverTitle title="More" />
           {currentStageSong && (
-            <button className="stage-menu-button" type="button" onClick={() => onToggleFavorite(currentStageSong.id)}>
-              <Star size={18} fill={currentStageSong.favorite ? 'currentColor' : 'none'} />
-              {currentStageSong.favorite ? 'Remove Favorite' : 'Add Favorite'}
-            </button>
+            <>
+              <button className="stage-menu-button" type="button" onClick={() => onToggleFavorite(currentStageSong.id)}>
+                <Star size={18} fill={currentStageSong.favorite ? 'currentColor' : 'none'} />
+                {currentStageSong.favorite ? 'Remove Favorite' : 'Add Favorite'}
+              </button>
+              <button className="stage-menu-button" type="button" onClick={onPublishSong} disabled={publishingSong}>
+                <Share2 size={18} /> {publishingSong ? 'Publishing song...' : 'Publish Song'}
+              </button>
+            </>
           )}
           <button className="stage-menu-button stage-phone-only" type="button" onClick={onEdit}>
             <Pencil size={18} /> Edit Song
