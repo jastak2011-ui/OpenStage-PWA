@@ -2616,7 +2616,22 @@ function SharedSongImportLanding({
   onCancel: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const pendingUrl = `/?pendingImportShareId=${encodeURIComponent(shareId)}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function autoCopy() {
+      try {
+        await navigator.clipboard?.writeText(shareId);
+        if (!cancelled) setCopied(true);
+      } catch {
+        // Clipboard writes often require a user gesture on iOS Safari.
+      }
+    }
+    void autoCopy();
+    return () => {
+      cancelled = true;
+    };
+  }, [shareId]);
 
   async function copyImportCode() {
     try {
@@ -2627,41 +2642,45 @@ function SharedSongImportLanding({
     }
   }
 
-  function openInOpenStage() {
-    window.location.href = pendingUrl;
-  }
-
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 text-slate-950 sm:px-6">
       <section className="mx-auto grid max-w-2xl gap-5 rounded-xl border border-slate-300 bg-white p-5 shadow-xl sm:p-7">
         <div>
           <p className="text-sm font-semibold uppercase tracking-normal text-teal-700">OpenStage shared song</p>
-          <h1 className="mt-1 text-3xl font-semibold">Import Song</h1>
+          <h1 className="mt-1 text-3xl font-semibold">Receive Song</h1>
           <p className="mt-3 text-sm leading-6 text-slate-600">
-            To import into your installed OpenStage app, open this link from the Home Screen app. iOS keeps Safari storage separate from the installed app.
+            iOS keeps Safari storage separate from the installed Home Screen app. Use this code to receive the song inside the OpenStage app you actually perform from.
           </p>
         </div>
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-          If Open in OpenStage still opens Safari, open your Home Screen OpenStage app, choose Receive Song, and paste this code.
+        <div className="rounded-xl border border-teal-200 bg-teal-50 p-5 text-center">
+          <div className="text-xs font-semibold uppercase tracking-normal text-teal-800">Share Code</div>
+          <div className="mt-2 break-all font-mono text-4xl font-bold tracking-[0.18em] text-slate-950">{shareId}</div>
+          {copied && <div className="mt-3 rounded-full bg-teal-700 px-3 py-1 text-sm font-semibold text-white">Share code copied</div>}
         </div>
         <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
-          <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">Import code</div>
-          <div className="mt-1 break-all font-mono text-lg font-semibold text-slate-950">{shareId}</div>
+          <div className="font-semibold text-slate-950">Using the installed OpenStage app?</div>
+          <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-slate-700">
+            <li>Tap Copy Code</li>
+            <li>Open OpenStage from your Home Screen</li>
+            <li>Tap + New Song</li>
+            <li>Choose Receive Song</li>
+            <li>Paste the code</li>
+          </ol>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
-          <button className="primary-button" type="button" onClick={openInOpenStage}>
-            Open in OpenStage
-          </button>
-          <button className="secondary-button" type="button" onClick={copyImportCode}>
-            {copied ? 'Copied' : 'Copy Import Code'}
+          <button className="primary-button" type="button" onClick={copyImportCode}>
+            {copied ? 'Copy Code Again' : 'Copy Code'}
           </button>
           <button className="secondary-button" type="button" onClick={onImportHere}>
-            Import Here
+            Import Here in Browser
           </button>
-          <button className="secondary-button" type="button" onClick={onCancel}>
+          <button className="secondary-button sm:col-span-2" type="button" onClick={onCancel}>
             Cancel
           </button>
         </div>
+        <p className="text-sm leading-6 text-slate-600">
+          Import Here in Browser saves only to this browser context. If this page opened in Safari, the installed OpenStage Home Screen app will not see that import.
+        </p>
       </section>
     </main>
   );
