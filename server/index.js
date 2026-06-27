@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@supabase/supabase-js';
 import cors from 'cors';
 import express from 'express';
 import { randomBytes } from 'node:crypto';
@@ -130,6 +131,45 @@ app.get('/supabase-status', (_request, response) => {
   response.json({
     configured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY)
   });
+});
+
+app.get('/supabase-test', async (_request, response) => {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) {
+    response.status(500).json({
+      ok: false,
+      error: 'Supabase is not configured.'
+    });
+    return;
+  }
+
+  try {
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    });
+    const { count, error } = await supabase
+      .from('shared_songs')
+      .select('*', { count: 'exact', head: true });
+
+    if (error) throw error;
+
+    response.json({
+      ok: true,
+      count: count ?? 0
+    });
+  } catch (error) {
+    console.error('Supabase test failed:', {
+      message: error?.message,
+      code: error?.code,
+      details: error?.details
+    });
+    response.status(500).json({
+      ok: false,
+      error: 'Supabase test failed.'
+    });
+  }
 });
 
 app.post('/api/test-anthropic', async (request, response) => {
