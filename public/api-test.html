@@ -147,6 +147,7 @@
           <select id="endpoint">
             <option value="test-anthropic">Test Anthropic</option>
             <option value="share-song">Share Song</option>
+            <option value="create-room">Create Room</option>
           </select>
         </div>
 
@@ -163,6 +164,15 @@
     "artist": "OpenStage",
     "chart": "Intro:\nC G Am F"
   }
+}</textarea>
+        </div>
+
+        <div id="create-room-fields" hidden>
+          <label for="room-json">Create Room Request JSON</label>
+          <textarea id="room-json">{
+  "roomName": "Test Rehearsal",
+  "displayName": "Al",
+  "deviceId": "test-device-001"
 }</textarea>
         </div>
 
@@ -192,14 +202,17 @@
       const backendBaseUrl = 'https://openstage-api.onrender.com';
       const endpoints = {
         'test-anthropic': '/api/test-anthropic',
-        'share-song': '/api/share-song'
+        'share-song': '/api/share-song',
+        'create-room': '/api/rooms/create'
       };
 
       const endpointSelect = document.getElementById('endpoint');
       const testAnthropicFields = document.getElementById('test-anthropic-fields');
       const shareSongFields = document.getElementById('share-song-fields');
+      const createRoomFields = document.getElementById('create-room-fields');
       const promptBox = document.getElementById('prompt');
       const shareJsonBox = document.getElementById('share-json');
+      const roomJsonBox = document.getElementById('room-json');
       const sendButton = document.getElementById('send');
       const copyButton = document.getElementById('copy-response');
       const statusBox = document.getElementById('status');
@@ -217,13 +230,15 @@
         const path = endpoints[selected];
         const url = `${backendBaseUrl}${path}`;
 
-        if (selected === 'share-song') {
+        if (selected === 'share-song' || selected === 'create-room') {
+          const editor = selected === 'share-song' ? shareJsonBox : roomJsonBox;
+          const label = selected === 'share-song' ? 'Share Song' : 'Create Room';
           let body;
           try {
-            body = JSON.parse(shareJsonBox.value);
+            body = JSON.parse(editor.value);
           } catch {
             body = {
-              error: 'Invalid JSON in Share Song request editor.'
+              error: `Invalid JSON in ${label} request editor.`
             };
           }
 
@@ -231,7 +246,7 @@
             url,
             displayUrl: `POST ${url}`,
             body,
-            rawBody: shareJsonBox.value
+            rawBody: editor.value
           };
         }
 
@@ -246,8 +261,10 @@
 
       function updateVisibleFields() {
         const isShareSong = endpointSelect.value === 'share-song';
-        testAnthropicFields.hidden = isShareSong;
+        const isCreateRoom = endpointSelect.value === 'create-room';
+        testAnthropicFields.hidden = isShareSong || isCreateRoom;
         shareSongFields.hidden = !isShareSong;
+        createRoomFields.hidden = !isCreateRoom;
         const request = buildRequest();
         requestUrlBox.textContent = request.displayUrl;
         requestJsonBox.textContent = pretty(request.body);
@@ -273,7 +290,7 @@
       sendButton.addEventListener('click', async () => {
         const request = buildRequest();
 
-        if (request.body && request.body.error === 'Invalid JSON in Share Song request editor.') {
+        if (request.body && typeof request.body.error === 'string' && request.body.error.startsWith('Invalid JSON in ')) {
           requestUrlBox.textContent = request.displayUrl;
           requestJsonBox.textContent = request.body.error;
           httpStatusBox.textContent = 'Not sent';
@@ -281,7 +298,7 @@
             ok: false,
             error: request.body.error
           });
-          statusBox.textContent = 'Fix the Share Song JSON before sending.';
+          statusBox.textContent = 'Fix the request JSON before sending.';
           return;
         }
 
@@ -345,7 +362,7 @@
       });
 
       endpointSelect.addEventListener('change', updateVisibleFields);
-      [promptBox, shareJsonBox].forEach((input) => {
+      [promptBox, shareJsonBox, roomJsonBox].forEach((input) => {
         input.addEventListener('input', () => {
           const request = buildRequest();
           requestUrlBox.textContent = request.displayUrl;
