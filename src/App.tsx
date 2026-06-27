@@ -1655,7 +1655,6 @@ export default function App() {
     setIsAutoscrolling(false);
     updateAutoscrollDebugFromController(reason === 'user-paused' ? 'paused' : 'stopped', reason);
     flushStageScrollSave();
-    if (message) setToast({ message, type: reason === 'reached-end' || reason === 'no-overflow' ? 'info' : 'error' });
   }
 
   function applyAutoscrollSpeedPlan(controller: AutoscrollController, plan: AutoscrollSpeedPlan) {
@@ -1719,7 +1718,6 @@ export default function App() {
   function beginAutoscrollLoop(controller: AutoscrollController) {
     const target = resolveAutoscrollTarget(stageRef.current);
     if (!target) {
-      setToast({ message: 'No scroll target found', type: 'error' });
       controller.target = null;
       updateAutoscrollDebugFromController('no target', 'no-scroll-target');
       return;
@@ -1728,7 +1726,6 @@ export default function App() {
     const before = getAutoscrollMetrics(target);
     const speedPlan = getAutoscrollSpeedPlan(selectedSong, before, performanceState);
     if (speedPlan.durationSource === 'manual-duration' && speedPlan.pixelsPerSecond <= 0) {
-      setToast({ message: 'Invalid duration for autoscroll', type: 'error' });
       controller.target = target;
       applyAutoscrollSpeedPlan(controller, speedPlan);
       updateAutoscrollDebugFromController('invalid duration', 'invalid-duration');
@@ -1739,7 +1736,7 @@ export default function App() {
       controller.target = target;
       controller.maxScroll = before.maxScroll;
       applyAutoscrollSpeedPlan(controller, speedPlan);
-      stopAutoscroll('no-overflow', 'Song fits on screen - nothing to scroll');
+      stopAutoscroll('no-overflow');
       return;
     }
 
@@ -6030,7 +6027,6 @@ function PerformanceView({
   const harmonyUnderline = getEffectiveHarmonyUnderline(state);
   const harmonyIconVisible = getEffectiveHarmonyIconVisible(state);
   const visibleStageNotes = filterStageNotes(song.notes);
-  const autoscrollStatus = isAutoscrolling ? 'Running' : autoscrollDebug.stopReason === 'none' || autoscrollDebug.stopReason === 'user-paused' ? 'Paused' : 'Stopped';
   const currentScrollSpeed = normalizeAutoscrollSpeedMultiplier(state.autoscrollSpeed);
   const useBottomHarmonyActionBar = shouldUseBottomHarmonyActionBar();
   const isWarmTheme = state.stageTheme === 'coffeehouse';
@@ -6532,9 +6528,6 @@ function PerformanceView({
         />
       )}
 
-      <div className={`stage-autoscroll-status pointer-events-none absolute bottom-5 left-5 z-20 rounded-full px-3 py-1 text-xs font-semibold transition-opacity duration-300 ${isAutoscrolling ? 'bg-teal-500/15 text-teal-200' : 'bg-black/20 text-slate-300'}`}>
-        Autoscroll {autoscrollStatus}
-      </div>
       {state.castReceiverEnabled && (
         <div className="pointer-events-none absolute bottom-14 left-5 z-20 rounded-lg border border-teal-300/30 bg-black/25 px-3 py-2 text-xs font-semibold text-teal-100 backdrop-blur-sm">
           <div>External Display Connected</div>
