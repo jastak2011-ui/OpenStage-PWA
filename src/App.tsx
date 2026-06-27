@@ -837,6 +837,12 @@ export default function App() {
   const scrollSaveTimeoutRef = useRef<number | null>(null);
   const pendingScrollPositionRef = useRef<{ songId: string; scrollTop: number } | null>(null);
   const restoredScrollSongRef = useRef('');
+  const isUserScrollingRef = useRef(false);
+  const lastUserScrollTopRef = useRef(0);
+  const autoscrollStartScrollTopRef = useRef(0);
+  const autoscrollStartTimeRef = useRef(0);
+  const lastProgrammaticScrollTopRef = useRef<number | null>(null);
+  const userScrollResumeTimerRef = useRef<number | null>(null);
 
   const songMap = useMemo(() => new Map(songs.map((song) => [song.id, song])), [songs]);
   const selectedSong = songMap.get(selectedSongId) ?? songs[0];
@@ -1073,6 +1079,12 @@ export default function App() {
     }, 250);
     return () => window.clearInterval(heartbeat);
   }, [isAutoscrolling]);
+
+  useEffect(() => {
+    return () => {
+      clearUserScrollResumeTimer();
+    };
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -1581,6 +1593,7 @@ export default function App() {
   }
 
   function saveStageScroll(songId: string, scrollTop: number) {
+    handleManualAutoscrollScroll(scrollTop);
     pendingScrollPositionRef.current = { songId, scrollTop };
     if (autoscrollControllerRef.current.active) return;
     scheduleStageScrollSave();
@@ -1608,6 +1621,54 @@ export default function App() {
         }
       });
     });
+  }
+
+  function clearUserScrollResumeTimer() {
+    if (userScrollResumeTimerRef.current !== null) {
+      window.clearTimeout(userScrollResumeTimerRef.current);
+      userScrollResumeTimerRef.current = null;
+    }
+  }
+
+  function resumeAutoscrollFromCurrentPosition() {
+    const controller = autoscrollControllerRef.current;
+    const target = controller.target ?? resolveAutoscrollTarget(stageRef.current);
+    if (!controller.active || !target) {
+      isUserScrollingRef.current = false;
+      return;
+    }
+    const metrics = getAutoscrollMetrics(target);
+    controller.virtualScrollTop = metrics.scrollTopAfter;
+    controller.previousScrollTop = metrics.scrollTopAfter;
+    controller.maxScroll = metrics.maxScroll;
+    controller.lastFrameTimestamp = null;
+    controller.lastFrameAtMs = performance.now();
+    controller.lastScrollChangeAtMs = performance.now();
+    autoscrollStartScrollTopRef.current = metrics.scrollTopAfter;
+    autoscrollStartTimeRef.current = performance.now();
+    lastUserScrollTopRef.current = metrics.scrollTopAfter;
+    isUserScrollingRef.current = false;
+  }
+
+  function handleManualAutoscrollScroll(scrollTop: number) {
+    const controller = autoscrollControllerRef.current;
+    if (!controller.active) return;
+    const lastProgrammaticScrollTop = lastProgrammaticScrollTopRef.current;
+    if (lastProgrammaticScrollTop !== null && Math.abs(scrollTop - lastProgrammaticScrollTop) < 0.75) return;
+
+    isUserScrollingRef.current = true;
+    lastUserScrollTopRef.current = scrollTop;
+    controller.virtualScrollTop = scrollTop;
+    controller.previousScrollTop = scrollTop;
+    controller.lastScrollChangeAtMs = performance.now();
+    autoscrollStartScrollTopRef.current = scrollTop;
+    autoscrollStartTimeRef.current = performance.now();
+
+    clearUserScrollResumeTimer();
+    userScrollResumeTimerRef.current = window.setTimeout(() => {
+      userScrollResumeTimerRef.current = null;
+      resumeAutoscrollFromCurrentPosition();
+    }, 400);
   }
 
   function updateAutoscrollDebugFromController(frameStatus: string, reason: AutoscrollStopReason = 'none') {
@@ -1652,6 +1713,9 @@ export default function App() {
     controller.rafId = null;
     controller.lastFrameTimestamp = null;
     controller.lastLayoutCheckAtMs = null;
+    clearUserScrollResumeTimer();
+    isUserScrollingRef.current = false;
+    lastProgrammaticScrollTopRef.current = null;
     setIsAutoscrolling(false);
     updateAutoscrollDebugFromController(reason === 'user-paused' ? 'paused' : 'stopped', reason);
     flushStageScrollSave();
@@ -1746,6 +1810,11 @@ export default function App() {
     controller.target = target;
     controller.virtualScrollTop = before.scrollTopAfter;
     controller.previousScrollTop = before.scrollTopAfter;
+    autoscrollStartScrollTopRef.current = before.scrollTopAfter;
+    autoscrollStartTimeRef.current = now;
+    lastUserScrollTopRef.current = before.scrollTopAfter;
+    isUserScrollingRef.current = false;
+    lastProgrammaticScrollTopRef.current = before.scrollTopAfter;
     applyAutoscrollSpeedPlan(controller, speedPlan);
     controller.maxScroll = before.maxScroll;
     controller.lastFrameTimestamp = null;
@@ -1791,6 +1860,17 @@ export default function App() {
         }
       }
 
+      if (isUserScrollingRef.current) {
+        const metrics = getAutoscrollMetrics(currentTarget);
+        activeController.virtualScrollTop = metrics.scrollTopAfter;
+        activeController.previousScrollTop = metrics.scrollTopAfter;
+        activeController.lastFrameTimestamp = timestamp;
+        activeController.lastFrameAtMs = frameNow;
+        activeController.lastScrollChangeAtMs = frameNow;
+        activeController.rafId = requestAnimationFrame(tick);
+        return;
+      }
+
       const elapsedSeconds =
         activeController.lastFrameTimestamp === null ? 0 : Math.min((timestamp - activeController.lastFrameTimestamp) / 1000, 0.12);
       activeController.lastFrameTimestamp = timestamp;
@@ -1803,6 +1883,7 @@ export default function App() {
       activeController.virtualScrollTop = next.nextScrollTop;
       activeController.previousScrollTop = previousScrollTop;
       setAutoscrollScrollTop(currentTarget, activeController.virtualScrollTop);
+      lastProgrammaticScrollTopRef.current = activeController.virtualScrollTop;
       activeController.frameCount += 1;
       if (Math.abs(activeController.virtualScrollTop - previousScrollTop) > 0.01) {
         activeController.lastScrollChangeAtMs = performance.now();
