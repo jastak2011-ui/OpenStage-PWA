@@ -147,6 +147,7 @@ function songFromOnSongObject(object: ArchiveObject, archiveFileName: string, in
     song: {
       id: createId('onsong'),
       songUuid,
+      version: numberValue(object.version, 1),
       title,
       artist,
       key,

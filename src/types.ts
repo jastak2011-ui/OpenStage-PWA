@@ -22,6 +22,7 @@ export type Song = {
   importedFromShareId?: string;
   originSongId?: string;
   songUuid?: string;
+  version?: number;
   importedAt?: string;
   sharedSource?: string;
   difficulty?: string;

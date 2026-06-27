@@ -502,6 +502,7 @@ const displayProfileDefaults: Record<DeviceProfile, DisplayProfileSizing> = {
 const emptySong = (): Song => ({
   id: createId('song'),
   songUuid: createSongUuid(),
+  version: 1,
   title: 'New Song',
   artist: '',
   key: 'C',
@@ -540,6 +541,7 @@ const openStageApiBaseUrl = 'https://openstage-api.onrender.com';
 
 type AiImportedSong = {
   songUuid?: string;
+  version?: number | null;
   title?: string;
   artist?: string;
   key?: string;
@@ -568,6 +570,7 @@ type SharedSongDuplicate = {
 function buildPublishSongPayload(song: Song) {
   return {
     songUuid: song.songUuid || createSongUuid(),
+    version: normalizeSongVersion(song.version),
     title: song.title,
     subtitle: song.subtitle,
     artist: song.artist,
@@ -668,6 +671,7 @@ function songFromSharedSong(shared: Partial<Song>, shareId: string): Song {
     ...shared,
     id: createId('song'),
     songUuid: typeof shared.songUuid === 'string' && shared.songUuid.trim() ? shared.songUuid.trim() : createSongUuid(),
+    version: normalizeSongVersion(shared.version),
     title: typeof shared.title === 'string' && shared.title.trim() ? shared.title.trim() : 'Shared Song',
     artist: typeof shared.artist === 'string' ? shared.artist.trim() : '',
     key,
@@ -710,6 +714,7 @@ function songFromAiImport(imported: AiImportedSong): Song {
   return {
     ...emptySong(),
     songUuid: imported.songUuid?.trim() || createSongUuid(),
+    version: normalizeSongVersion(imported.version),
     title,
     artist,
     key,
@@ -729,6 +734,7 @@ function withSongDefaults(song: Song): Song {
   return {
     ...song,
     songUuid: song.songUuid?.trim() || createSongUuid(),
+    version: normalizeSongVersion(song.version),
     favorite: Boolean(song.favorite),
     referenceAudioUrl: song.referenceAudioUrl || ''
   };
@@ -1128,8 +1134,10 @@ export default function App() {
       db.setlists.orderBy('updatedAt').reverse().toArray()
     ]);
     const normalizedSongs = storedSongs.map(withSongDefaults);
-    const songsNeedingUuid = normalizedSongs.filter((song, index) => !storedSongs[index]?.songUuid?.trim());
-    if (songsNeedingUuid.length > 0) await db.songs.bulkPut(songsNeedingUuid);
+    const songsNeedingIdentityMigration = normalizedSongs.filter((song, index) =>
+      !storedSongs[index]?.songUuid?.trim() || !isValidSongVersion(storedSongs[index]?.version)
+    );
+    if (songsNeedingIdentityMigration.length > 0) await db.songs.bulkPut(songsNeedingIdentityMigration);
     setSongs(normalizedSongs);
     setSetlist(storedSetlist);
     if (storedSavedSetlists.length === 0 && storedSetlist.length > 0) {
@@ -1153,6 +1161,7 @@ export default function App() {
   async function saveSong(song: Song, options: { clearCapoOverride?: boolean } = {}) {
     try {
       const previousCapo = Number(songMap.get(song.id)?.capo ?? 0);
+      const previousSong = songMap.get(song.id);
       const nextCapo = Math.max(0, Math.min(12, Number(song.capo ?? 0) || 0));
       const nextSong = {
         ...song,
@@ -1165,6 +1174,7 @@ export default function App() {
         parsedChordPro: parseChordPro(song.chart),
         updatedAt: new Date().toISOString()
       };
+      nextSong.version = nextSongVersion(previousSong, nextSong);
       clearRenderCache();
       await db.songs.put(nextSong);
       if ((options.clearCapoOverride || nextCapo !== previousCapo) && performanceState.capoOverrides?.[nextSong.id] !== undefined) {
@@ -1217,6 +1227,7 @@ export default function App() {
       ...song,
       id: createId('song'),
       songUuid: createSongUuid(),
+      version: 1,
       title: songs.some((existing) => existing.title === song.title && existing.artist === song.artist)
         ? `${song.title} Copy`
         : song.title,
@@ -1232,6 +1243,7 @@ export default function App() {
       ...shared,
       id: existing.id,
       songUuid: existing.songUuid?.trim() || shared.songUuid?.trim() || createSongUuid(),
+      version: shared.version ? normalizeSongVersion(shared.version) : normalizeSongVersion(existing.version) + 1,
       favorite: existing.favorite,
       displayPreference: existing.displayPreference ?? shared.displayPreference,
       importedAt: new Date().toISOString()
@@ -1258,6 +1270,7 @@ export default function App() {
     try {
       const nextSong = {
         ...song,
+        version: normalizeSongVersion(song.version) + 1,
         chart: nextChart,
         rawChordPro: nextChart,
         parsedChordPro: parseChordPro(nextChart),
@@ -1285,6 +1298,7 @@ export default function App() {
     try {
       const restoredSong = {
         ...song,
+        version: normalizeSongVersion(song.version) + 1,
         chart,
         rawChordPro: chart,
         parsedChordPro: parseChordPro(chart),
@@ -1320,6 +1334,7 @@ export default function App() {
     const nextCapo = Math.max(0, Math.min(12, Number(capo) || 0));
     const nextSong = {
       ...song,
+      version: normalizeSongVersion(song.version) + 1,
       capo: nextCapo,
       parsedChordPro: parseChordPro(song.chart),
       updatedAt: new Date().toISOString()
@@ -1339,6 +1354,7 @@ export default function App() {
     const nextBpm = clampTempoBpm(bpm, song.bpm || 120);
     const nextSong = {
       ...song,
+      version: normalizeSongVersion(song.version) + 1,
       bpm: nextBpm,
       updatedAt: new Date().toISOString()
     };
@@ -8948,6 +8964,60 @@ function songDuplicateKeys(song: Pick<Song, 'title' | 'artist'> & Partial<Pick<S
   const fingerprint = songFingerprint(song);
   if (fingerprint !== '::') keys.push(`title:${fingerprint}`);
   return keys;
+}
+
+function isValidSongVersion(value: unknown) {
+  const version = Math.floor(Number(value));
+  return Number.isFinite(version) && version > 0;
+}
+
+function normalizeSongVersion(value: unknown) {
+  return isValidSongVersion(value) ? Math.floor(Number(value)) : 1;
+}
+
+function nextSongVersion(previous: Song | undefined, next: Song) {
+  if (!previous) return normalizeSongVersion(next.version);
+  const previousVersion = normalizeSongVersion(previous.version);
+  return songVersionContentSnapshot(previous) === songVersionContentSnapshot(next) ? previousVersion : previousVersion + 1;
+}
+
+function songVersionContentSnapshot(song: Song) {
+  return JSON.stringify({
+    title: song.title ?? '',
+    subtitle: song.subtitle ?? '',
+    artist: song.artist ?? '',
+    album: song.album ?? '',
+    genre: song.genre ?? '',
+    vibe: song.vibe ?? '',
+    crowdScore: song.crowdScore ?? null,
+    danceability: song.danceability ?? null,
+    energy: song.energy ?? null,
+    vocalRange: song.vocalRange ?? '',
+    vocalDifficulty: song.vocalDifficulty ?? '',
+    openerCandidate: Boolean(song.openerCandidate),
+    closerCandidate: Boolean(song.closerCandidate),
+    musicBrainzRecordingId: song.musicBrainzRecordingId ?? '',
+    deezerTrackId: song.deezerTrackId ?? '',
+    lastFmUrl: song.lastFmUrl ?? '',
+    referenceAudioUrl: song.referenceAudioUrl ?? '',
+    difficulty: song.difficulty ?? '',
+    tuning: song.tuning ?? '',
+    originalKey: song.originalKey ?? '',
+    performanceKey: song.performanceKey ?? '',
+    durationSeconds: song.durationSeconds ?? null,
+    year: song.year ?? null,
+    bandNotes: song.bandNotes ?? '',
+    rehearsalNotes: song.rehearsalNotes ?? [],
+    key: song.key ?? '',
+    capo: Number(song.capo ?? 0) || 0,
+    bpm: Number(song.bpm ?? 0) || 0,
+    timeSignature: song.timeSignature ?? '',
+    tags: Array.isArray(song.tags) ? song.tags : [],
+    notes: song.notes ?? '',
+    chart: song.chart ?? '',
+    displayPreference: song.displayPreference ?? '',
+    rawChordPro: song.rawChordPro ?? ''
+  });
 }
 
 function formatEnrichmentField(field: string) {

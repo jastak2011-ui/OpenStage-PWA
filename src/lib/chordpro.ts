@@ -78,6 +78,7 @@ export function parseChordProSong(rawText: string, fileName = 'ChordPro import')
   const song: Song = {
     id: createId('song'),
     songUuid: createSongUuid(),
+    version: 1,
     title,
     subtitle,
     artist,

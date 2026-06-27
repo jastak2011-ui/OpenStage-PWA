@@ -61,6 +61,7 @@ export function parseWebpageChartText(rawText: string): WebpageChartImportPrevie
   const song: Song = {
     id: createId('song'),
     songUuid: createSongUuid(),
+    version: 1,
     title: metadata.title || 'Pasted Webpage Chart',
     artist: metadata.artist || '',
     key: metadata.key || '',

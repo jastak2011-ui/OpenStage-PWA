@@ -9,6 +9,7 @@ export function songsToJson(songs: Song[]) {
 export function songsToCsv(songs: Song[]) {
   const headers = [
     'songUuid',
+    'version',
     'title',
     'subtitle',
     'artist',
@@ -73,6 +74,7 @@ export function parseCsvSongs(text: string): Song[] {
       return normalizeSong({
         title: row.title,
         songUuid: row.songUuid,
+        version: Number(row.version),
         artist: row.artist,
         subtitle: row.subtitle,
         album: row.album,
@@ -141,6 +143,7 @@ function normalizeSong(song: Partial<Song>): Song {
   return {
     id: song.id || createId('song'),
     songUuid: typeof song.songUuid === 'string' && song.songUuid.trim() ? song.songUuid.trim() : createSongUuid(),
+    version: normalizeVersion(song.version),
     title: song.title || 'Untitled Song',
     subtitle: song.subtitle || '',
     artist: song.artist || '',
@@ -179,6 +182,11 @@ function normalizeSong(song: Partial<Song>): Song {
     parsedChordPro: song.parsedChordPro || (song.rawChordPro || song.chart ? parseChordPro(song.rawChordPro || song.chart || '') : undefined),
     updatedAt: new Date().toISOString()
   };
+}
+
+function normalizeVersion(value: unknown) {
+  const version = Math.floor(Number(value));
+  return Number.isFinite(version) && version > 0 ? version : 1;
 }
 
 function parseBoolean(value: unknown) {
