@@ -58,6 +58,13 @@ export type RemoteDisplayControllerSnapshot = {
   lastReceiverMode: string;
 };
 
+export type ReceiverRegistration = {
+  pairingCode: string;
+  name: string;
+  lastSeenAt: string;
+  online: boolean;
+};
+
 type RemoteDisplayConnectionOptions = {
   role: 'controller' | 'display';
   onMessage?: (message: RemoteDisplayMessage) => void;
@@ -66,6 +73,8 @@ type RemoteDisplayConnectionOptions = {
 
 const remoteDisplayUrlStorageKey = 'openstage-remote-display-ws-url-v1';
 const hostedReceiverRoomStorageKey = 'openstage-hosted-receiver-room-v1';
+const receiverDisplayNameStorageKey = 'openstage-receiver-display-name-v1';
+const controllerReceiverSelectionStorageKey = 'openstage-controller-receiver-selection-v1';
 const reconnectDelayMs = 1200;
 const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const receiverRoomAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -146,17 +155,128 @@ export function saveHostedReceiverRoomCode(roomCode: string) {
   });
 }
 
-export async function createHostedReceiverRoom() {
+export function getReceiverDisplayName() {
+  try {
+    return localStorage.getItem(receiverDisplayNameStorageKey)?.trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveReceiverDisplayName(name: string) {
+  const normalized = normalizeReceiverName(name);
+  try {
+    localStorage.setItem(receiverDisplayNameStorageKey, normalized);
+  } catch {
+    // The receiver can still use the in-memory value for this session.
+  }
+  return normalized;
+}
+
+export function getSavedReceiverSelection(): ReceiverRegistration | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(controllerReceiverSelectionStorageKey) || 'null') as Partial<ReceiverRegistration> | null;
+    const pairingCode = normalizeHostedReceiverRoomCode(saved?.pairingCode || '');
+    if (!isReceiverRoomCode(pairingCode)) return null;
+    return {
+      pairingCode,
+      name: normalizeReceiverName(saved?.name || 'FireTV Receiver'),
+      lastSeenAt: typeof saved?.lastSeenAt === 'string' ? saved.lastSeenAt : '',
+      online: Boolean(saved?.online)
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveReceiverSelection(receiver: ReceiverRegistration | null) {
+  const pairingCode = normalizeHostedReceiverRoomCode(receiver?.pairingCode || '');
+  if (!receiver || !isReceiverRoomCode(pairingCode)) {
+    saveHostedReceiverRoomCode('');
+    try {
+      localStorage.removeItem(controllerReceiverSelectionStorageKey);
+    } catch {
+      // Optional convenience only.
+    }
+    return null;
+  }
+  const normalized: ReceiverRegistration = {
+    pairingCode,
+    name: normalizeReceiverName(receiver.name),
+    lastSeenAt: receiver.lastSeenAt,
+    online: receiver.online
+  };
+  saveHostedReceiverRoomCode(pairingCode);
+  try {
+    localStorage.setItem(controllerReceiverSelectionStorageKey, JSON.stringify(normalized));
+  } catch {
+    // Pairing remains active for this session through hostedReceiverRoomCode.
+  }
+  return normalized;
+}
+
+export async function listReceiverRegistrations() {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabase
+    .from('receiver_state')
+    .select('pairing_code, receiver_name, last_seen_at, online_status, updated_at')
+    .order('last_seen_at', { ascending: false, nullsFirst: false })
+    .limit(40);
+  if (error) throw error;
+  return (data || []).map(receiverRegistrationFromRow).filter(Boolean) as ReceiverRegistration[];
+}
+
+export async function fetchReceiverRegistration(pairingCode: string) {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const normalized = normalizeHostedReceiverRoomCode(pairingCode);
+  if (!isReceiverRoomCode(normalized)) throw new Error('Enter an 8-character receiver code.');
+  const { data, error } = await supabase
+    .from('receiver_state')
+    .select('pairing_code, receiver_name, last_seen_at, online_status, updated_at')
+    .eq('pairing_code', normalized)
+    .maybeSingle();
+  if (error) throw error;
+  const receiver = receiverRegistrationFromRow(data);
+  if (!receiver) throw new Error('Receiver code was not found.');
+  return receiver;
+}
+
+export async function updateReceiverRegistration(roomCode: string, name: string, online: boolean) {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const normalized = normalizeHostedReceiverRoomCode(roomCode);
+  if (!isReceiverRoomCode(normalized)) throw new Error('Receiver room code is required.');
+  const receiverName = normalizeReceiverName(name);
+  const lastSeenAt = new Date().toISOString();
+  const { error } = await supabase
+    .from('receiver_state')
+    .upsert({
+      pairing_code: normalized,
+      receiver_name: receiverName,
+      last_seen_at: lastSeenAt,
+      online_status: online,
+      updated_at: lastSeenAt,
+      expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString()
+    }, { onConflict: 'pairing_code' });
+  if (error) throw error;
+  return {
+    pairingCode: normalized,
+    name: receiverName,
+    lastSeenAt,
+    online
+  };
+}
+
+export async function createHostedReceiverRoom(receiverName = 'FireTV Receiver') {
   if (!supabase) throw new Error('Supabase is not configured.');
   const storedRoomCode = normalizeHostedReceiverRoomCode(getHostedReceiverRoomCode());
   if (isReceiverRoomCode(storedRoomCode)) {
-    return ensureHostedReceiverRoom(storedRoomCode, false);
+    return ensureHostedReceiverRoom(storedRoomCode, false, receiverName);
   }
 
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const roomCode = createReceiverRoomCode();
     try {
-      const room = await ensureHostedReceiverRoom(roomCode, true);
+      const room = await ensureHostedReceiverRoom(roomCode, true, receiverName);
       saveHostedReceiverRoomCode(room.roomCode);
       return room;
     } catch (error) {
@@ -525,12 +645,39 @@ function isReceiverRoomCode(roomCode: string) {
   return /^[A-Z0-9]{8}$/.test(roomCode);
 }
 
-async function ensureHostedReceiverRoom(roomCode: string, createNew: boolean) {
+function normalizeReceiverName(name: unknown) {
+  const normalized = typeof name === 'string' ? name.trim() : '';
+  return normalized || 'FireTV Receiver';
+}
+
+function receiverRegistrationFromRow(row: any): ReceiverRegistration | null {
+  const pairingCode = normalizeHostedReceiverRoomCode(row?.pairing_code || '');
+  if (!isReceiverRoomCode(pairingCode)) return null;
+  const lastSeenAt = typeof row?.last_seen_at === 'string'
+    ? row.last_seen_at
+    : typeof row?.updated_at === 'string'
+      ? row.updated_at
+      : '';
+  const lastSeenMs = lastSeenAt ? Date.parse(lastSeenAt) : 0;
+  const recentlySeen = Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs < 90 * 1000;
+  return {
+    pairingCode,
+    name: normalizeReceiverName(row?.receiver_name),
+    lastSeenAt,
+    online: Boolean(row?.online_status) && recentlySeen
+  };
+}
+
+async function ensureHostedReceiverRoom(roomCode: string, createNew: boolean, receiverName: string) {
   if (!supabase) throw new Error('Supabase is not configured.');
   const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+  const now = new Date().toISOString();
   const row = {
     pairing_code: roomCode,
-    updated_at: new Date().toISOString(),
+    receiver_name: normalizeReceiverName(receiverName),
+    last_seen_at: now,
+    online_status: true,
+    updated_at: now,
     expires_at: expiresAt
   };
   const { error } = createNew

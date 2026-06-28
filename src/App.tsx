@@ -89,8 +89,12 @@ import {
   connectRemoteDisplay,
   connectRemoteDisplayControllerForDiagnostics,
   createHostedReceiverRoom,
+  fetchReceiverRegistration,
   fetchHostedReceiverRoomState,
+  getReceiverDisplayName,
+  getSavedReceiverSelection,
   getHostedReceiverRoomCode,
+  listReceiverRegistrations,
   getRemoteDisplayUrl,
   isDisplayRoute,
   isReceiverRoute,
@@ -98,14 +102,17 @@ import {
   publishRemoteReceiverState,
   publishRemoteReceiverTestPattern,
   resetHostedReceiverRoomCode,
-  saveHostedReceiverRoomCode,
+  saveReceiverDisplayName,
+  saveReceiverSelection,
   saveRemoteDisplayUrl,
   shouldUseLocalReceiverRelay,
   subscribeHostedReceiverRoom,
+  updateReceiverRegistration,
   subscribeRemoteDisplayControllerSnapshot,
   subscribeRemoteDisplayControllerStatus,
   type RemoteDisplayControllerSnapshot,
   type RemoteDisplayStatus,
+  type ReceiverRegistration,
   type RemoteReceiverPayload,
   type RemoteReceiverTestPatternPayload
 } from './services/remoteDisplay';
@@ -3521,6 +3528,9 @@ function RemoteReceiverApp() {
   const [scrollMetrics, setScrollMetrics] = useState<ReceiverScrollMetrics>({ scrollHeight: 0, clientHeight: 0, scrollTop: 0, progress: 0 });
   const [hostedRoomCode, setHostedRoomCode] = useState('');
   const [hostedError, setHostedError] = useState('');
+  const [receiverName, setReceiverName] = useState(() => getReceiverDisplayName());
+  const [receiverNameDraft, setReceiverNameDraft] = useState(() => getReceiverDisplayName() || 'FireTV Receiver');
+  const [renamingReceiver, setRenamingReceiver] = useState(false);
   const receiver = normalizeReceiverDisplaySettings(testPattern?.receiver ?? payload?.receiver);
   const diagnosticsForcedByUrl = new URLSearchParams(window.location.search).get('diagnostics') === '1';
   const useLocalRelay = shouldUseLocalReceiverRelay();
@@ -3558,9 +3568,10 @@ function RemoteReceiverApp() {
   }, [connectionKey, useLocalRelay]);
 
   useEffect(() => {
-    if (useLocalRelay) return;
+    if (useLocalRelay || !receiverName) return;
     let cancelled = false;
     let subscription: ReturnType<typeof subscribeHostedReceiverRoom> | null = null;
+    let heartbeatId: number | null = null;
 
     const applyMessage = (message: Awaited<ReturnType<typeof fetchHostedReceiverRoomState>>['message'], lastUpdatedAt: string) => {
       if (!message) return;
@@ -3578,10 +3589,14 @@ function RemoteReceiverApp() {
     const start = async () => {
       try {
         setStatus('connecting');
-        const room = await createHostedReceiverRoom();
+        const room = await createHostedReceiverRoom(receiverName);
         if (cancelled) return;
         setHostedRoomCode(room.roomCode);
         setHostedError('');
+        void updateReceiverRegistration(room.roomCode, receiverName, true);
+        heartbeatId = window.setInterval(() => {
+          void updateReceiverRegistration(room.roomCode, receiverName, true);
+        }, 30000);
         const state = await fetchHostedReceiverRoomState(room.roomCode);
         if (cancelled) return;
         applyMessage(state.message, state.lastUpdatedAt);
@@ -3606,9 +3621,10 @@ function RemoteReceiverApp() {
     void start();
     return () => {
       cancelled = true;
+      if (heartbeatId !== null) window.clearInterval(heartbeatId);
       subscription?.close();
     };
-  }, [connectionKey, useLocalRelay]);
+  }, [connectionKey, receiverName, useLocalRelay]);
 
   useEffect(() => {
     if (useLocalRelay) return;
@@ -3640,6 +3656,43 @@ function RemoteReceiverApp() {
     setLastMessageAt('');
     setStatus('connecting');
     setConnectionKey((key) => key + 1);
+  }
+
+  function saveReceiverName() {
+    const nextName = saveReceiverDisplayName(receiverNameDraft);
+    setReceiverName(nextName);
+    setReceiverNameDraft(nextName);
+    setRenamingReceiver(false);
+    if (hostedRoomCode) {
+      void updateReceiverRegistration(hostedRoomCode, nextName, true);
+    }
+    setConnectionKey((key) => key + 1);
+  }
+
+  if (!useLocalRelay && !receiverName) {
+    return (
+      <main className="grid h-screen w-screen place-items-center overflow-hidden bg-black p-8 text-center text-slate-100">
+        <section className="grid w-full max-w-xl gap-5 rounded-md border border-slate-700 bg-slate-900/85 p-6 text-left">
+          <div>
+            <div className="text-5xl font-bold leading-tight">Name this display</div>
+            <div className="mt-3 text-xl text-slate-300">This name will appear on the iPad when choosing a receiver.</div>
+          </div>
+          <label className="grid gap-2 text-lg font-semibold">
+            Display Name
+            <input
+              className="rounded-md border border-slate-600 bg-black px-4 py-4 text-2xl text-white"
+              value={receiverNameDraft}
+              placeholder="FireTV Receiver"
+              onChange={(event) => setReceiverNameDraft(event.target.value)}
+              autoFocus
+            />
+          </label>
+          <button className="rounded-md bg-teal-700 px-5 py-4 text-xl font-semibold text-white" type="button" onClick={saveReceiverName}>
+            Save
+          </button>
+        </section>
+      </main>
+    );
   }
 
   if (!payload && !testPattern) {
@@ -3676,9 +3729,25 @@ function RemoteReceiverApp() {
             {!useLocalRelay && (
               <>
                 <div className="rounded-md border border-teal-300/30 bg-teal-300/10 p-4 text-center">
+                  <div className="text-xl font-semibold text-white">{receiverName}</div>
                   <div className="text-sm font-semibold uppercase tracking-wide text-teal-100">Pairing Code</div>
                   <div className="mt-2 font-mono text-6xl font-bold tracking-[0.18em] text-white">{hostedRoomCode || '...'}</div>
                 </div>
+                {renamingReceiver ? (
+                  <div className="grid gap-2 rounded-md border border-slate-700 bg-black/30 p-3">
+                    <label className="grid gap-1 text-sm">
+                      Rename Receiver
+                      <input className="rounded-md border border-slate-600 bg-black px-3 py-3 text-slate-100" value={receiverNameDraft} onChange={(event) => setReceiverNameDraft(event.target.value)} />
+                    </label>
+                    <button className="rounded-md bg-teal-700 px-4 py-3 text-base font-semibold text-white" type="button" onClick={saveReceiverName}>
+                      Save Name
+                    </button>
+                  </div>
+                ) : (
+                  <button className="rounded-md border border-slate-600 bg-slate-800 px-4 py-3 text-base font-semibold text-slate-100" type="button" onClick={() => setRenamingReceiver(true)}>
+                    Rename Receiver
+                  </button>
+                )}
                 <button className="rounded-md border border-slate-600 bg-slate-800 px-4 py-3 text-base font-semibold text-slate-100" type="button" onClick={resetReceiverPairing}>
                   Reset Receiver Pairing
                 </button>
@@ -3713,13 +3782,28 @@ function RemoteReceiverApp() {
         />
       )}
       {!useLocalRelay && (
-        <button
-          className="fixed bottom-3 left-3 z-50 rounded-md border border-white/20 bg-black/55 px-3 py-2 text-xs font-semibold text-white/80"
-          type="button"
-          onClick={resetReceiverPairing}
-        >
-          Reset Receiver Pairing
-        </button>
+        <div className="fixed bottom-3 left-3 z-50 flex flex-wrap gap-2">
+          <button
+            className="rounded-md border border-white/20 bg-black/55 px-3 py-2 text-xs font-semibold text-white/80"
+            type="button"
+            onClick={() => setRenamingReceiver((value) => !value)}
+          >
+            Rename Receiver
+          </button>
+          <button
+            className="rounded-md border border-white/20 bg-black/55 px-3 py-2 text-xs font-semibold text-white/80"
+            type="button"
+            onClick={resetReceiverPairing}
+          >
+            Reset Receiver Pairing
+          </button>
+          {renamingReceiver && (
+            <div className="grid gap-2 rounded-md border border-white/20 bg-black/75 p-2">
+              <input className="rounded-md border border-white/20 bg-black px-2 py-2 text-sm text-white" value={receiverNameDraft} onChange={(event) => setReceiverNameDraft(event.target.value)} />
+              <button className="rounded-md bg-teal-700 px-3 py-2 text-xs font-semibold text-white" type="button" onClick={saveReceiverName}>Save Name</button>
+            </div>
+          )}
+        </div>
       )}
     </main>
   );
@@ -8038,7 +8122,17 @@ function ExternalDisplayControls({
 }) {
   const settings = getExternalDisplaySettings(state);
   const receiver = normalizeReceiverDisplaySettings(state.receiverDisplay);
-  const [hostedRoomCodeInput, setHostedRoomCodeInput] = useState(() => getHostedReceiverRoomCode());
+  const [selectedReceiver, setSelectedReceiver] = useState<ReceiverRegistration | null>(() => {
+    const saved = getSavedReceiverSelection();
+    if (saved) return saved;
+    const pairingCode = getHostedReceiverRoomCode();
+    return pairingCode ? { pairingCode, name: 'FireTV Receiver', lastSeenAt: '', online: false } : null;
+  });
+  const [receiverDialogOpen, setReceiverDialogOpen] = useState(false);
+  const [availableReceivers, setAvailableReceivers] = useState<ReceiverRegistration[]>([]);
+  const [receiverListStatus, setReceiverListStatus] = useState('');
+  const [pairNewReceiver, setPairNewReceiver] = useState(false);
+  const [pairingCodeInput, setPairingCodeInput] = useState('');
   const [receiverStatus, setReceiverStatus] = useState<RemoteDisplayStatus>('disconnected');
   const [receiverMessage, setReceiverMessage] = useState('');
   const [status, setStatus] = useState('');
@@ -8068,13 +8162,49 @@ function ExternalDisplayControls({
     window.setTimeout(() => setReceiverMessage(''), 2400);
   }
 
-  function saveReceiverPairingCode() {
-    saveHostedReceiverRoomCode(hostedRoomCodeInput);
-    flashReceiverMessage(hostedRoomCodeInput.trim() ? 'Supabase receiver pairing code saved' : 'Supabase receiver pairing cleared');
+  function selectReceiver(receiverRegistration: ReceiverRegistration) {
+    const saved = saveReceiverSelection(receiverRegistration);
+    setSelectedReceiver(saved);
+    setReceiverDialogOpen(false);
+    setPairNewReceiver(false);
+    setPairingCodeInput('');
+    flashReceiverMessage(saved ? `${saved.name} selected` : 'Receiver cleared');
     window.setTimeout(() => {
       onSendReceiver();
     }, 50);
   }
+
+  function clearReceiverSelection() {
+    saveReceiverSelection(null);
+    setSelectedReceiver(null);
+    flashReceiverMessage('Receiver selection cleared');
+  }
+
+  async function refreshReceivers() {
+    try {
+      setReceiverListStatus('Loading receivers...');
+      const receivers = await listReceiverRegistrations();
+      setAvailableReceivers(receivers);
+      setReceiverListStatus(receivers.length ? '' : 'No receivers found yet.');
+    } catch (error) {
+      setReceiverListStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function pairReceiverByCode() {
+    try {
+      setReceiverListStatus('Pairing receiver...');
+      const receiverRegistration = await fetchReceiverRegistration(pairingCodeInput);
+      selectReceiver(receiverRegistration);
+      setReceiverListStatus('');
+    } catch (error) {
+      setReceiverListStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  useEffect(() => {
+    if (receiverDialogOpen) void refreshReceivers();
+  }, [receiverDialogOpen]);
 
   async function launchExternalDisplay() {
     updateSettings({ enabled: true });
@@ -8122,28 +8252,79 @@ function ExternalDisplayControls({
           </label>
         </div>
         <div className="grid gap-2 rounded-md border border-sky-200/20 bg-black/20 p-2">
-          <label className="grid gap-1">
-            FireTV Pairing Code
-            <input
-              className="input bg-slate-900 font-mono text-white"
-              placeholder="ABCD1234"
-              value={hostedRoomCodeInput}
-              onChange={(event) => setHostedRoomCodeInput(event.target.value.toUpperCase())}
-            />
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <button className="stage-menu-button" type="button" onClick={saveReceiverPairingCode}>
-              <Monitor size={18} /> Save Pairing Code
-            </button>
-            <button className="stage-menu-button" type="button" onClick={() => {
-              setHostedRoomCodeInput('');
-              saveHostedReceiverRoomCode('');
-              flashReceiverMessage('Supabase receiver pairing cleared');
-            }}>
-              <X size={18} /> Clear Pairing
+          <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-300">External Display</div>
+          <div className="flex items-center justify-between gap-3 rounded-md border border-sky-200/20 bg-slate-950/70 p-3">
+            <div>
+              <div className="text-slate-300">Current Receiver</div>
+              <div className="text-base font-semibold text-white">{selectedReceiver?.name || 'No receiver selected'}</div>
+            </div>
+            <button className="stage-menu-button" type="button" onClick={() => setReceiverDialogOpen(true)}>
+              <Monitor size={18} /> Change Receiver
             </button>
           </div>
           <div className="text-slate-300">Normal mode uses Supabase Realtime. The local WebSocket relay is debug-only with /receiver?transport=ws.</div>
+          {receiverDialogOpen && (
+            <div className="fixed inset-0 z-[80] grid place-items-center bg-black/70 p-4">
+              <div className="grid w-full max-w-md gap-3 rounded-md border border-sky-300/30 bg-slate-950 p-4 text-slate-100 shadow-2xl">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-lg font-semibold text-white">Change Receiver</div>
+                    <div className="text-slate-400">Choose a discovered FireTV receiver or pair a new one.</div>
+                  </div>
+                  <button className="stage-menu-button" type="button" onClick={() => setReceiverDialogOpen(false)}>
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="grid max-h-72 gap-2 overflow-y-auto">
+                  {availableReceivers.map((receiverRegistration) => (
+                    <button
+                      key={receiverRegistration.pairingCode}
+                      className={`flex items-center justify-between rounded-md border px-3 py-3 text-left ${selectedReceiver?.pairingCode === receiverRegistration.pairingCode ? 'border-teal-300 bg-teal-300/10' : 'border-slate-700 bg-black/20'}`}
+                      type="button"
+                      onClick={() => selectReceiver(receiverRegistration)}
+                    >
+                      <span>
+                        <span className="block text-sm font-semibold text-white">{receiverRegistration.name}</span>
+                      </span>
+                      <span className={receiverRegistration.online ? 'text-teal-200' : 'text-slate-500'}>
+                        {receiverRegistration.online ? '● Online' : '○ Offline'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {receiverListStatus && <div className="rounded-md border border-slate-700 bg-black/20 p-2 text-slate-300">{receiverListStatus}</div>}
+                {pairNewReceiver ? (
+                  <div className="grid gap-2 rounded-md border border-slate-700 bg-black/20 p-3">
+                    <label className="grid gap-1">
+                      Pairing Code
+                      <input
+                        className="input bg-slate-900 font-mono text-white"
+                        placeholder="ABCD1234"
+                        value={pairingCodeInput}
+                        maxLength={8}
+                        onChange={(event) => setPairingCodeInput(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                      />
+                    </label>
+                    <button className="stage-menu-button" type="button" onClick={pairReceiverByCode}>
+                      Save Receiver
+                    </button>
+                  </div>
+                ) : (
+                  <button className="stage-menu-button justify-start" type="button" onClick={() => setPairNewReceiver(true)}>
+                    <Plus size={18} /> Pair New Receiver
+                  </button>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button className="stage-menu-button" type="button" onClick={() => void refreshReceivers()}>
+                    <RotateCcw size={18} /> Refresh
+                  </button>
+                  <button className="stage-menu-button" type="button" onClick={clearReceiverSelection}>
+                    <X size={18} /> Clear Receiver
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         <label className="grid gap-1">
           Safe Margin {receiver.safeMargin}%

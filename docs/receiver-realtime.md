@@ -15,11 +15,19 @@ Run this in the Supabase SQL editor for the MVP receiver transport:
 ```sql
 create table if not exists public.receiver_state (
   pairing_code text primary key,
+  receiver_name text not null default 'FireTV Receiver',
   latest_message jsonb,
   durable_payload jsonb,
+  last_seen_at timestamptz,
+  online_status boolean not null default false,
   updated_at timestamptz not null default now(),
   expires_at timestamptz not null default (now() + interval '12 hours')
 );
+
+alter table public.receiver_state
+  add column if not exists receiver_name text not null default 'FireTV Receiver',
+  add column if not exists last_seen_at timestamptz,
+  add column if not exists online_status boolean not null default false;
 
 alter table public.receiver_state enable row level security;
 
