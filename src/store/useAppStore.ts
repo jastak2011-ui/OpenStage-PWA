@@ -364,6 +364,7 @@ export const defaultPerformanceState: PerformanceState = {
     blackBackground: true,
     fontScale: 1,
     showTestPattern: false,
+    showDiagnostics: false,
     safeMargin: 4
   }
 };

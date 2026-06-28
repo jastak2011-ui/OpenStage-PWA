@@ -182,6 +182,7 @@ export type ReceiverDisplaySettings = {
   blackBackground: boolean;
   fontScale: number;
   showTestPattern: boolean;
+  showDiagnostics: boolean;
   safeMargin: number;
 };
 

@@ -290,6 +290,13 @@ type ToastState = {
   onAction?: () => void;
 } | null;
 
+type ReceiverScrollMetrics = {
+  scrollHeight: number;
+  clientHeight: number;
+  scrollTop: number;
+  progress: number;
+};
+
 const receiverDisplayModeOptions: Array<{ value: ReceiverDisplayMode; label: string }> = [
   { value: 'landscape-lyrics', label: 'Landscape Lyrics Mode' },
   { value: 'fit-portrait', label: 'Fit Portrait' },
@@ -303,6 +310,7 @@ const defaultReceiverDisplaySettings: ReceiverDisplaySettings = {
   blackBackground: true,
   fontScale: 1,
   showTestPattern: false,
+  showDiagnostics: false,
   safeMargin: 4
 };
 
@@ -3503,8 +3511,10 @@ function RemoteReceiverApp() {
   const [connectionKey, setConnectionKey] = useState(0);
   const [lastMessageAt, setLastMessageAt] = useState('');
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  const [scrollMetrics, setScrollMetrics] = useState<ReceiverScrollMetrics>({ scrollHeight: 0, clientHeight: 0, scrollTop: 0, progress: 0 });
   const receiver = normalizeReceiverDisplaySettings(testPattern?.receiver ?? payload?.receiver);
-  const showDiagnostics = new URLSearchParams(window.location.search).get('diagnostics') === '1';
+  const diagnosticsForcedByUrl = new URLSearchParams(window.location.search).get('diagnostics') === '1';
+  const showDiagnostics = diagnosticsForcedByUrl || receiver.showDiagnostics;
 
   useEffect(() => {
     const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -3582,9 +3592,20 @@ function RemoteReceiverApp() {
         {testPattern ? (
           <ReceiverTestPattern settings={receiver} viewport={viewport} status={status} lastMessageAt={lastMessageAt} />
         ) : payload ? (
-          <ReceiverSong payload={payload} status={status} viewport={viewport} showDiagnostics={showDiagnostics} />
+          <ReceiverSong payload={payload} viewport={viewport} onMetricsChange={setScrollMetrics} />
         ) : null}
       </ReceiverCanvas>
+      {showDiagnostics && payload && (
+        <ReceiverDiagnosticsOverlay
+          payload={payload}
+          settings={receiver}
+          viewport={viewport}
+          status={status}
+          relayUrl={relayUrl || getRemoteDisplayUrl()}
+          metrics={scrollMetrics}
+          forcedByUrl={diagnosticsForcedByUrl}
+        />
+      )}
     </main>
   );
 }
@@ -3697,7 +3718,7 @@ function RemoteDisplayApp() {
       <main className="relative h-screen w-screen overflow-hidden bg-black text-white">
         {diagnostics}
         <ReceiverCanvas settings={receiver} viewport={viewport} backgroundColor={receiverPayload.visualTheme?.background ?? getReceiverVisualTheme(scaleReceiverPerformanceState(receiverPayload.performance, receiver, receiverPayload.typography), receiver).background}>
-          <ReceiverSong payload={receiverPayload} status={status} viewport={viewport} showDiagnostics={false} />
+          <ReceiverSong payload={receiverPayload} viewport={viewport} onMetricsChange={() => undefined} />
         </ReceiverCanvas>
       </main>
     );
@@ -3906,20 +3927,18 @@ function ReceiverCanvas({
 
 function ReceiverSong({
   payload,
-  status,
   viewport,
-  showDiagnostics
+  onMetricsChange
 }: {
   payload: RemoteReceiverPayload;
-  status: RemoteDisplayStatus;
   viewport: { width: number; height: number };
-  showDiagnostics: boolean;
+  onMetricsChange: (metrics: ReceiverScrollMetrics) => void;
 }) {
   const receiver = normalizeReceiverDisplaySettings(payload.receiver);
   const state = scaleReceiverPerformanceState(payload.performance, receiver, payload.typography);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
-  const [scrollMetrics, setScrollMetrics] = useState({ scrollHeight: 0, clientHeight: 0, scrollTop: 0, progress: 0 });
+  const [scrollMetrics, setScrollMetrics] = useState<ReceiverScrollMetrics>({ scrollHeight: 0, clientHeight: 0, scrollTop: 0, progress: 0 });
   const lyricFontSize = getEffectiveLyricFontSize(state);
   const lineSpacing = getEffectiveLineSpacing(state);
   const headerFontSize = getEffectiveHeaderFontSize(state);
@@ -3975,7 +3994,9 @@ function ReceiverSong({
       const fallbackProgress = maxScroll > 0 ? clampNumber(payload.scrollTop / maxScroll, 0, 1) : 0;
       const progress = Number.isFinite(payload.scrollProgress) ? desiredProgress : fallbackProgress;
       const scrollTop = Math.round(progress * maxScroll);
-      setScrollMetrics({ scrollHeight, clientHeight, scrollTop, progress });
+      const nextMetrics = { scrollHeight, clientHeight, scrollTop, progress };
+      setScrollMetrics(nextMetrics);
+      onMetricsChange(nextMetrics);
     };
     measureAndScroll();
     const frameId = window.requestAnimationFrame(measureAndScroll);
@@ -3992,7 +4013,8 @@ function ReceiverSong({
     viewport.height,
     lyricFontSize,
     chordFontSize,
-    lineSpacing
+    lineSpacing,
+    onMetricsChange
   ]);
 
   return (
@@ -4052,15 +4074,6 @@ function ReceiverSong({
           />
         ))}
       </article>
-      {showDiagnostics && (
-        <ReceiverDiagnosticsOverlay
-          settings={receiver}
-          viewport={viewport}
-          status={status}
-          updatedAt={payload.updatedAt}
-          metrics={scrollMetrics}
-        />
-      )}
     </div>
   );
 }
@@ -4095,29 +4108,48 @@ function ReceiverTestPattern({
 }
 
 function ReceiverDiagnosticsOverlay({
+  payload,
   settings,
   viewport,
   status,
-  updatedAt,
-  metrics
+  relayUrl,
+  metrics,
+  forcedByUrl
 }: {
+  payload: RemoteReceiverPayload;
   settings: ReceiverDisplaySettings;
   viewport: { width: number; height: number };
   status: RemoteDisplayStatus;
-  updatedAt: string;
-  metrics: { scrollHeight: number; clientHeight: number; scrollTop: number; progress: number };
+  relayUrl: string;
+  metrics: ReceiverScrollMetrics;
+  forcedByUrl: boolean;
 }) {
+  const [, refresh] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => refresh((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const payloadTime = Date.parse(payload.updatedAt);
+  const secondsSinceUpdate = Number.isFinite(payloadTime) ? Math.max(0, Math.round((Date.now() - payloadTime) / 1000)) : null;
+  const themeName = payload.visualTheme?.stageTheme ?? payload.performance.stageTheme;
+  const themeLabel = stageThemes.find((theme) => theme.name === themeName)?.label ?? themeName;
+
   return (
-    <div className="pointer-events-none absolute bottom-2 left-2 z-30 grid gap-1 rounded-md border border-sky-300/40 bg-black/85 px-3 py-2 text-left text-[0.75rem] leading-tight text-sky-50 shadow-xl">
-      <div className="font-semibold text-white">Receiver Diagnostics</div>
-      <div>mode: {receiverDisplayModeLabel(settings.displayMode)}</div>
-      <div>viewport: {viewport.width} x {viewport.height}</div>
-      <div>scrollHeight: {metrics.scrollHeight}</div>
-      <div>clientHeight: {metrics.clientHeight}</div>
-      <div>scrollTop: {metrics.scrollTop}</div>
-      <div>progress: {metrics.progress.toFixed(3)}</div>
-      <div>status: {remoteDisplayStatusLabel(status)}</div>
-      <div>payload: {updatedAt || '-'}</div>
+    <div className="pointer-events-none fixed right-3 top-3 z-[9999] grid max-w-[min(28rem,calc(100vw-1.5rem))] gap-1 rounded-md border border-white/20 bg-black/80 px-4 py-3 text-left text-[clamp(0.8rem,1.55vw,1.05rem)] leading-tight text-white shadow-2xl">
+      <div className="mb-1 text-[1.05em] font-semibold">Receiver Diagnostics{forcedByUrl ? ' (URL)' : ''}</div>
+      <div>Receiver: {remoteDisplayStatusLabel(status)}</div>
+      <div>Song: {payload.song.title || '-'}</div>
+      <div>Artist: {payload.song.artist || '-'}</div>
+      <div>Display Mode: {receiverDisplayModeLabel(settings.displayMode)}</div>
+      <div>FORMAT: {themeLabel}</div>
+      <div>Viewport: {viewport.width} x {viewport.height}</div>
+      <div>Scroll Height: {metrics.scrollHeight}</div>
+      <div>Client Height: {metrics.clientHeight}</div>
+      <div>Progress: {metrics.progress.toFixed(3)}</div>
+      <div>ScrollTop: {metrics.scrollTop}</div>
+      <div>Relay: <span className="font-mono">{relayUrl || '-'}</span></div>
+      <div>Last Payload: {payload.updatedAt || '-'}</div>
+      <div>Seconds Since Update: {secondsSinceUpdate ?? '-'}</div>
     </div>
   );
 }
@@ -5150,6 +5182,7 @@ function normalizeReceiverDisplaySettings(settings: Partial<ReceiverDisplaySetti
     blackBackground: settings?.blackBackground ?? defaultReceiverDisplaySettings.blackBackground,
     fontScale: clampNumber(settings?.fontScale ?? defaultReceiverDisplaySettings.fontScale, 0.65, 1.8),
     showTestPattern: Boolean(settings?.showTestPattern),
+    showDiagnostics: Boolean(settings?.showDiagnostics),
     safeMargin: clampNumber(settings?.safeMargin ?? defaultReceiverDisplaySettings.safeMargin, 0, 14)
   };
 }
@@ -7912,7 +7945,7 @@ function ExternalDisplayControls({
       onSendReceiver();
     }, 50);
     return () => window.clearTimeout(timer);
-  }, [receiver.displayMode, receiver.blackBackground, receiver.fontScale, receiver.safeMargin]);
+  }, [receiver.displayMode, receiver.blackBackground, receiver.fontScale, receiver.safeMargin, receiver.showDiagnostics]);
 
   function flashReceiverMessage(message: string) {
     setReceiverMessage(message);
@@ -7971,6 +8004,9 @@ function ExternalDisplayControls({
         <div className="flex flex-wrap gap-2">
           <button className="stage-menu-button" type="button" onClick={() => updateReceiver({ blackBackground: !receiver.blackBackground })}>
             <Moon size={18} /> Black Background {receiver.blackBackground ? 'On' : 'Off'}
+          </button>
+          <button className="stage-menu-button" type="button" onClick={() => updateReceiver({ showDiagnostics: !receiver.showDiagnostics })}>
+            <Monitor size={18} /> {receiver.showDiagnostics ? 'Hide Receiver Diagnostics' : 'Show Receiver Diagnostics'}
           </button>
           <button className="stage-menu-button" type="button" onClick={() => {
             const sent = onSendReceiver();
