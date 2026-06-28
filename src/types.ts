@@ -107,7 +107,7 @@ export type SavedSetlist = {
   notes?: string;
 };
 
-export type StageMode = 'library' | 'editor' | 'import' | 'setlist' | 'perform' | 'stage' | 'pedals' | 'settings' | 'diagnostics' | 'help';
+export type StageMode = 'library' | 'editor' | 'import' | 'setlist' | 'perform' | 'stage' | 'displays' | 'pedals' | 'settings' | 'diagnostics' | 'help';
 
 export type SyncState = 'disabled' | 'idle' | 'syncing' | 'error';
 

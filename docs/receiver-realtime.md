@@ -34,6 +34,7 @@ alter table public.receiver_state enable row level security;
 drop policy if exists "receiver_state_select_mvp" on public.receiver_state;
 drop policy if exists "receiver_state_insert_mvp" on public.receiver_state;
 drop policy if exists "receiver_state_update_mvp" on public.receiver_state;
+drop policy if exists "receiver_state_delete_mvp" on public.receiver_state;
 
 create policy "receiver_state_select_mvp"
   on public.receiver_state
@@ -59,6 +60,12 @@ create policy "receiver_state_update_mvp"
     pairing_code ~ '^[A-Z0-9]{8}$'
     and expires_at <= now() + interval '12 hours'
   );
+
+create policy "receiver_state_delete_mvp"
+  on public.receiver_state
+  for delete
+  to anon, authenticated
+  using (pairing_code ~ '^[A-Z0-9]{8}$');
 
 create index if not exists receiver_state_expires_at_idx
   on public.receiver_state (expires_at);

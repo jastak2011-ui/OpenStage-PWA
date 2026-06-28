@@ -63,6 +63,10 @@ export type ReceiverRegistration = {
   name: string;
   lastSeenAt: string;
   online: boolean;
+  currentSongTitle?: string;
+  displayMode?: string;
+  theme?: string;
+  fontScale?: number;
 };
 
 type RemoteDisplayConnectionOptions = {
@@ -219,7 +223,7 @@ export async function listReceiverRegistrations() {
   if (!supabase) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase
     .from('receiver_state')
-    .select('pairing_code, receiver_name, last_seen_at, online_status, updated_at')
+    .select('pairing_code, receiver_name, last_seen_at, online_status, updated_at, latest_message')
     .order('last_seen_at', { ascending: false, nullsFirst: false })
     .limit(40);
   if (error) throw error;
@@ -232,13 +236,24 @@ export async function fetchReceiverRegistration(pairingCode: string) {
   if (!isReceiverRoomCode(normalized)) throw new Error('Enter an 8-character receiver code.');
   const { data, error } = await supabase
     .from('receiver_state')
-    .select('pairing_code, receiver_name, last_seen_at, online_status, updated_at')
+    .select('pairing_code, receiver_name, last_seen_at, online_status, updated_at, latest_message')
     .eq('pairing_code', normalized)
     .maybeSingle();
   if (error) throw error;
   const receiver = receiverRegistrationFromRow(data);
   if (!receiver) throw new Error('Receiver code was not found.');
   return receiver;
+}
+
+export async function removeReceiverRegistration(pairingCode: string) {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const normalized = normalizeHostedReceiverRoomCode(pairingCode);
+  if (!isReceiverRoomCode(normalized)) throw new Error('Receiver room code is required.');
+  const { error } = await supabase
+    .from('receiver_state')
+    .delete()
+    .eq('pairing_code', normalized);
+  if (error) throw error;
 }
 
 export async function updateReceiverRegistration(roomCode: string, name: string, online: boolean) {
@@ -664,7 +679,15 @@ function receiverRegistrationFromRow(row: any): ReceiverRegistration | null {
     pairingCode,
     name: normalizeReceiverName(row?.receiver_name),
     lastSeenAt,
-    online: Boolean(row?.online_status) && recentlySeen
+    online: Boolean(row?.online_status) && recentlySeen,
+    currentSongTitle: typeof row?.latest_message?.payload?.song?.title === 'string' ? row.latest_message.payload.song.title : undefined,
+    displayMode: typeof row?.latest_message?.payload?.receiver?.displayMode === 'string' ? row.latest_message.payload.receiver.displayMode : undefined,
+    theme: typeof row?.latest_message?.payload?.visualTheme?.stageTheme === 'string'
+      ? row.latest_message.payload.visualTheme.stageTheme
+      : typeof row?.latest_message?.payload?.performance?.stageTheme === 'string'
+        ? row.latest_message.payload.performance.stageTheme
+        : undefined,
+    fontScale: Number.isFinite(Number(row?.latest_message?.payload?.receiver?.fontScale)) ? Number(row.latest_message.payload.receiver.fontScale) : undefined
   };
 }
 

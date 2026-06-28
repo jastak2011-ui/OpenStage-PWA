@@ -101,6 +101,7 @@ import {
   publishRemoteDisplaySong,
   publishRemoteReceiverState,
   publishRemoteReceiverTestPattern,
+  removeReceiverRegistration,
   resetHostedReceiverRoomCode,
   saveReceiverDisplayName,
   saveReceiverSelection,
@@ -383,6 +384,7 @@ const mobileModeOptions: Array<{ mode: StageMode; label: string; icon: React.Rea
   { mode: 'setlist', label: 'Setlist', icon: <ListMusic size={19} /> },
   { mode: 'perform', label: 'Perform', icon: <Mic2 size={19} /> },
   { mode: 'stage', label: 'Stage', icon: <Monitor size={19} /> },
+  { mode: 'displays', label: 'Displays', icon: <Monitor size={19} /> },
   { mode: 'pedals', label: 'Pedals', icon: <Settings size={19} /> },
   { mode: 'settings', label: 'Settings', icon: <Settings size={19} /> },
   { mode: 'diagnostics', label: 'Diagnostics', icon: <Gauge size={19} /> },
@@ -2400,6 +2402,7 @@ export default function App() {
             <ModeButton icon={<ListMusic size={17} />} label="Setlist" mode="setlist" active={activeMode} setActive={setActiveMode} />
             <ModeButton icon={<Mic2 size={17} />} label="Perform" mode="perform" active={activeMode} setActive={setActiveMode} />
             <ModeButton icon={<Monitor size={17} />} label="Stage" mode="stage" active={activeMode} setActive={setActiveMode} />
+            <ModeButton icon={<Monitor size={17} />} label="Displays" mode="displays" active={activeMode} setActive={setActiveMode} />
             <ModeButton icon={<Settings size={17} />} label="Pedals" mode="pedals" active={activeMode} setActive={setActiveMode} />
             <ModeButton icon={<Settings size={17} />} label="Settings" mode="settings" active={activeMode} setActive={setActiveMode} />
             <ModeButton icon={<Gauge size={17} />} label="Diagnostics" mode="diagnostics" active={activeMode} setActive={setActiveMode} />
@@ -2636,6 +2639,16 @@ export default function App() {
         />
       )}
 
+      {activeMode === 'displays' && (
+        <DisplaysManagerView
+          currentSong={selectedSong}
+          state={performanceState}
+          setState={updatePerformanceState}
+          onSendReceiver={sendReceiverNow}
+          onSendReceiverTestPattern={() => publishRemoteReceiverTestPattern(receiverSettings)}
+        />
+      )}
+
       {activeMode === 'settings' && (
         <SettingsView
           state={performanceState}
@@ -2708,6 +2721,7 @@ export default function App() {
             requestFullscreenSafe();
           }}
           onSettings={() => setActiveMode('settings')}
+          onDisplays={() => setActiveMode('displays')}
           onSelectStageSong={selectStageLibrarySong}
           onNewSongAction={(action) => {
             if (action === 'scratch') void createSongFromScratch('perform');
@@ -2768,6 +2782,11 @@ export default function App() {
           }}
           onStageMode={requestFullscreenSafe}
           onSettings={() => setActiveMode('settings')}
+          onDisplays={() => {
+            updatePerformanceState({ recoverToStageMode: false });
+            setActiveMode('displays');
+            exitFullscreenSafe();
+          }}
           onSelectStageSong={selectStageLibrarySong}
           onNewSongAction={(action) => {
             if (action === 'scratch') void createSongFromScratch('stage');
@@ -7200,6 +7219,7 @@ function PerformanceView({
   onEdit,
   onStageMode,
   onSettings,
+  onDisplays,
   onSelectStageSong,
   onNewSongAction,
   onToggleFavorite,
@@ -7244,6 +7264,7 @@ function PerformanceView({
   onEdit: () => void;
   onStageMode: () => void;
   onSettings: () => void;
+  onDisplays: () => void;
   onSelectStageSong: (songId: string) => void;
   onNewSongAction: (action: NewSongAction) => void;
   onToggleFavorite: (songId: string) => void;
@@ -7860,6 +7881,7 @@ function PerformanceView({
             onOpenExternalDisplay={() => openFormatPopover('external')}
             onStageMode={onStageMode}
             onSettings={() => void leaveStageWithShareCheck(onSettings)}
+            onDisplays={() => void leaveStageWithShareCheck(onDisplays)}
             onDiagnostics={() => void leaveStageWithShareCheck(onDiagnostics)}
             onPedals={() => void leaveStageWithShareCheck(onPedals)}
             onImportExport={() => void leaveStageWithShareCheck(onImportExport)}
@@ -8109,16 +8131,207 @@ function PerformanceView({
   );
 }
 
-function ExternalDisplayControls({
+function DisplaysManagerView({
+  currentSong,
   state,
   setState,
   onSendReceiver,
   onSendReceiverTestPattern
 }: {
+  currentSong?: Song;
   state: PerformanceState;
   setState: (next: Partial<PerformanceState>) => void;
   onSendReceiver: () => boolean;
   onSendReceiverTestPattern: () => boolean;
+}) {
+  const [receivers, setReceivers] = useState<ReceiverRegistration[]>([]);
+  const [selectedReceiver, setSelectedReceiver] = useState<ReceiverRegistration | null>(() => getSavedReceiverSelection());
+  const [configuring, setConfiguring] = useState<ReceiverRegistration | null>(null);
+  const [status, setStatus] = useState('');
+  const receiver = normalizeReceiverDisplaySettings(state.receiverDisplay);
+
+  async function refresh() {
+    try {
+      setStatus('Loading displays...');
+      const nextReceivers = await listReceiverRegistrations();
+      setReceivers(nextReceivers);
+      setStatus(nextReceivers.length ? '' : 'No FireTV receivers discovered yet.');
+      const saved = getSavedReceiverSelection();
+      if (saved) {
+        const fresh = nextReceivers.find((item) => item.pairingCode === saved.pairingCode);
+        setSelectedReceiver(fresh ?? saved);
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  function connect(receiverRegistration: ReceiverRegistration) {
+    const saved = saveReceiverSelection(receiverRegistration);
+    setSelectedReceiver(saved);
+    setStatus(`${receiverRegistration.name} connected.`);
+    window.setTimeout(() => onSendReceiver(), 50);
+  }
+
+  function disconnect(receiverRegistration: ReceiverRegistration) {
+    if (selectedReceiver?.pairingCode === receiverRegistration.pairingCode) {
+      saveReceiverSelection(null);
+      setSelectedReceiver(null);
+      setStatus(`${receiverRegistration.name} disconnected.`);
+    }
+  }
+
+  async function rename(receiverRegistration: ReceiverRegistration) {
+    const nextName = window.prompt('Rename receiver', receiverRegistration.name)?.trim();
+    if (!nextName) return;
+    try {
+      await updateReceiverRegistration(receiverRegistration.pairingCode, nextName, receiverRegistration.online);
+      setStatus(`${nextName} renamed.`);
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function remove(receiverRegistration: ReceiverRegistration) {
+    try {
+      await removeReceiverRegistration(receiverRegistration.pairingCode);
+      if (selectedReceiver?.pairingCode === receiverRegistration.pairingCode) {
+        saveReceiverSelection(null);
+        setSelectedReceiver(null);
+      }
+      setConfiguring((current) => current?.pairingCode === receiverRegistration.pairingCode ? null : current);
+      setStatus(`${receiverRegistration.name} removed.`);
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function updateReceiverSettings(nextReceiver: Partial<ReceiverDisplaySettings>) {
+    setState({ receiverDisplay: normalizeReceiverDisplaySettings({ ...receiver, ...nextReceiver }) });
+    if (configuring) connect(configuring);
+  }
+
+  function updatePerformanceSettings(next: Partial<PerformanceState>) {
+    setState(next);
+    if (configuring) connect(configuring);
+  }
+
+  const themeLabel = stageThemes.find((theme) => theme.name === state.stageTheme)?.label ?? state.stageTheme;
+
+  return (
+    <main className="min-h-screen bg-slate-100 p-4 text-slate-950">
+      <div className="mx-auto grid max-w-6xl gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold">Displays</h2>
+            <p className="text-sm text-slate-600">Manage FireTV Receiver displays and per-display setup.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={() => void refresh()}>
+            <RotateCcw size={17} /> Refresh
+          </button>
+        </div>
+        {status && <div className="rounded-md border border-slate-300 bg-white p-3 text-sm text-slate-700">{status}</div>}
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {receivers.map((receiverRegistration) => (
+            <article key={receiverRegistration.pairingCode} className="grid gap-3 rounded-md border border-slate-300 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold">{receiverRegistration.name}</h3>
+                  <div className={receiverRegistration.online ? 'text-sm font-semibold text-teal-700' : 'text-sm font-semibold text-slate-500'}>
+                    {receiverRegistration.online ? '● Online' : '○ Offline'}
+                  </div>
+                </div>
+                <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold">FireTV</span>
+              </div>
+              <div className="grid gap-1 text-sm text-slate-700">
+                <div>Last Seen: {receiverRegistration.lastSeenAt ? new Date(receiverRegistration.lastSeenAt).toLocaleString() : 'Never'}</div>
+                <div>Current Song: {receiverRegistration.currentSongTitle || (selectedReceiver?.pairingCode === receiverRegistration.pairingCode ? currentSong?.title : '') || 'None'}</div>
+                <div>Display Mode: {receiverDisplayModeLabel((receiverRegistration.displayMode as ReceiverDisplayMode) || receiver.displayMode)}</div>
+                <div>Theme: {stageThemes.find((theme) => theme.name === receiverRegistration.theme)?.label ?? receiverRegistration.theme ?? themeLabel}</div>
+                <div>Font Scale: {(receiverRegistration.fontScale ?? receiver.fontScale).toFixed(2)}x</div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className="secondary-button h-9" type="button" onClick={() => connect(receiverRegistration)}>Connect</button>
+                <button className="secondary-button h-9" type="button" onClick={() => disconnect(receiverRegistration)}>Disconnect</button>
+                <button className="secondary-button h-9" type="button" onClick={() => void rename(receiverRegistration)}>Rename</button>
+                <button className="secondary-button h-9" type="button" onClick={() => { setConfiguring(receiverRegistration); connect(receiverRegistration); }}>Configure</button>
+                <button className="secondary-button h-9 text-red-700" type="button" onClick={() => void remove(receiverRegistration)}>Remove</button>
+              </div>
+            </article>
+          ))}
+        </section>
+        {configuring && (
+          <section className="grid gap-3 rounded-md border border-slate-300 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-semibold">Configure {configuring.name}</h3>
+                <p className="text-sm text-slate-600">Changes publish to this receiver using the current Stage song.</p>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setConfiguring(null)}><X size={18} /></button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="grid gap-1 text-sm font-semibold">
+                Display Mode
+                <select className="input" value={receiver.displayMode} onChange={(event) => updateReceiverSettings({ displayMode: event.target.value as ReceiverDisplayMode })}>
+                  {receiverDisplayModeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-semibold">
+                Font Scale {receiver.fontScale.toFixed(2)}x
+                <input type="range" min={0.65} max={1.8} step={0.05} value={receiver.fontScale} onChange={(event) => updateReceiverSettings({ fontScale: Number(event.target.value) })} />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold">
+                Safe Margin {receiver.safeMargin}%
+                <input type="range" min={0} max={14} step={1} value={receiver.safeMargin} onChange={(event) => updateReceiverSettings({ safeMargin: Number(event.target.value) })} />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold">
+                Theme
+                <select className="input" value={state.stageTheme} onChange={(event) => updatePerformanceSettings(stageThemePresetPatch(state, event.target.value as PerformanceState['stageTheme']))}>
+                  {stageThemes.map((theme) => <option key={theme.name} value={theme.name}>{theme.label}</option>)}
+                </select>
+              </label>
+              <button className="secondary-button justify-start" type="button" onClick={() => updateReceiverSettings({ blackBackground: !receiver.blackBackground })}>
+                Background: {receiver.blackBackground ? 'Black' : 'Theme'}
+              </button>
+              <button className="secondary-button justify-start" type="button" onClick={() => updatePerformanceSettings(showChordsUpdate(state, !getEffectiveShowChords(state)))}>
+                Hide Chords: {getEffectiveShowChords(state) ? 'Off' : 'On'}
+              </button>
+              <button className="secondary-button justify-start" type="button" onClick={() => updatePerformanceSettings(showHarmonyCuesUpdate(state, !getEffectiveShowHarmonyCues(state)))}>
+                Show Harmony: {getEffectiveShowHarmonyCues(state) ? 'On' : 'Off'}
+              </button>
+              <button className="secondary-button justify-start" type="button" onClick={() => updateReceiverSettings({ showDiagnostics: !receiver.showDiagnostics })}>
+                Diagnostics: {receiver.showDiagnostics ? 'On' : 'Off'}
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button className="primary-button" type="button" onClick={onSendReceiver}>Send Current Song</button>
+              <button className="secondary-button" type="button" onClick={onSendReceiverTestPattern}>Test Pattern</button>
+            </div>
+          </section>
+        )}
+      </div>
+    </main>
+  );
+}
+
+function ExternalDisplayControls({
+  state,
+  setState,
+  onSendReceiver,
+  onSendReceiverTestPattern,
+  onOpenDisplayManager
+}: {
+  state: PerformanceState;
+  setState: (next: Partial<PerformanceState>) => void;
+  onSendReceiver: () => boolean;
+  onSendReceiverTestPattern: () => boolean;
+  onOpenDisplayManager: () => void;
 }) {
   const settings = getExternalDisplaySettings(state);
   const receiver = normalizeReceiverDisplaySettings(state.receiverDisplay);
@@ -8223,8 +8436,23 @@ function ExternalDisplayControls({
     }
   }
 
+  const currentDisplay = selectedReceiver?.name || 'No display selected';
+
   return (
     <div className="stage-format-receiver-only grid gap-3 rounded-md border border-slate-700 bg-slate-950 p-3 text-xs">
+      <div className="grid gap-3 rounded-md border border-sky-300/30 bg-sky-300/10 p-3 text-sky-50">
+        <div className="grid gap-2">
+          <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-300">External Display</div>
+          <div className="rounded-md border border-sky-200/20 bg-slate-950/70 p-3">
+            <div className="text-slate-300">Current Display</div>
+            <div className="text-base font-semibold text-white">{currentDisplay}</div>
+          </div>
+          <button className="stage-menu-button justify-start" type="button" onClick={onOpenDisplayManager}>
+            <Monitor size={18} /> Open Display Manager
+          </button>
+        </div>
+      </div>
+      <div className="hidden">
       <div className="grid gap-3 rounded-md border border-sky-300/30 bg-sky-300/10 p-3 text-sky-50">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -8483,6 +8711,7 @@ function ExternalDisplayControls({
       {!settings.enabled && <div className="text-amber-200">Open the external output first to preview changes.</div>}
       {!supportsPresentationApi() && <div className="text-slate-400">Safari fallback: use AirPlay mirroring, then apply rotation/scale here.</div>}
       <div className="text-slate-400">Rotation and scale apply only to the external prompter output, not this iPad Stage view.</div>
+      </div>
     </div>
   );
 }
@@ -8814,6 +9043,7 @@ function StageControlPopover({
   onOpenExternalDisplay,
   onStageMode,
   onSettings,
+  onDisplays,
   onDiagnostics,
   onPedals,
   onImportExport,
@@ -8851,6 +9081,7 @@ function StageControlPopover({
   onOpenExternalDisplay: () => void;
   onStageMode: () => void;
   onSettings: () => void;
+  onDisplays: () => void;
   onDiagnostics: () => void;
   onPedals: () => void;
   onImportExport: () => void;
@@ -9327,6 +9558,7 @@ function StageControlPopover({
                 setState={setState}
                 onSendReceiver={onSendReceiver}
                 onSendReceiverTestPattern={onSendReceiverTestPattern}
+                onOpenDisplayManager={onDisplays}
               />
             )}
           </div>
