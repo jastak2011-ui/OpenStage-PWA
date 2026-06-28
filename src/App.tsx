@@ -313,11 +313,11 @@ type ReceiverScrollMetrics = {
 };
 
 const receiverDisplayModeOptions: Array<{ value: ReceiverDisplayMode; label: string }> = [
-  { value: 'landscape-lyrics', label: 'Landscape Lyrics Mode' },
-  { value: 'fit-portrait', label: 'Fit Portrait' },
-  { value: 'fill-portrait-crop-safe', label: 'Fill Portrait / Crop Safe' },
-  { value: 'rotate-90-cw', label: 'Rotate 90 Clockwise' },
-  { value: 'rotate-90-ccw', label: 'Rotate 90 Counterclockwise' }
+  { value: 'landscape-lyrics', label: 'Landscape Lyrics' },
+  { value: 'fit-portrait', label: 'Portrait Fit' },
+  { value: 'fill-portrait-crop-safe', label: 'Portrait Fill' },
+  { value: 'rotate-90-cw', label: 'Rotate 90° CW' },
+  { value: 'rotate-90-ccw', label: 'Rotate 90° CCW' }
 ];
 
 const defaultReceiverDisplaySettings: ReceiverDisplaySettings = {
@@ -1722,7 +1722,7 @@ export default function App() {
     await saveSong({ ...selectedSong, durationSeconds: Math.round(estimate.durationSeconds) });
   }
 
-  function buildReceiverPayload(): RemoteReceiverPayload | null {
+  function buildReceiverPayload(performanceOverride?: PerformanceState): RemoteReceiverPayload | null {
     if (!selectedSong) return null;
     const target = resolveAutoscrollTarget(stageRef.current);
     const pendingScroll = pendingScrollPositionRef.current?.songId === selectedSong.id ? pendingScrollPositionRef.current.scrollTop : undefined;
@@ -1731,7 +1731,8 @@ export default function App() {
     const scrollTop = Math.round(pendingScroll ?? metrics?.scrollTopAfter ?? savedScroll);
     const maxScroll = Math.max(0, metrics?.maxScroll ?? 0);
     const scrollProgress = maxScroll > 0 ? clampNumber(scrollTop / maxScroll, 0, 1) : 0;
-    const performance = performanceStateRef.current;
+    const performance = performanceOverride ?? performanceStateRef.current;
+    const activeReceiverSettings = normalizeReceiverDisplaySettings(performance.receiverDisplay);
     const typography = {
       lyricFontSize: getEffectiveLyricFontSize(performance),
       chordFontSize: getEffectiveChordFontSize(performance),
@@ -1744,10 +1745,10 @@ export default function App() {
     const receiverPerformance: PerformanceState = {
       ...performance,
       activeProfile: 'prompter-display',
-      portraitMode: receiverSettings.displayMode !== 'landscape-lyrics',
-      receiverDisplay: receiverSettings
+      portraitMode: activeReceiverSettings.displayMode !== 'landscape-lyrics',
+      receiverDisplay: activeReceiverSettings
     };
-    const visual = getReceiverVisualTheme(receiverPerformance, receiverSettings);
+    const visual = getReceiverVisualTheme(receiverPerformance, activeReceiverSettings);
     return {
       song: selectedSong,
       performance: receiverPerformance,
@@ -1755,7 +1756,7 @@ export default function App() {
       scrollTop,
       scrollProgress,
       autoscrollActive: autoscrollControllerRef.current.active || isAutoscrolling,
-      receiver: receiverSettings,
+      receiver: activeReceiverSettings,
       visualTheme: {
         stageTheme: receiverPerformance.stageTheme,
         theme: receiverPerformance.theme,
@@ -1768,6 +1769,12 @@ export default function App() {
 
   function sendReceiverNow() {
     const payload = buildReceiverPayload();
+    if (!payload) return false;
+    return publishRemoteReceiverState(payload);
+  }
+
+  function sendReceiverWithState(nextPerformance: PerformanceState) {
+    const payload = buildReceiverPayload(nextPerformance);
     if (!payload) return false;
     return publishRemoteReceiverState(payload);
   }
@@ -2645,6 +2652,7 @@ export default function App() {
           state={performanceState}
           setState={updatePerformanceState}
           onSendReceiver={sendReceiverNow}
+          onSendReceiverWithState={sendReceiverWithState}
           onSendReceiverTestPattern={() => publishRemoteReceiverTestPattern(receiverSettings)}
         />
       )}
@@ -8167,12 +8175,14 @@ function DisplaysManagerView({
   state,
   setState,
   onSendReceiver,
+  onSendReceiverWithState,
   onSendReceiverTestPattern
 }: {
   currentSong?: Song;
   state: PerformanceState;
   setState: (next: Partial<PerformanceState>) => void;
   onSendReceiver: () => boolean;
+  onSendReceiverWithState: (nextPerformance: PerformanceState) => boolean;
   onSendReceiverTestPattern: () => boolean;
 }) {
   const [receivers, setReceivers] = useState<ReceiverRegistration[]>([]);
@@ -8244,13 +8254,24 @@ function DisplaysManagerView({
   }
 
   function updateReceiverSettings(nextReceiver: Partial<ReceiverDisplaySettings>) {
-    setState({ receiverDisplay: normalizeReceiverDisplaySettings({ ...receiver, ...nextReceiver }) });
-    if (configuring) connect(configuring);
+    const nextDisplay = normalizeReceiverDisplaySettings({ ...receiver, ...nextReceiver });
+    const nextState = { ...state, receiverDisplay: nextDisplay };
+    setState({ receiverDisplay: nextDisplay });
+    if (configuring) {
+      saveReceiverSelection(configuring);
+      setSelectedReceiver(configuring);
+      onSendReceiverWithState(nextState);
+    }
   }
 
   function updatePerformanceSettings(next: Partial<PerformanceState>) {
+    const nextState = { ...state, ...next };
     setState(next);
-    if (configuring) connect(configuring);
+    if (configuring) {
+      saveReceiverSelection(configuring);
+      setSelectedReceiver(configuring);
+      onSendReceiverWithState(nextState);
+    }
   }
 
   const themeLabel = stageThemes.find((theme) => theme.name === state.stageTheme)?.label ?? state.stageTheme;
