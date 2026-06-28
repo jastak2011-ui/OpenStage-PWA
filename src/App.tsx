@@ -3545,7 +3545,10 @@ function RemoteReceiverApp() {
   const [lastMessageAt, setLastMessageAt] = useState('');
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const [scrollMetrics, setScrollMetrics] = useState<ReceiverScrollMetrics>({ scrollHeight: 0, clientHeight: 0, scrollTop: 0, progress: 0 });
-  const [hostedRoomCode, setHostedRoomCode] = useState('');
+  const [hostedRoomCode, setHostedRoomCode] = useState(() => {
+    const storedCode = getHostedReceiverRoomCode();
+    return /^[A-Z0-9]{8}$/.test(storedCode) ? storedCode : '';
+  });
   const [hostedError, setHostedError] = useState('');
   const [receiverName, setReceiverName] = useState(() => getReceiverDisplayName());
   const [receiverNameDraft, setReceiverNameDraft] = useState(() => getReceiverDisplayName() || 'FireTV Receiver');
@@ -3587,7 +3590,27 @@ function RemoteReceiverApp() {
   }, [connectionKey, useLocalRelay]);
 
   useEffect(() => {
-    if (useLocalRelay || !receiverName) return;
+    if (useLocalRelay || hostedRoomCode) return;
+    let cancelled = false;
+    const ensurePairingCode = async () => {
+      try {
+        const room = await createHostedReceiverRoom(receiverName || 'FireTV Receiver');
+        if (cancelled) return;
+        setHostedRoomCode(room.roomCode);
+        setHostedError('');
+      } catch (error) {
+        if (cancelled) return;
+        setHostedError(error instanceof Error ? error.message : String(error));
+      }
+    };
+    void ensurePairingCode();
+    return () => {
+      cancelled = true;
+    };
+  }, [hostedRoomCode, receiverName, useLocalRelay]);
+
+  useEffect(() => {
+    if (useLocalRelay || !receiverName || !hostedRoomCode) return;
     let cancelled = false;
     let subscription: ReturnType<typeof subscribeHostedReceiverRoom> | null = null;
     let heartbeatId: number | null = null;
@@ -3643,7 +3666,7 @@ function RemoteReceiverApp() {
       if (heartbeatId !== null) window.clearInterval(heartbeatId);
       subscription?.close();
     };
-  }, [connectionKey, receiverName, useLocalRelay]);
+  }, [connectionKey, hostedRoomCode, receiverName, useLocalRelay]);
 
   useEffect(() => {
     if (useLocalRelay) return;
