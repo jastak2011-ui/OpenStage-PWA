@@ -8226,6 +8226,14 @@ function DisplaysManagerView({
     }
   }
 
+  function openConfigure(receiverRegistration: ReceiverRegistration) {
+    const saved = saveReceiverSelection(receiverRegistration);
+    setSelectedReceiver(saved);
+    setConfiguring(receiverRegistration);
+    setStatus(`Configuring ${receiverRegistration.name}.`);
+    window.setTimeout(() => onSendReceiver(), 50);
+  }
+
   async function rename(receiverRegistration: ReceiverRegistration) {
     const nextName = window.prompt('Rename receiver', receiverRegistration.name)?.trim();
     if (!nextName) return;
@@ -8312,14 +8320,16 @@ function DisplaysManagerView({
                 <button className="secondary-button h-9" type="button" onClick={() => connect(receiverRegistration)}>Connect</button>
                 <button className="secondary-button h-9" type="button" onClick={() => disconnect(receiverRegistration)}>Disconnect</button>
                 <button className="secondary-button h-9" type="button" onClick={() => void rename(receiverRegistration)}>Rename</button>
-                <button className="secondary-button h-9" type="button" onClick={() => { setConfiguring(receiverRegistration); connect(receiverRegistration); }}>Configure</button>
+                <button className="secondary-button h-9" type="button" onClick={() => openConfigure(receiverRegistration)}>Configure</button>
                 <button className="secondary-button h-9 text-red-700" type="button" onClick={() => void remove(receiverRegistration)}>Remove</button>
               </div>
             </article>
           ))}
         </section>
-        {configuring && (
-          <section className="grid gap-3 rounded-md border border-slate-300 bg-white p-4 shadow-sm">
+      </div>
+      {configuring && (
+        <div className="fixed inset-0 z-[90] grid place-items-center bg-slate-950/70 p-4">
+          <section className="grid max-h-[calc(100vh-2rem)] w-full max-w-3xl gap-3 overflow-y-auto rounded-md border border-slate-300 bg-white p-4 shadow-2xl">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-xl font-semibold">Configure {configuring.name}</h3>
@@ -8366,8 +8376,8 @@ function DisplaysManagerView({
               <button className="secondary-button" type="button" onClick={onSendReceiverTestPattern}>Test Pattern</button>
             </div>
           </section>
-        )}
-      </div>
+        </div>
+      )}
     </main>
   );
 }
