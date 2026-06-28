@@ -5,8 +5,18 @@ export type RemoteReceiverPayload = {
   performance: PerformanceState;
   effectiveCapo: number;
   scrollTop: number;
+  scrollProgress: number;
   autoscrollActive: boolean;
   receiver: ReceiverDisplaySettings;
+  typography: {
+    lyricFontSize: number;
+    chordFontSize: number;
+    sectionFontSize: number;
+    headerFontSize: number;
+    songTitleFontSize: number;
+    songArtistFontSize: number;
+    lineSpacing: number;
+  };
   updatedAt: string;
 };
 

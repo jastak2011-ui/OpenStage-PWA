@@ -882,6 +882,7 @@ export default function App() {
   const scrollSaveFrameRef = useRef<number | null>(null);
   const scrollSaveTimeoutRef = useRef<number | null>(null);
   const receiverPublishTimeoutRef = useRef<number | null>(null);
+  const lastReceiverAutoscrollPublishRef = useRef(0);
   const pendingScrollPositionRef = useRef<{ songId: string; scrollTop: number } | null>(null);
   const restoredScrollSongRef = useRef('');
   const isUserScrollingRef = useRef(false);
@@ -1044,9 +1045,23 @@ export default function App() {
     selectedSong?.displayPreference,
     performanceState.transpose,
     performanceState.fontSize,
+    performanceState.fontSizesByProfile,
+    performanceState.chordFontSize,
+    performanceState.chordFontSizesByProfile,
+    performanceState.sectionFontSize,
+    performanceState.sectionFontSizesByProfile,
+    performanceState.headerFontSize,
+    performanceState.headerFontSizesByProfile,
+    performanceState.songTitleFontSize,
+    performanceState.songTitleFontSizesByProfile,
+    performanceState.songArtistFontSize,
+    performanceState.songArtistFontSizesByProfile,
     performanceState.lineSpacing,
+    performanceState.lineSpacingsByProfile,
     performanceState.showChords,
+    performanceState.showChordsByProfile,
     performanceState.showHarmonyCues,
+    performanceState.showHarmonyCuesByProfile,
     performanceState.showNashvilleNumbers,
     performanceState.activeProfile,
     performanceState.receiverDisplay,
@@ -1668,18 +1683,34 @@ export default function App() {
     const target = resolveAutoscrollTarget(stageRef.current);
     const pendingScroll = pendingScrollPositionRef.current?.songId === selectedSong.id ? pendingScrollPositionRef.current.scrollTop : undefined;
     const savedScroll = performanceStateRef.current.scrollPositions[selectedSong.id] ?? 0;
+    const metrics = target ? getAutoscrollMetrics(target) : null;
+    const scrollTop = Math.round(pendingScroll ?? metrics?.scrollTopAfter ?? savedScroll);
+    const maxScroll = Math.max(0, metrics?.maxScroll ?? 0);
+    const scrollProgress = maxScroll > 0 ? clampNumber(scrollTop / maxScroll, 0, 1) : 0;
+    const performance = performanceStateRef.current;
+    const typography = {
+      lyricFontSize: getEffectiveLyricFontSize(performance),
+      chordFontSize: getEffectiveChordFontSize(performance),
+      sectionFontSize: getEffectiveSectionFontSize(performance),
+      headerFontSize: getEffectiveHeaderFontSize(performance),
+      songTitleFontSize: getEffectiveSongTitleFontSize(performance),
+      songArtistFontSize: getEffectiveSongArtistFontSize(performance),
+      lineSpacing: getEffectiveLineSpacing(performance)
+    };
     return {
       song: selectedSong,
       performance: {
-        ...performanceStateRef.current,
+        ...performance,
         activeProfile: 'prompter-display',
         portraitMode: receiverSettings.displayMode !== 'landscape-lyrics',
         receiverDisplay: receiverSettings
       },
-      effectiveCapo: getEffectiveCapo(selectedSong, performanceStateRef.current),
-      scrollTop: Math.round(pendingScroll ?? target?.element.scrollTop ?? savedScroll),
+      effectiveCapo: getEffectiveCapo(selectedSong, performance),
+      scrollTop,
+      scrollProgress,
       autoscrollActive: autoscrollControllerRef.current.active || isAutoscrolling,
       receiver: receiverSettings,
+      typography,
       updatedAt: new Date().toISOString()
     };
   }
@@ -2001,6 +2032,10 @@ export default function App() {
       activeController.frameCount += 1;
       if (Math.abs(activeController.virtualScrollTop - previousScrollTop) > 0.01) {
         activeController.lastScrollChangeAtMs = performance.now();
+      }
+      if (frameNow - lastReceiverAutoscrollPublishRef.current > 120) {
+        lastReceiverAutoscrollPublishRef.current = frameNow;
+        sendReceiverNow();
       }
 
       if (!next.reachedEnd && activeController.lastScrollChangeAtMs !== null && performance.now() - activeController.lastScrollChangeAtMs > 1500) {
@@ -3442,6 +3477,7 @@ function RemoteReceiverApp() {
   const [lastMessageAt, setLastMessageAt] = useState('');
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const receiver = normalizeReceiverDisplaySettings(testPattern?.receiver ?? payload?.receiver);
+  const showDiagnostics = new URLSearchParams(window.location.search).get('diagnostics') === '1';
 
   useEffect(() => {
     const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -3519,7 +3555,7 @@ function RemoteReceiverApp() {
         {testPattern ? (
           <ReceiverTestPattern settings={receiver} viewport={viewport} status={status} lastMessageAt={lastMessageAt} />
         ) : payload ? (
-          <ReceiverSong payload={payload} />
+          <ReceiverSong payload={payload} status={status} viewport={viewport} showDiagnostics={showDiagnostics} />
         ) : null}
       </ReceiverCanvas>
     </main>
@@ -3634,7 +3670,7 @@ function RemoteDisplayApp() {
       <main className="relative h-screen w-screen overflow-hidden bg-black text-white">
         {diagnostics}
         <ReceiverCanvas settings={receiver} viewport={viewport}>
-          <ReceiverSong payload={receiverPayload} />
+          <ReceiverSong payload={receiverPayload} status={status} viewport={viewport} showDiagnostics={false} />
         </ReceiverCanvas>
       </main>
     );
@@ -3839,9 +3875,22 @@ function ReceiverCanvas({
   );
 }
 
-function ReceiverSong({ payload }: { payload: RemoteReceiverPayload }) {
+function ReceiverSong({
+  payload,
+  status,
+  viewport,
+  showDiagnostics
+}: {
+  payload: RemoteReceiverPayload;
+  status: RemoteDisplayStatus;
+  viewport: { width: number; height: number };
+  showDiagnostics: boolean;
+}) {
   const receiver = normalizeReceiverDisplaySettings(payload.receiver);
-  const state = scaleReceiverPerformanceState(payload.performance, receiver);
+  const state = scaleReceiverPerformanceState(payload.performance, receiver, payload.typography);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLElement | null>(null);
+  const [scrollMetrics, setScrollMetrics] = useState({ scrollHeight: 0, clientHeight: 0, scrollTop: 0, progress: 0 });
   const lyricFontSize = getEffectiveLyricFontSize(state);
   const lineSpacing = getEffectiveLineSpacing(state);
   const headerFontSize = getEffectiveHeaderFontSize(state);
@@ -3883,58 +3932,106 @@ function ReceiverSong({ payload }: { payload: RemoteReceiverPayload }) {
     documentTheme,
     fallbackColor: documentTheme.muted
   });
+  const desiredProgress = clampNumber(payload.scrollProgress ?? 0, 0, 1);
+
+  useLayoutEffect(() => {
+    const viewportElement = viewportRef.current;
+    const contentElement = contentRef.current;
+    if (!viewportElement || !contentElement) return;
+    const measureAndScroll = () => {
+      const clientHeight = viewportElement.clientHeight;
+      const scrollHeight = contentElement.scrollHeight;
+      const maxScroll = Math.max(0, scrollHeight - clientHeight);
+      const fallbackProgress = maxScroll > 0 ? clampNumber(payload.scrollTop / maxScroll, 0, 1) : 0;
+      const progress = Number.isFinite(payload.scrollProgress) ? desiredProgress : fallbackProgress;
+      const scrollTop = Math.round(progress * maxScroll);
+      setScrollMetrics({ scrollHeight, clientHeight, scrollTop, progress });
+    };
+    measureAndScroll();
+    const frameId = window.requestAnimationFrame(measureAndScroll);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [
+    desiredProgress,
+    payload.scrollProgress,
+    payload.scrollTop,
+    payload.updatedAt,
+    receiver.displayMode,
+    receiver.fontScale,
+    receiver.safeMargin,
+    viewport.width,
+    viewport.height,
+    lyricFontSize,
+    chordFontSize,
+    lineSpacing
+  ]);
 
   return (
-    <article
-      className="font-chart h-full w-full whitespace-pre-wrap"
-      style={{
-        transform: `translateY(-${Math.max(0, payload.scrollTop)}px)`,
-        color: documentTheme.text,
-        fontFamily: stageFontFamily,
-        fontSize: `${lyricFontSize}px`,
-        lineHeight: 1.52
-      }}
-    >
-      {rendered.lines.map((line, index) => (
-        <ChordProDisplayLine
-          key={`${line.raw}-${index}`}
-          line={line}
-          transpose={state.transpose}
-          showNashville={state.showNashvilleNumbers}
-          songKey={payload.song.performanceKey || payload.song.key}
-          boldChords={getEffectiveBoldChords(state)}
-          italicChords={getEffectiveItalicChords(state)}
-          showChords={getEffectiveShowChords(state)}
-          chordFontColor={getEffectiveChordFontColor(state)}
-          chordHighlightColor={getEffectiveChordHighlightColor(state)}
-          sectionFontSize={getEffectiveSectionFontSize(state)}
-          sectionFontColor={getEffectiveSectionFontColor(state)}
-          sectionBold={getEffectiveSectionBold(state)}
-          sectionItalic={getEffectiveSectionItalic(state)}
-          sectionUppercase={getEffectiveSectionUppercase(state)}
-          sectionSpacingBefore={getEffectiveSectionSpacingBefore(state)}
-          sectionSpacingAfter={getEffectiveSectionSpacingAfter(state)}
-          songTitleStyle={songTitleStyle}
-          songArtistStyle={songArtistStyle}
-          showHarmonyCues={getEffectiveShowHarmonyCues(state)}
-          harmonyTextColor={getEffectiveHarmonyTextColor(state)}
-          harmonyIconColor={getEffectiveHarmonyIconColor(state)}
-          harmonyItalic={getEffectiveHarmonyItalic(state)}
-          harmonyUnderline={getEffectiveHarmonyUnderline(state)}
-          harmonyIconVisible={getEffectiveHarmonyIconVisible(state)}
-          displayPreference={payload.song.displayPreference ?? 'inline'}
-          lineIndex={index}
-          chordFontSize={chordFontSize}
-          chordFontFamily={chordFontFamily}
-          lyricFontSize={lyricFontSize}
-          lineSpacing={lineSpacing}
-          chordVerticalOffset={getEffectiveChordVerticalOffset(state)}
-          mobileReflowMode={false}
-          showAnchorDebug={false}
-          showHarmonyDebug={false}
+    <div ref={viewportRef} className="relative h-full w-full overflow-hidden">
+      <article
+        ref={contentRef}
+        className="font-chart w-full whitespace-pre-wrap"
+        style={{
+          transform: `translateY(-${Math.max(0, scrollMetrics.scrollTop)}px)`,
+          transition: payload.autoscrollActive ? 'transform 140ms linear' : 'transform 90ms ease-out',
+          willChange: 'transform',
+          color: documentTheme.text,
+          fontFamily: stageFontFamily,
+          fontSize: `${lyricFontSize}px`,
+          lineHeight: 1.52,
+          paddingTop: 0,
+          paddingBottom: `${Math.max(lyricFontSize * 4, viewport.height * 0.12)}px`
+        }}
+      >
+        {rendered.lines.map((line, index) => (
+          <ChordProDisplayLine
+            key={`${line.raw}-${index}`}
+            line={line}
+            transpose={state.transpose}
+            showNashville={state.showNashvilleNumbers}
+            songKey={payload.song.performanceKey || payload.song.key}
+            boldChords={getEffectiveBoldChords(state)}
+            italicChords={getEffectiveItalicChords(state)}
+            showChords={getEffectiveShowChords(state)}
+            chordFontColor={getEffectiveChordFontColor(state)}
+            chordHighlightColor={getEffectiveChordHighlightColor(state)}
+            sectionFontSize={getEffectiveSectionFontSize(state)}
+            sectionFontColor={getEffectiveSectionFontColor(state)}
+            sectionBold={getEffectiveSectionBold(state)}
+            sectionItalic={getEffectiveSectionItalic(state)}
+            sectionUppercase={getEffectiveSectionUppercase(state)}
+            sectionSpacingBefore={getEffectiveSectionSpacingBefore(state)}
+            sectionSpacingAfter={getEffectiveSectionSpacingAfter(state)}
+            songTitleStyle={songTitleStyle}
+            songArtistStyle={songArtistStyle}
+            showHarmonyCues={getEffectiveShowHarmonyCues(state)}
+            harmonyTextColor={getEffectiveHarmonyTextColor(state)}
+            harmonyIconColor={getEffectiveHarmonyIconColor(state)}
+            harmonyItalic={getEffectiveHarmonyItalic(state)}
+            harmonyUnderline={getEffectiveHarmonyUnderline(state)}
+            harmonyIconVisible={getEffectiveHarmonyIconVisible(state)}
+            displayPreference={payload.song.displayPreference ?? 'inline'}
+            lineIndex={index}
+            chordFontSize={chordFontSize}
+            chordFontFamily={chordFontFamily}
+            lyricFontSize={lyricFontSize}
+            lineSpacing={lineSpacing}
+            chordVerticalOffset={getEffectiveChordVerticalOffset(state)}
+            mobileReflowMode={false}
+            showAnchorDebug={false}
+            showHarmonyDebug={false}
+          />
+        ))}
+      </article>
+      {showDiagnostics && (
+        <ReceiverDiagnosticsOverlay
+          settings={receiver}
+          viewport={viewport}
+          status={status}
+          updatedAt={payload.updatedAt}
+          metrics={scrollMetrics}
         />
-      ))}
-    </article>
+      )}
+    </div>
   );
 }
 
@@ -3963,6 +4060,34 @@ function ReceiverTestPattern({
           <div className="text-[0.5em] font-semibold text-amber-200">connected {status === 'connected' ? 'yes' : 'no'} / last {lastMessageAt || '-'}</div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReceiverDiagnosticsOverlay({
+  settings,
+  viewport,
+  status,
+  updatedAt,
+  metrics
+}: {
+  settings: ReceiverDisplaySettings;
+  viewport: { width: number; height: number };
+  status: RemoteDisplayStatus;
+  updatedAt: string;
+  metrics: { scrollHeight: number; clientHeight: number; scrollTop: number; progress: number };
+}) {
+  return (
+    <div className="pointer-events-none absolute bottom-2 left-2 z-30 grid gap-1 rounded-md border border-sky-300/40 bg-black/85 px-3 py-2 text-left text-[0.75rem] leading-tight text-sky-50 shadow-xl">
+      <div className="font-semibold text-white">Receiver Diagnostics</div>
+      <div>mode: {receiverDisplayModeLabel(settings.displayMode)}</div>
+      <div>viewport: {viewport.width} x {viewport.height}</div>
+      <div>scrollHeight: {metrics.scrollHeight}</div>
+      <div>clientHeight: {metrics.clientHeight}</div>
+      <div>scrollTop: {metrics.scrollTop}</div>
+      <div>progress: {metrics.progress.toFixed(3)}</div>
+      <div>status: {remoteDisplayStatusLabel(status)}</div>
+      <div>payload: {updatedAt || '-'}</div>
     </div>
   );
 }
@@ -5011,14 +5136,15 @@ function calculateReceiverLayout(settings: ReceiverDisplaySettings, viewportWidt
   return { contentWidth, contentHeight, rotation, scale };
 }
 
-function scaleReceiverPerformanceState(state: PerformanceState, receiver: ReceiverDisplaySettings): PerformanceState {
+function scaleReceiverPerformanceState(state: PerformanceState, receiver: ReceiverDisplaySettings, typography?: RemoteReceiverPayload['typography']): PerformanceState {
   const scale = receiver.fontScale;
-  const scaledLyric = Math.round(getEffectiveLyricFontSize(state) * scale);
-  const scaledHeader = Math.round(getEffectiveHeaderFontSize(state) * scale);
-  const scaledTitle = Math.round(getEffectiveSongTitleFontSize(state) * scale);
-  const scaledArtist = Math.round(getEffectiveSongArtistFontSize(state) * scale);
-  const scaledChord = Math.round(getEffectiveChordFontSize(state) * scale);
-  const scaledSection = Math.round(getEffectiveSectionFontSize(state) * scale);
+  const scaledLyric = Math.round((typography?.lyricFontSize ?? getEffectiveLyricFontSize(state)) * scale);
+  const scaledHeader = Math.round((typography?.headerFontSize ?? getEffectiveHeaderFontSize(state)) * scale);
+  const scaledTitle = Math.round((typography?.songTitleFontSize ?? getEffectiveSongTitleFontSize(state)) * scale);
+  const scaledArtist = Math.round((typography?.songArtistFontSize ?? getEffectiveSongArtistFontSize(state)) * scale);
+  const scaledChord = Math.round((typography?.chordFontSize ?? getEffectiveChordFontSize(state)) * scale);
+  const scaledSection = Math.round((typography?.sectionFontSize ?? getEffectiveSectionFontSize(state)) * scale);
+  const scaledLineSpacing = typography?.lineSpacing ?? getEffectiveLineSpacing(state);
   return {
     ...state,
     activeProfile: 'prompter-display',
@@ -5036,6 +5162,8 @@ function scaleReceiverPerformanceState(state: PerformanceState, receiver: Receiv
     chordFontSizesByProfile: { ...(state.chordFontSizesByProfile ?? {}), 'prompter-display': scaledChord },
     sectionFontSize: scaledSection,
     sectionFontSizesByProfile: { ...(state.sectionFontSizesByProfile ?? {}), 'prompter-display': scaledSection },
+    lineSpacing: scaledLineSpacing,
+    lineSpacingsByProfile: { ...(state.lineSpacingsByProfile ?? {}), 'prompter-display': scaledLineSpacing },
     receiverDisplay: receiver
   };
 }
@@ -7615,6 +7743,7 @@ function ExternalDisplayControls({
   const [receiverStatus, setReceiverStatus] = useState<RemoteDisplayStatus>('disconnected');
   const [receiverMessage, setReceiverMessage] = useState('');
   const [status, setStatus] = useState('');
+  const receiverSettingsMountedRef = useRef(false);
   const updateSettings = (next: Partial<PerformanceState['externalDisplay']>) =>
     setState({ externalDisplay: { ...settings, ...next } });
   const updateReceiver = (next: Partial<ReceiverDisplaySettings>) =>
@@ -7623,6 +7752,17 @@ function ExternalDisplayControls({
   const outputStatus = status || (settings.enabled ? 'External output connected' : 'Open the external output first to preview changes.');
 
   useEffect(() => subscribeRemoteDisplayControllerStatus(setReceiverStatus), []);
+
+  useEffect(() => {
+    if (!receiverSettingsMountedRef.current) {
+      receiverSettingsMountedRef.current = true;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      onSendReceiver();
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [receiver.displayMode, receiver.blackBackground, receiver.fontScale, receiver.safeMargin]);
 
   function flashReceiverMessage(message: string) {
     setReceiverMessage(message);
