@@ -111,7 +111,19 @@ export type StageMode = 'library' | 'editor' | 'import' | 'setlist' | 'perform' 
 
 export type SyncState = 'disabled' | 'idle' | 'syncing' | 'error';
 
-export type PedalAction = 'nextSong' | 'previousSong' | 'toggleAutoscroll' | 'scrollDown' | 'scrollUp';
+export type PedalAction =
+  | 'nextSong'
+  | 'previousSong'
+  | 'toggleAutoscroll'
+  | 'toggleTempoGuide'
+  | 'scrollFaster'
+  | 'scrollSlower'
+  | 'scrollDown'
+  | 'scrollUp'
+  | 'toggleChords'
+  | 'toggleHarmonyCues'
+  | 'increaseFontSize'
+  | 'decreaseFontSize';
 
 export type PedalMappings = Record<PedalAction, string[]>;
 

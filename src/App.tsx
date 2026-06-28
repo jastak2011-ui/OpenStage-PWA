@@ -1111,32 +1111,30 @@ export default function App() {
       const target = event.target as HTMLElement | null;
       if (target?.matches('input, textarea, select')) return;
       const mappings = performanceState.pedalMappings;
+      const runMappedAction = (action: PedalAction, callback: () => void) => {
+        if (!matchesPedal(event, mappings[action] ?? [])) return false;
+        event.preventDefault();
+        callback();
+        return true;
+      };
 
-      if (matchesPedal(event, mappings.toggleAutoscroll)) {
-        event.preventDefault();
-        toggleAutoscroll();
-      }
-      if (matchesPedal(event, mappings.scrollDown)) {
-        event.preventDefault();
-        scrollAutoscrollTargetBy(stageRef.current, Math.max(80, performanceState.fontSize * 4));
-      }
-      if (matchesPedal(event, mappings.scrollUp)) {
-        event.preventDefault();
-        scrollAutoscrollTargetBy(stageRef.current, -Math.max(80, performanceState.fontSize * 4));
-      }
-      if (matchesPedal(event, mappings.nextSong)) {
-        event.preventDefault();
-        moveSelectedSong(1);
-      }
-      if (matchesPedal(event, mappings.previousSong)) {
-        event.preventDefault();
-        moveSelectedSong(-1);
-      }
+      if (runMappedAction('toggleAutoscroll', toggleAutoscroll)) return;
+      if (runMappedAction('toggleTempoGuide', dispatchTempoGuideToggle)) return;
+      if (runMappedAction('scrollFaster', () => updateAutoscrollSpeed(adjustAutoscrollSpeedMultiplier(performanceState.autoscrollSpeed, autoscrollSpeedStep)))) return;
+      if (runMappedAction('scrollSlower', () => updateAutoscrollSpeed(adjustAutoscrollSpeedMultiplier(performanceState.autoscrollSpeed, -autoscrollSpeedStep)))) return;
+      if (runMappedAction('scrollDown', () => scrollAutoscrollTargetBy(stageRef.current, Math.max(80, performanceState.fontSize * 4)))) return;
+      if (runMappedAction('scrollUp', () => scrollAutoscrollTargetBy(stageRef.current, -Math.max(80, performanceState.fontSize * 4)))) return;
+      if (runMappedAction('nextSong', () => moveSelectedSong(1))) return;
+      if (runMappedAction('previousSong', () => moveSelectedSong(-1))) return;
+      if (runMappedAction('toggleChords', () => updatePerformanceState(showChordsUpdate(performanceState, !getEffectiveShowChords(performanceState))))) return;
+      if (runMappedAction('toggleHarmonyCues', () => updatePerformanceState(showHarmonyCuesUpdate(performanceState, !getEffectiveShowHarmonyCues(performanceState))))) return;
+      if (runMappedAction('increaseFontSize', () => updatePerformanceState(lyricFontSizeUpdate(performanceState, Math.min(76, getEffectiveLyricFontSize(performanceState) + 2))))) return;
+      if (runMappedAction('decreaseFontSize', () => updatePerformanceState(lyricFontSizeUpdate(performanceState, Math.max(16, getEffectiveLyricFontSize(performanceState) - 2))))) return;
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [orderedSetlist, performanceState.fontSize, performanceState.pedalMappings, selectedSongId]);
+  }, [orderedSetlist, performanceState, selectedSongId]);
 
   async function loadData() {
     const [storedSongs, storedSetlist, storedSavedSetlists] = await Promise.all([
@@ -4024,7 +4022,7 @@ function PedalConfigView({
 }) {
   type PedalSectionAction = {
     id: string;
-    action?: PedalAction;
+    action: PedalAction;
     label: string;
     hint: string;
   };
@@ -4040,10 +4038,17 @@ function PedalConfigView({
 
   const actionLabels: Record<PedalAction, string> = {
     toggleAutoscroll: 'Toggle Autoscroll',
+    toggleTempoGuide: 'Toggle Tempo Guide',
+    scrollFaster: 'Scroll Faster',
+    scrollSlower: 'Scroll Slower',
     nextSong: 'Next Song',
     previousSong: 'Previous Song',
     scrollDown: 'Scroll Down',
-    scrollUp: 'Scroll Up'
+    scrollUp: 'Scroll Up',
+    toggleChords: 'Show / Hide Chords',
+    toggleHarmonyCues: 'Show / Hide Harmony Cues',
+    increaseFontSize: 'Increase Font Size',
+    decreaseFontSize: 'Decrease Font Size'
   };
 
   const sections: PedalSection[] = [
@@ -4052,9 +4057,9 @@ function PedalConfigView({
       icon: <Gauge size={20} />,
       actions: [
         { id: 'toggleAutoscroll', action: 'toggleAutoscroll', label: 'Toggle Autoscroll', hint: 'Start or pause Stage autoscroll.' },
-        { id: 'tempoGuide', label: 'Tempo Guide On/Off', hint: 'Reserved for tempo meter pedal control.' },
-        { id: 'scrollFaster', label: 'Scroll Faster', hint: 'Reserved for quick autoscroll speed changes.' },
-        { id: 'scrollSlower', label: 'Scroll Slower', hint: 'Reserved for quick autoscroll speed changes.' }
+        { id: 'tempoGuide', action: 'toggleTempoGuide', label: 'Toggle Tempo Guide', hint: 'Start or stop the visual BPM guide.' },
+        { id: 'scrollFaster', action: 'scrollFaster', label: 'Scroll Faster', hint: 'Increase autoscroll speed.' },
+        { id: 'scrollSlower', action: 'scrollSlower', label: 'Scroll Slower', hint: 'Decrease autoscroll speed.' }
       ]
     },
     {
@@ -4071,15 +4076,15 @@ function PedalConfigView({
       title: 'Display',
       icon: <Monitor size={20} />,
       actions: [
-        { id: 'showChords', label: 'Show / Hide Chords', hint: 'Reserved for vocalist and chart display profiles.' },
-        { id: 'showHarmony', label: 'Show / Hide Harmony Cues', hint: 'Reserved for harmony cue display control.' },
-        { id: 'increaseFont', label: 'Increase Font Size', hint: 'Reserved for live display size adjustment.' },
-        { id: 'decreaseFont', label: 'Decrease Font Size', hint: 'Reserved for live display size adjustment.' }
+        { id: 'showChords', action: 'toggleChords', label: 'Show / Hide Chords', hint: 'Toggle chord visibility for the Stage chart.' },
+        { id: 'showHarmony', action: 'toggleHarmonyCues', label: 'Show / Hide Harmony Cues', hint: 'Toggle harmony cue visibility.' },
+        { id: 'increaseFont', action: 'increaseFontSize', label: 'Increase Font Size', hint: 'Increase lyric font size.' },
+        { id: 'decreaseFont', action: 'decreaseFontSize', label: 'Decrease Font Size', hint: 'Decrease lyric font size.' }
       ]
     }
   ];
 
-  const supportedActions = sections.flatMap((section) => section.actions).filter((item): item is PedalSectionAction & { action: PedalAction } => Boolean(item.action));
+  const supportedActions = sections.flatMap((section) => section.actions);
 
   function updateAction(action: PedalAction, keys: string[]) {
     onChange({ ...mappings, [action]: keys });
@@ -4224,10 +4229,10 @@ function PedalConfigView({
                     key={item.id}
                     label={item.label}
                     hint={item.hint}
-                    keys={item.action ? mappings[item.action] ?? [] : []}
-                    supported={Boolean(item.action)}
-                    onRemoveKey={item.action ? (key) => updateAction(item.action!, (mappings[item.action!] ?? []).filter((mappedKey) => mappedKey !== key)) : undefined}
-                    onLearnKey={item.action ? (key) => addKeyToAction(item.action!, key) : undefined}
+                    keys={mappings[item.action] ?? []}
+                    onRemoveKey={(key) => updateAction(item.action, (mappings[item.action] ?? []).filter((mappedKey) => mappedKey !== key))}
+                    onClearMapping={() => updateAction(item.action, [])}
+                    onLearnKey={(key) => addKeyToAction(item.action, key)}
                   />
                 ))}
               </div>
@@ -4273,34 +4278,30 @@ function PedalActionRow({
   label,
   hint,
   keys,
-  supported,
   onRemoveKey,
+  onClearMapping,
   onLearnKey
 }: {
   label: string;
   hint: string;
   keys: string[];
-  supported: boolean;
-  onRemoveKey?: (key: string) => void;
-  onLearnKey?: (key: string) => void;
+  onRemoveKey: (key: string) => void;
+  onClearMapping: () => void;
+  onLearnKey: (key: string) => void;
 }) {
   return (
-    <div className={`rounded-md border p-4 ${supported ? 'border-slate-200 bg-slate-50' : 'border-slate-200 bg-slate-100/70'}`}>
+    <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
       <div className="grid gap-3 md:grid-cols-[1fr_1.5fr] md:items-center">
         <div>
           <h4 className="font-semibold text-slate-950">{label}</h4>
           <p className="mt-1 text-sm text-slate-600">{hint}</p>
-          {!supported && <span className="mt-2 inline-flex rounded-full border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-500">Reserved</span>}
         </div>
-        {supported ? (
-          <KeyCapture
-            keys={keys}
-            onRemoveKey={(key) => onRemoveKey?.(key)}
-            onLearnKey={(key) => onLearnKey?.(key)}
-          />
-        ) : (
-          <div className="rounded-md border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">Mapping will be available when this Stage action is implemented.</div>
-        )}
+        <KeyCapture
+          keys={keys}
+          onRemoveKey={onRemoveKey}
+          onClearMapping={onClearMapping}
+          onLearnKey={onLearnKey}
+        />
       </div>
     </div>
   );
@@ -4309,10 +4310,12 @@ function PedalActionRow({
 function KeyCapture({
   keys,
   onRemoveKey,
+  onClearMapping,
   onLearnKey
 }: {
   keys: string[];
   onRemoveKey: (key: string) => void;
+  onClearMapping: () => void;
   onLearnKey: (key: string) => void;
 }) {
   const [isCapturing, setIsCapturing] = useState(false);
@@ -4324,6 +4327,7 @@ function KeyCapture({
 
   return (
     <div className="grid gap-3">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Current Mapping</div>
       <div className="flex flex-wrap gap-2">
         {keys.map((key) => (
           <button
@@ -4336,28 +4340,33 @@ function KeyCapture({
             {key}
           </button>
         ))}
-        {keys.length === 0 && <span className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-500">No keys mapped.</span>}
+        {keys.length === 0 && <span className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-500">No pedal assigned</span>}
       </div>
-      <button
-        ref={buttonRef}
-        className="primary-button w-fit"
-        type="button"
-        onClick={() => setIsCapturing(true)}
-        onBlur={() => {
-          if (isCapturing) window.setTimeout(() => setIsCapturing(false), 120);
-        }}
-        onKeyDown={(event) => {
-          if (!isCapturing) return;
-          event.preventDefault();
-          event.stopPropagation();
-          const normalized = normalizeKeyEvent(event.nativeEvent);
-          onLearnKey(normalized);
-          setIsCapturing(false);
-        }}
-      >
-        <Settings size={18} />
-        {isCapturing ? 'Press pedal or key...' : 'Learn Button'}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          ref={buttonRef}
+          className="primary-button w-fit"
+          type="button"
+          onClick={() => setIsCapturing(true)}
+          onBlur={() => {
+            if (isCapturing) window.setTimeout(() => setIsCapturing(false), 120);
+          }}
+          onKeyDown={(event) => {
+            if (!isCapturing) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const normalized = normalizeKeyEvent(event.nativeEvent);
+            onLearnKey(normalized);
+            setIsCapturing(false);
+          }}
+        >
+          <Settings size={18} />
+          {isCapturing ? 'Press pedal or key...' : 'Learn Button'}
+        </button>
+        <button className="secondary-button w-fit" type="button" disabled={keys.length === 0} onClick={onClearMapping}>
+          Clear Mapping
+        </button>
+      </div>
       {isCapturing && (
         <div className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-900">
           Press the pedal or keyboard key you want to assign...
@@ -6441,6 +6450,12 @@ function PerformanceView({
     }
     setTempoRunning(true);
   }, [activeTempoBpm, revealMenu, showTempoMessage, stopTempo, tempoRunning]);
+
+  useEffect(() => {
+    window.addEventListener('openstage:toggle-tempo-guide', toggleTempo);
+    return () => window.removeEventListener('openstage:toggle-tempo-guide', toggleTempo);
+  }, [toggleTempo]);
+
   const clearTempoLongPressTimer = useCallback(() => {
     if (!tempoLongPressTimerRef.current) return;
     window.clearTimeout(tempoLongPressTimerRef.current);
@@ -9910,6 +9925,10 @@ function setPedalTestModeActive(active: boolean) {
 
 function isPedalTestModeActive() {
   return Boolean((window as Window & { __openStagePedalTestModeActive?: boolean }).__openStagePedalTestModeActive);
+}
+
+function dispatchTempoGuideToggle() {
+  window.dispatchEvent(new Event('openstage:toggle-tempo-guide'));
 }
 
 function normalizeKeyEvent(event: KeyboardEvent | React.KeyboardEvent) {

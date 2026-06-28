@@ -7,8 +7,15 @@ export const defaultPedalMappings = {
   nextSong: ['ArrowRight', 'PageDown'],
   previousSong: ['ArrowLeft', 'PageUp'],
   toggleAutoscroll: ['Space'],
+  toggleTempoGuide: [],
+  scrollFaster: [],
+  scrollSlower: [],
   scrollDown: ['ArrowDown'],
-  scrollUp: ['ArrowUp']
+  scrollUp: ['ArrowUp'],
+  toggleChords: [],
+  toggleHarmonyCues: [],
+  increaseFontSize: [],
+  decreaseFontSize: []
 };
 
 export const defaultPerformanceState: PerformanceState = {
