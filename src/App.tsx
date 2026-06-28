@@ -8053,7 +8053,7 @@ function ExternalDisplayControls({
   }
 
   return (
-    <div className="grid gap-3 rounded-md border border-slate-700 bg-slate-950 p-3 text-xs">
+    <div className="stage-format-receiver-only grid gap-3 rounded-md border border-slate-700 bg-slate-950 p-3 text-xs">
       <div className="grid gap-3 rounded-md border border-sky-300/30 bg-sky-300/10 p-3 text-sky-50">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -8133,6 +8133,9 @@ function ExternalDisplayControls({
           <div>Local debug URL: <span className="font-mono">/receiver?transport=ws&amp;remoteWs={getRemoteDisplayUrl()}</span></div>
           <div>Mode: {receiverDisplayModeLabel(receiver.displayMode)}</div>
           {receiverMessage && <div className="font-semibold text-teal-100">{receiverMessage}</div>}
+        </div>
+        <div className="rounded-md border border-sky-200/20 bg-black/20 p-2 text-slate-300">
+          FireTV Receiver is the active external display system. Legacy Apple TV controls are hidden.
         </div>
       </div>
       <div className="grid gap-2">

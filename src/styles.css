@@ -261,6 +261,10 @@ label,
   backdrop-filter: blur(10px);
 }
 
+.stage-format-receiver-only > :not(:first-child) {
+  display: none;
+}
+
 .stage-profile-iphone .stage-scroll {
   padding-left: 0.75rem !important;
   padding-right: 0.75rem !important;
