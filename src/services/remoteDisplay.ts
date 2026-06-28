@@ -8,6 +8,20 @@ export type RemoteReceiverPayload = {
   scrollProgress: number;
   autoscrollActive: boolean;
   receiver: ReceiverDisplaySettings;
+  visualTheme?: {
+    stageTheme: PerformanceState['stageTheme'];
+    theme: PerformanceState['theme'];
+    background: string;
+    text: string;
+    muted: string;
+    chordColor: string;
+    sectionColor: string;
+    harmonyTextColor: string;
+    harmonyIconColor: string;
+    sectionBold: boolean;
+    sectionItalic: boolean;
+    sectionUppercase: boolean;
+  };
   typography: {
     lyricFontSize: number;
     chordFontSize: number;

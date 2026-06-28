@@ -1064,6 +1064,26 @@ export default function App() {
     performanceState.showHarmonyCuesByProfile,
     performanceState.showNashvilleNumbers,
     performanceState.activeProfile,
+    performanceState.stageTheme,
+    performanceState.theme,
+    performanceState.documentTheme,
+    performanceState.documentThemesByProfile,
+    performanceState.chordFontColor,
+    performanceState.chordFontColorsByProfile,
+    performanceState.chordHighlightColor,
+    performanceState.chordHighlightColorsByProfile,
+    performanceState.sectionFontColor,
+    performanceState.sectionFontColorsByProfile,
+    performanceState.sectionBold,
+    performanceState.sectionBoldByProfile,
+    performanceState.sectionItalic,
+    performanceState.sectionItalicByProfile,
+    performanceState.sectionUppercase,
+    performanceState.sectionUppercaseByProfile,
+    performanceState.harmonyTextColor,
+    performanceState.harmonyTextColorsByProfile,
+    performanceState.harmonyIconColor,
+    performanceState.harmonyIconColorsByProfile,
     performanceState.receiverDisplay,
     isAutoscrolling
   ]);
@@ -1697,19 +1717,26 @@ export default function App() {
       songArtistFontSize: getEffectiveSongArtistFontSize(performance),
       lineSpacing: getEffectiveLineSpacing(performance)
     };
+    const receiverPerformance: PerformanceState = {
+      ...performance,
+      activeProfile: 'prompter-display',
+      portraitMode: receiverSettings.displayMode !== 'landscape-lyrics',
+      receiverDisplay: receiverSettings
+    };
+    const visual = getReceiverVisualTheme(receiverPerformance, receiverSettings);
     return {
       song: selectedSong,
-      performance: {
-        ...performance,
-        activeProfile: 'prompter-display',
-        portraitMode: receiverSettings.displayMode !== 'landscape-lyrics',
-        receiverDisplay: receiverSettings
-      },
+      performance: receiverPerformance,
       effectiveCapo: getEffectiveCapo(selectedSong, performance),
       scrollTop,
       scrollProgress,
       autoscrollActive: autoscrollControllerRef.current.active || isAutoscrolling,
       receiver: receiverSettings,
+      visualTheme: {
+        stageTheme: receiverPerformance.stageTheme,
+        theme: receiverPerformance.theme,
+        ...visual
+      },
       typography,
       updatedAt: new Date().toISOString()
     };
@@ -3551,7 +3578,7 @@ function RemoteReceiverApp() {
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-black text-white">
-      <ReceiverCanvas settings={receiver} viewport={viewport}>
+      <ReceiverCanvas settings={receiver} viewport={viewport} backgroundColor={payload?.visualTheme?.background ?? (payload ? getReceiverVisualTheme(scaleReceiverPerformanceState(payload.performance, receiver, payload.typography), receiver).background : undefined)}>
         {testPattern ? (
           <ReceiverTestPattern settings={receiver} viewport={viewport} status={status} lastMessageAt={lastMessageAt} />
         ) : payload ? (
@@ -3669,7 +3696,7 @@ function RemoteDisplayApp() {
     return (
       <main className="relative h-screen w-screen overflow-hidden bg-black text-white">
         {diagnostics}
-        <ReceiverCanvas settings={receiver} viewport={viewport}>
+        <ReceiverCanvas settings={receiver} viewport={viewport} backgroundColor={receiverPayload.visualTheme?.background ?? getReceiverVisualTheme(scaleReceiverPerformanceState(receiverPayload.performance, receiver, receiverPayload.typography), receiver).background}>
           <ReceiverSong payload={receiverPayload} status={status} viewport={viewport} showDiagnostics={false} />
         </ReceiverCanvas>
       </main>
@@ -3849,15 +3876,17 @@ function RemoteDisplaySong({ song, state, diagnostics }: { song: Song; state: Pe
 function ReceiverCanvas({
   settings,
   viewport,
+  backgroundColor,
   children
 }: {
   settings: ReceiverDisplaySettings;
   viewport: { width: number; height: number };
+  backgroundColor?: string;
   children: React.ReactNode;
 }) {
   const layout = calculateReceiverLayout(settings, viewport.width, viewport.height);
   return (
-    <div className="absolute inset-0 flex items-center justify-center overflow-hidden" style={{ background: settings.blackBackground ? '#000' : '#f8fafc' }}>
+    <div className="absolute inset-0 flex items-center justify-center overflow-hidden" style={{ background: backgroundColor ?? (settings.blackBackground ? '#000' : '#f8fafc') }}>
       <div
         className="absolute left-1/2 top-1/2 overflow-hidden"
         style={{
@@ -3895,7 +3924,8 @@ function ReceiverSong({
   const lineSpacing = getEffectiveLineSpacing(state);
   const headerFontSize = getEffectiveHeaderFontSize(state);
   const chordFontSize = getEffectiveChordFontSize(state);
-  const documentTheme = getDocumentThemePreset(receiver.blackBackground ? 'dark-stage' : getEffectiveDocumentTheme(state));
+  const receiverVisual = payload.visualTheme ?? getReceiverVisualTheme(state, receiver);
+  const documentTheme = { background: receiverVisual.background, text: receiverVisual.text, muted: receiverVisual.muted };
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
   const chordFontFamily = getEffectiveUseMonospaceChords(state) ? 'Consolas, "Courier New", monospace' : stageFontFamily;
   const rendered = renderSong(payload.song, {
@@ -3992,20 +4022,20 @@ function ReceiverSong({
             boldChords={getEffectiveBoldChords(state)}
             italicChords={getEffectiveItalicChords(state)}
             showChords={getEffectiveShowChords(state)}
-            chordFontColor={getEffectiveChordFontColor(state)}
+            chordFontColor={receiverVisual.chordColor}
             chordHighlightColor={getEffectiveChordHighlightColor(state)}
             sectionFontSize={getEffectiveSectionFontSize(state)}
-            sectionFontColor={getEffectiveSectionFontColor(state)}
-            sectionBold={getEffectiveSectionBold(state)}
-            sectionItalic={getEffectiveSectionItalic(state)}
-            sectionUppercase={getEffectiveSectionUppercase(state)}
+            sectionFontColor={receiverVisual.sectionColor}
+            sectionBold={receiverVisual.sectionBold}
+            sectionItalic={receiverVisual.sectionItalic}
+            sectionUppercase={receiverVisual.sectionUppercase}
             sectionSpacingBefore={getEffectiveSectionSpacingBefore(state)}
             sectionSpacingAfter={getEffectiveSectionSpacingAfter(state)}
             songTitleStyle={songTitleStyle}
             songArtistStyle={songArtistStyle}
             showHarmonyCues={getEffectiveShowHarmonyCues(state)}
-            harmonyTextColor={getEffectiveHarmonyTextColor(state)}
-            harmonyIconColor={getEffectiveHarmonyIconColor(state)}
+            harmonyTextColor={receiverVisual.harmonyTextColor}
+            harmonyIconColor={receiverVisual.harmonyIconColor}
             harmonyItalic={getEffectiveHarmonyItalic(state)}
             harmonyUnderline={getEffectiveHarmonyUnderline(state)}
             harmonyIconVisible={getEffectiveHarmonyIconVisible(state)}
@@ -5005,7 +5035,7 @@ function SettingsView({
           </div>
           <div className="mt-3 grid gap-2">
             {stageThemes.map((theme) => (
-              <button key={theme.name} className="secondary-button justify-start" onClick={() => setState({ stageTheme: theme.name, theme: theme.name.includes('light') || theme.name === 'outdoor' ? 'light' : 'dark' })}>
+              <button key={theme.name} className="secondary-button justify-start" onClick={() => setState(stageThemePresetPatch(state, theme.name))}>
                 {theme.label}
               </button>
             ))}
@@ -5098,6 +5128,18 @@ function remoteDisplayStatusClass(status: RemoteDisplayStatus) {
   return 'border-slate-300 bg-slate-100 text-slate-700';
 }
 
+function stageThemePresetPatch(state: PerformanceState, stageTheme: PerformanceState['stageTheme']): Partial<PerformanceState> {
+  const lightTheme = stageTheme === 'standard-light' || stageTheme === 'outdoor';
+  return {
+    stageTheme,
+    theme: lightTheme ? 'light' : 'dark',
+    receiverDisplay: {
+      ...normalizeReceiverDisplaySettings(state.receiverDisplay),
+      blackBackground: stageTheme === 'standard-dark' || stageTheme === 'high-contrast'
+    }
+  };
+}
+
 function normalizeReceiverDisplaySettings(settings: Partial<ReceiverDisplaySettings> | undefined): ReceiverDisplaySettings {
   const requestedDisplayMode = settings?.displayMode;
   const displayMode: ReceiverDisplayMode = receiverDisplayModeOptions.some((option) => option.value === requestedDisplayMode)
@@ -5110,6 +5152,114 @@ function normalizeReceiverDisplaySettings(settings: Partial<ReceiverDisplaySetti
     showTestPattern: Boolean(settings?.showTestPattern),
     safeMargin: clampNumber(settings?.safeMargin ?? defaultReceiverDisplaySettings.safeMargin, 0, 14)
   };
+}
+
+function getReceiverVisualTheme(state: PerformanceState, receiver: ReceiverDisplaySettings) {
+  if (receiver.blackBackground && (state.stageTheme === 'standard-dark' || state.stageTheme === 'high-contrast')) {
+    return state.stageTheme === 'high-contrast'
+      ? {
+        background: '#000000',
+        text: '#ffffff',
+        muted: '#ffffff',
+        chordColor: '#ffffff',
+        sectionColor: '#ffffff',
+        harmonyTextColor: '#ffffff',
+        harmonyIconColor: '#ffffff',
+        sectionBold: true,
+        sectionItalic: false,
+        sectionUppercase: true
+      }
+      : {
+        background: '#000000',
+        text: '#f8fafc',
+        muted: '#cbd5e1',
+        chordColor: '#d9ad65',
+        sectionColor: '#f2c66d',
+        harmonyTextColor: '#8bd3dd',
+        harmonyIconColor: '#d9ad65',
+        sectionBold: true,
+        sectionItalic: false,
+        sectionUppercase: true
+      };
+  }
+
+  if (state.stageTheme === 'standard-light') {
+    return {
+      background: '#f8fafc',
+      text: '#020617',
+      muted: '#334155',
+      chordColor: '#1e3a8a',
+      sectionColor: '#1e3a8a',
+      harmonyTextColor: '#0f766e',
+      harmonyIconColor: '#1e3a8a',
+      sectionBold: true,
+      sectionItalic: false,
+      sectionUppercase: true
+    };
+  }
+
+  if (state.stageTheme === 'coffeehouse') {
+    return {
+      background: '#110d0a',
+      text: '#f4ead2',
+      muted: '#cdbb96',
+      chordColor: '#d9ad65',
+      sectionColor: '#f4ead2',
+      harmonyTextColor: '#f3a683',
+      harmonyIconColor: '#d9ad65',
+      sectionBold: true,
+      sectionItalic: false,
+      sectionUppercase: true
+    };
+  }
+
+  if (state.stageTheme === 'high-contrast') {
+    return {
+      background: '#000000',
+      text: '#ffffff',
+      muted: '#ffffff',
+      chordColor: '#ffffff',
+      sectionColor: '#ffffff',
+      harmonyTextColor: '#ffffff',
+      harmonyIconColor: '#ffffff',
+      sectionBold: true,
+      sectionItalic: false,
+      sectionUppercase: true
+    };
+  }
+
+  if (state.stageTheme === 'outdoor') {
+    return {
+      background: '#ffffff',
+      text: '#000000',
+      muted: '#111827',
+      chordColor: '#000000',
+      sectionColor: '#000000',
+      harmonyTextColor: '#000000',
+      harmonyIconColor: '#000000',
+      sectionBold: true,
+      sectionItalic: false,
+      sectionUppercase: true
+    };
+  }
+
+  const documentTheme = getDocumentThemePreset(receiver.blackBackground ? 'dark-stage' : getEffectiveDocumentTheme(state));
+  return {
+    background: documentTheme.background,
+    text: documentTheme.text,
+    muted: documentTheme.muted,
+    chordColor: getEffectiveChordFontColor(state),
+    sectionColor: getEffectiveSectionFontColor(state),
+    harmonyTextColor: getEffectiveHarmonyTextColor(state),
+    harmonyIconColor: getEffectiveHarmonyIconColor(state),
+    sectionBold: getEffectiveSectionBold(state),
+    sectionItalic: getEffectiveSectionItalic(state),
+    sectionUppercase: getEffectiveSectionUppercase(state)
+  };
+}
+
+function resolveRenderableColor(value: string, resolver: (color: string) => string) {
+  return /^#|^rgb|^hsl|^var\(/i.test(value) ? value : resolver(value);
 }
 
 function receiverDisplayModeLabel(mode: ReceiverDisplayMode) {
@@ -8754,7 +8904,7 @@ function StageControlPopover({
                     <button
                       key={theme.name}
                       className={`stage-menu-button ${state.stageTheme === theme.name ? 'border-amber-300 text-amber-100' : ''}`}
-                      onClick={() => setState({ stageTheme: theme.name, theme: theme.name.includes('light') || theme.name === 'outdoor' ? 'light' : 'dark' })}
+                      onClick={() => setState(stageThemePresetPatch(state, theme.name))}
                       type="button"
                     >
                       {theme.label}
@@ -9716,7 +9866,7 @@ function ChordProDisplayLine({
   mobileReflowMode: boolean;
   showAnchorDebug: boolean;
 }) {
-  const resolvedChordColor = resolveChordFontColor(chordFontColor);
+  const resolvedChordColor = resolveRenderableColor(chordFontColor, resolveChordFontColor);
   const resolvedHighlightColor = resolveChordHighlightColor(chordHighlightColor);
   const hasHighlight = resolvedHighlightColor !== 'transparent';
   const chordStyle: React.CSSProperties = {
@@ -9737,7 +9887,7 @@ function ChordProDisplayLine({
     lineHeight: chartLineHeightEm(lineSpacing)
   };
   const sectionStyle: React.CSSProperties = {
-    color: resolveSectionFontColor(sectionFontColor),
+    color: resolveRenderableColor(sectionFontColor, resolveSectionFontColor),
     fontSize: `${sectionFontSize}px`,
     marginTop: `${Math.round(sectionSpacingBefore * lineSpacing)}px`,
     marginBottom: `${Math.round(sectionSpacingAfter * lineSpacing)}px`,
@@ -9746,13 +9896,13 @@ function ChordProDisplayLine({
     textTransform: sectionUppercase ? 'uppercase' : 'none'
   };
   const harmonyStyle: React.CSSProperties = {
-    color: showHarmonyCues ? resolveHarmonyColor(harmonyTextColor) : undefined,
+    color: showHarmonyCues ? resolveRenderableColor(harmonyTextColor, resolveHarmonyColor) : undefined,
     fontStyle: showHarmonyCues && harmonyItalic ? 'italic' : undefined,
     textDecorationLine: showHarmonyCues && harmonyUnderline ? 'underline' : undefined,
     textDecorationThickness: showHarmonyCues && harmonyUnderline ? '0.08em' : undefined,
     textUnderlineOffset: showHarmonyCues && harmonyUnderline ? '0.16em' : undefined
   };
-  const resolvedHarmonyIconColor = resolveHarmonyColor(harmonyIconColor);
+  const resolvedHarmonyIconColor = resolveRenderableColor(harmonyIconColor, resolveHarmonyColor);
 
   if (line.type === 'blank') return <div data-line-index={lineIndex} style={{ height: `${Math.max(0.5, 1.35 * lineSpacing)}em` }} />;
 
