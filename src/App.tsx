@@ -1102,6 +1102,12 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (isPedalTestModeActive()) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (target?.matches('input, textarea, select')) return;
       const mappings = performanceState.pedalMappings;
@@ -4029,7 +4035,7 @@ function PedalConfigView({
   };
 
   const [testMode, setTestMode] = useState(false);
-  const [testEvents, setTestEvents] = useState<Array<{ key: string; actionLabel?: string; recognized: boolean; createdAt: number }>>([]);
+  const [testEvents, setTestEvents] = useState<Array<{ key: string; code: string; actionLabel?: string; recognized: boolean; createdAt: number }>>([]);
   const [duplicateRequest, setDuplicateRequest] = useState<{ key: string; fromAction: PedalAction; toAction: PedalAction } | null>(null);
 
   const actionLabels: Record<PedalAction, string> = {
@@ -4109,18 +4115,27 @@ function PedalConfigView({
   }
 
   useEffect(() => {
-    if (!testMode) return;
+    setPedalTestModeActive(testMode);
+    if (!testMode) return () => setPedalTestModeActive(false);
     function handleTestKeyDown(event: KeyboardEvent) {
       event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
       const key = normalizeKeyEvent(event);
+      const code = event.code || '-';
       const match = supportedActions.find(({ action }) => (mappings[action] ?? []).includes(key));
       setTestEvents((events) => [
-        { key, actionLabel: match?.label, recognized: Boolean(match), createdAt: Date.now() },
+        { key, code, actionLabel: match?.label, recognized: Boolean(match), createdAt: Date.now() },
         ...events
       ].slice(0, 12));
     }
     window.addEventListener('keydown', handleTestKeyDown, true);
-    return () => window.removeEventListener('keydown', handleTestKeyDown, true);
+    document.addEventListener('keydown', handleTestKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleTestKeyDown, true);
+      document.removeEventListener('keydown', handleTestKeyDown, true);
+      setPedalTestModeActive(false);
+    };
   }, [mappings, supportedActions, testMode]);
 
   return (
@@ -4159,6 +4174,9 @@ function PedalConfigView({
                 <div>
                   <h3 className="font-semibold text-teal-950">Waiting for pedal input...</h3>
                   <p className="mt-1 text-sm text-teal-800">Press pedals repeatedly to verify what OpenStage receives.</p>
+                  <p className="mt-2 rounded-md border border-teal-300 bg-white/80 px-3 py-2 text-sm font-semibold text-teal-900">
+                    Test Mode Active - pedal actions are disabled while testing.
+                  </p>
                 </div>
                 <button className="secondary-button ml-auto bg-white" type="button" onClick={() => setTestMode(false)}>
                   Done
@@ -4178,7 +4196,8 @@ function PedalConfigView({
                       <span className={item.recognized ? 'text-teal-600' : 'text-amber-600'}>
                         {item.recognized ? <CheckCircle size={19} /> : <AlertTriangle size={19} />}
                       </span>
-                      <span className="rounded-md border border-slate-300 bg-slate-950 px-3 py-1 font-mono font-semibold text-white">{item.key}</span>
+                      <span className="rounded-md border border-slate-300 bg-slate-950 px-3 py-1 font-mono font-semibold text-white">key: {item.key}</span>
+                      <span className="rounded-md border border-slate-300 bg-white px-3 py-1 font-mono font-semibold text-slate-800">code: {item.code}</span>
                       {item.recognized ? (
                         <span>Mapped to: <strong>{item.actionLabel}</strong></span>
                       ) : (
@@ -9883,6 +9902,14 @@ function formatEnrichmentValue(value: unknown) {
 function matchesPedal(event: KeyboardEvent, mappedKeys: string[]) {
   const normalized = normalizeKeyEvent(event);
   return mappedKeys.includes(normalized);
+}
+
+function setPedalTestModeActive(active: boolean) {
+  (window as Window & { __openStagePedalTestModeActive?: boolean }).__openStagePedalTestModeActive = active;
+}
+
+function isPedalTestModeActive() {
+  return Boolean((window as Window & { __openStagePedalTestModeActive?: boolean }).__openStagePedalTestModeActive);
 }
 
 function normalizeKeyEvent(event: KeyboardEvent | React.KeyboardEvent) {
