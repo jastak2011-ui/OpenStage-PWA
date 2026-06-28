@@ -88,13 +88,18 @@ import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/web
 import {
   connectRemoteDisplay,
   connectRemoteDisplayControllerForDiagnostics,
+  createHostedReceiverRoom,
+  fetchHostedReceiverRoomState,
+  getHostedReceiverRoomCode,
   getRemoteDisplayUrl,
   isDisplayRoute,
   isReceiverRoute,
   publishRemoteDisplaySong,
   publishRemoteReceiverState,
   publishRemoteReceiverTestPattern,
+  saveHostedReceiverRoomCode,
   saveRemoteDisplayUrl,
+  shouldUseLocalReceiverRelay,
   subscribeRemoteDisplayControllerSnapshot,
   subscribeRemoteDisplayControllerStatus,
   type RemoteDisplayControllerSnapshot,
@@ -3512,8 +3517,11 @@ function RemoteReceiverApp() {
   const [lastMessageAt, setLastMessageAt] = useState('');
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const [scrollMetrics, setScrollMetrics] = useState<ReceiverScrollMetrics>({ scrollHeight: 0, clientHeight: 0, scrollTop: 0, progress: 0 });
+  const [hostedRoomCode, setHostedRoomCode] = useState('');
+  const [hostedError, setHostedError] = useState('');
   const receiver = normalizeReceiverDisplaySettings(testPattern?.receiver ?? payload?.receiver);
   const diagnosticsForcedByUrl = new URLSearchParams(window.location.search).get('diagnostics') === '1';
+  const useLocalRelay = shouldUseLocalReceiverRelay();
   const showDiagnostics = diagnosticsForcedByUrl || receiver.showDiagnostics;
 
   useEffect(() => {
@@ -3528,6 +3536,7 @@ function RemoteReceiverApp() {
   }, []);
 
   useEffect(() => {
+    if (!useLocalRelay) return;
     const connection = connectRemoteDisplay({
       role: 'display',
       onStatus: setStatus,
@@ -3544,7 +3553,66 @@ function RemoteReceiverApp() {
       }
     });
     return () => connection.close();
-  }, [connectionKey]);
+  }, [connectionKey, useLocalRelay]);
+
+  useEffect(() => {
+    if (useLocalRelay) return;
+    let cancelled = false;
+    let intervalId: number | null = null;
+    let roomCode = '';
+
+    const applyMessage = (message: Awaited<ReturnType<typeof fetchHostedReceiverRoomState>>['message'], lastUpdatedAt: string) => {
+      if (!message) return;
+      if (message.type === 'receiver-state') {
+        setPayload(message.payload);
+        setTestPattern(message.payload.receiver.showTestPattern ? { receiver: message.payload.receiver, updatedAt: message.payload.updatedAt } : null);
+        setLastMessageAt(lastUpdatedAt || new Date().toLocaleTimeString());
+      }
+      if (message.type === 'receiver-test-pattern') {
+        setTestPattern(message.payload);
+        setLastMessageAt(lastUpdatedAt || new Date().toLocaleTimeString());
+      }
+    };
+
+    const poll = async () => {
+      if (!roomCode || cancelled) return;
+      try {
+        const state = await fetchHostedReceiverRoomState(roomCode);
+        if (cancelled) return;
+        setStatus('connected');
+        setHostedError('');
+        applyMessage(state.message, state.lastUpdatedAt);
+      } catch (error) {
+        if (cancelled) return;
+        setStatus('error');
+        setHostedError(error instanceof Error ? error.message : String(error));
+      }
+    };
+
+    const start = async () => {
+      try {
+        setStatus('connecting');
+        const room = await createHostedReceiverRoom();
+        if (cancelled) return;
+        roomCode = room.roomCode;
+        setHostedRoomCode(room.roomCode);
+        setHostedError('');
+        setStatus('connected');
+        await poll();
+        intervalId = window.setInterval(() => void poll(), 650);
+      } catch (error) {
+        if (cancelled) return;
+        setStatus('error');
+        setHostedError(error instanceof Error ? error.message : String(error));
+      }
+    };
+
+    void start();
+    return () => {
+      cancelled = true;
+      if (intervalId !== null) window.clearInterval(intervalId);
+    };
+  }, [useLocalRelay]);
 
   function saveReceiverRelayUrl() {
     saveRemoteDisplayUrl(relayUrl.trim());
@@ -3562,24 +3630,35 @@ function RemoteReceiverApp() {
           </div>
           <div className="grid gap-3 rounded-md border border-slate-700 bg-slate-900/80 p-4 text-left text-xl text-slate-200">
             <div className="flex items-center justify-between gap-3">
-              <span>WebSocket</span>
+              <span>{useLocalRelay ? 'WebSocket' : 'Hosted HTTPS'}</span>
               <span className={`rounded-full border px-3 py-1 text-sm font-semibold ${remoteDisplayStatusClass(status)}`}>
                 {remoteDisplayStatusLabel(status)}
               </span>
             </div>
-            <label className="grid gap-1 text-sm">
-              <span className="font-semibold text-slate-100">Relay address</span>
-              <input
-                className="rounded-md border border-slate-600 bg-black px-3 py-3 font-mono text-slate-100"
-                value={relayUrl}
-                placeholder="wss://192.168.68.125:8788"
-                onChange={(event) => setRelayUrl(event.target.value)}
-              />
-            </label>
-            <button className="rounded-md bg-teal-700 px-4 py-3 text-base font-semibold text-white" type="button" onClick={saveReceiverRelayUrl}>
-              Save and Reconnect
-            </button>
-            <div className="text-sm text-slate-400">Open this route on FireTV: /receiver</div>
+            {useLocalRelay && (
+              <>
+                <label className="grid gap-1 text-sm">
+                  <span className="font-semibold text-slate-100">Relay address</span>
+                  <input
+                    className="rounded-md border border-slate-600 bg-black px-3 py-3 font-mono text-slate-100"
+                    value={relayUrl}
+                    placeholder="wss://192.168.68.125:8788"
+                    onChange={(event) => setRelayUrl(event.target.value)}
+                  />
+                </label>
+                <button className="rounded-md bg-teal-700 px-4 py-3 text-base font-semibold text-white" type="button" onClick={saveReceiverRelayUrl}>
+                  Save and Reconnect
+                </button>
+              </>
+            )}
+            {!useLocalRelay && (
+              <div className="rounded-md border border-teal-300/30 bg-teal-300/10 p-4 text-center">
+                <div className="text-sm font-semibold uppercase tracking-wide text-teal-100">Pairing Code</div>
+                <div className="mt-2 font-mono text-6xl font-bold tracking-[0.18em] text-white">{hostedRoomCode || '...'}</div>
+              </div>
+            )}
+            {hostedError && <div className="rounded-md border border-red-400/40 bg-red-950/40 p-2 text-sm text-red-100">{hostedError}</div>}
+            <div className="text-sm text-slate-400">{useLocalRelay ? 'Local relay fallback active.' : 'Enter this code in OpenStage FireTV Receiver settings.'}</div>
           </div>
         </section>
       </main>
@@ -3601,7 +3680,7 @@ function RemoteReceiverApp() {
           settings={receiver}
           viewport={viewport}
           status={status}
-          relayUrl={relayUrl || getRemoteDisplayUrl()}
+          relayUrl={useLocalRelay ? (relayUrl || getRemoteDisplayUrl()) : `hosted:${hostedRoomCode || '-'}`}
           metrics={scrollMetrics}
           forcedByUrl={diagnosticsForcedByUrl}
         />
@@ -7923,6 +8002,7 @@ function ExternalDisplayControls({
 }) {
   const settings = getExternalDisplaySettings(state);
   const receiver = normalizeReceiverDisplaySettings(state.receiverDisplay);
+  const [hostedRoomCodeInput, setHostedRoomCodeInput] = useState(() => getHostedReceiverRoomCode());
   const [receiverStatus, setReceiverStatus] = useState<RemoteDisplayStatus>('disconnected');
   const [receiverMessage, setReceiverMessage] = useState('');
   const [status, setStatus] = useState('');
@@ -7950,6 +8030,14 @@ function ExternalDisplayControls({
   function flashReceiverMessage(message: string) {
     setReceiverMessage(message);
     window.setTimeout(() => setReceiverMessage(''), 2400);
+  }
+
+  function saveReceiverPairingCode() {
+    saveHostedReceiverRoomCode(hostedRoomCodeInput);
+    flashReceiverMessage(hostedRoomCodeInput.trim() ? 'Hosted receiver pairing code saved' : 'Hosted receiver pairing cleared');
+    window.setTimeout(() => {
+      onSendReceiver();
+    }, 50);
   }
 
   async function launchExternalDisplay() {
@@ -7997,6 +8085,30 @@ function ExternalDisplayControls({
             <input type="range" min={0.65} max={1.8} step={0.05} value={receiver.fontScale} onChange={(event) => updateReceiver({ fontScale: Number(event.target.value) })} />
           </label>
         </div>
+        <div className="grid gap-2 rounded-md border border-sky-200/20 bg-black/20 p-2">
+          <label className="grid gap-1">
+            FireTV Pairing Code
+            <input
+              className="input bg-slate-900 font-mono text-white"
+              placeholder="ABCD1234"
+              value={hostedRoomCodeInput}
+              onChange={(event) => setHostedRoomCodeInput(event.target.value.toUpperCase())}
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button className="stage-menu-button" type="button" onClick={saveReceiverPairingCode}>
+              <Monitor size={18} /> Save Pairing Code
+            </button>
+            <button className="stage-menu-button" type="button" onClick={() => {
+              setHostedRoomCodeInput('');
+              saveHostedReceiverRoomCode('');
+              flashReceiverMessage('Hosted receiver pairing cleared');
+            }}>
+              <X size={18} /> Clear Pairing
+            </button>
+          </div>
+          <div className="text-slate-300">Normal mode uses the hosted HTTPS receiver relay. The local WebSocket relay remains available only with /receiver?remoteWs=...</div>
+        </div>
         <label className="grid gap-1">
           Safe Margin {receiver.safeMargin}%
           <input type="range" min={0} max={14} step={1} value={receiver.safeMargin} onChange={(event) => updateReceiver({ safeMargin: Number(event.target.value) })} />
@@ -8022,7 +8134,8 @@ function ExternalDisplayControls({
           </button>
         </div>
         <div className="rounded-md border border-sky-200/20 bg-black/20 p-2 text-slate-200">
-          <div>Receiver URL: <span className="font-mono">/receiver?remoteWs={getRemoteDisplayUrl()}</span></div>
+          <div>Receiver URL: <span className="font-mono">/receiver</span></div>
+          <div>Local debug URL: <span className="font-mono">/receiver?remoteWs={getRemoteDisplayUrl()}</span></div>
           <div>Mode: {receiverDisplayModeLabel(receiver.displayMode)}</div>
           {receiverMessage && <div className="font-semibold text-teal-100">{receiverMessage}</div>}
         </div>

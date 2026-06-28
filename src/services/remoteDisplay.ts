@@ -64,12 +64,16 @@ type RemoteDisplayConnectionOptions = {
 };
 
 const remoteDisplayUrlStorageKey = 'openstage-remote-display-ws-url-v1';
+const hostedReceiverRoomStorageKey = 'openstage-hosted-receiver-room-v1';
+const openStageApiBaseUrl = 'https://openstage-api.onrender.com';
 const reconnectDelayMs = 1200;
 const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 let controllerConnection: ReturnType<typeof connectRemoteDisplay> | null = null;
 let pendingControllerSongId = '';
 let pendingControllerMessage: RemoteDisplayMessage | null = null;
+let pendingHostedMessage: RemoteDisplayMessage | null = null;
+let hostedReceiverRoomCode = getHostedReceiverRoomCode();
 let controllerStatus: RemoteDisplayStatus = 'disconnected';
 const controllerStatusListeners = new Set<(status: RemoteDisplayStatus) => void>();
 let controllerSnapshot: RemoteDisplayControllerSnapshot = {
@@ -106,6 +110,70 @@ export function getRemoteDisplayUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.hostname || 'localhost';
   return `${protocol}//${host}:8787`;
+}
+
+export function shouldUseLocalReceiverRelay() {
+  const params = new URLSearchParams(window.location.search);
+  return Boolean(params.get('remoteWs')?.trim() || params.get('transport') === 'ws');
+}
+
+export function getHostedReceiverRoomCode() {
+  try {
+    return localStorage.getItem(hostedReceiverRoomStorageKey)?.trim().toUpperCase() || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveHostedReceiverRoomCode(roomCode: string) {
+  hostedReceiverRoomCode = normalizeHostedReceiverRoomCode(roomCode);
+  try {
+    if (hostedReceiverRoomCode) {
+      localStorage.setItem(hostedReceiverRoomStorageKey, hostedReceiverRoomCode);
+    } else {
+      localStorage.removeItem(hostedReceiverRoomStorageKey);
+    }
+  } catch {
+    // Pairing can still work for this session.
+  }
+  updateControllerSnapshot({
+    url: hostedReceiverRoomCode ? `hosted:${hostedReceiverRoomCode}` : getRemoteDisplayUrl(),
+    detail: hostedReceiverRoomCode ? `Hosted receiver room ${hostedReceiverRoomCode} saved.` : 'Hosted receiver room cleared.'
+  });
+}
+
+export async function createHostedReceiverRoom() {
+  const response = await fetch(`${openStageApiBaseUrl}/api/receiver-rooms/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}'
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.ok || typeof body.roomCode !== 'string') {
+    throw new Error(body?.error || 'Could not create receiver room.');
+  }
+  return {
+    roomCode: normalizeHostedReceiverRoomCode(body.roomCode),
+    expiresAt: typeof body.expiresAt === 'string' ? body.expiresAt : ''
+  };
+}
+
+export async function fetchHostedReceiverRoomState(roomCode: string) {
+  const normalized = normalizeHostedReceiverRoomCode(roomCode);
+  if (!normalized) throw new Error('Receiver room code is required.');
+  const response = await fetch(`${openStageApiBaseUrl}/api/receiver-rooms/${encodeURIComponent(normalized)}/state`, {
+    cache: 'no-store'
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.ok) {
+    throw new Error(body?.error || 'Receiver room is unavailable.');
+  }
+  const message = parseRemoteDisplayMessage(JSON.stringify(body.message));
+  return {
+    roomCode: normalized,
+    lastUpdatedAt: typeof body.lastUpdatedAt === 'string' ? body.lastUpdatedAt : '',
+    message
+  };
 }
 
 export function saveRemoteDisplayUrl(url: string) {
@@ -249,6 +317,9 @@ export function publishRemoteDisplaySong(songId: string) {
     lastPublishState: 'queued',
     detail: `Queued song update ${songId} for ${getRemoteDisplayUrl()}.`
   });
+  if (hostedReceiverRoomCode) {
+    void publishHostedReceiverMessage({ type: 'song', songId });
+  }
   ensureControllerConnection();
   const sent = controllerConnection?.send({ type: 'song', songId }) ?? false;
   updateControllerSnapshot({
@@ -262,13 +333,18 @@ export function publishRemoteDisplaySong(songId: string) {
 export function publishRemoteReceiverState(payload: RemoteReceiverPayload) {
   pendingControllerSongId = payload.song.id;
   pendingControllerMessage = { type: 'receiver-state', payload };
+  pendingHostedMessage = pendingControllerMessage;
   updateControllerSnapshot({
-    url: getRemoteDisplayUrl(),
+    url: hostedReceiverRoomCode ? `hosted:${hostedReceiverRoomCode}` : getRemoteDisplayUrl(),
     lastSongId: payload.song.id,
     lastReceiverMode: payload.receiver.displayMode,
     lastPublishState: 'queued',
     detail: `Queued receiver update ${payload.song.title || payload.song.id} for ${getRemoteDisplayUrl()}.`
   });
+  if (hostedReceiverRoomCode) {
+    void publishHostedReceiverMessage(pendingControllerMessage);
+    return true;
+  }
   ensureControllerConnection();
   const sent = controllerConnection?.send(pendingControllerMessage) ?? false;
   updateControllerSnapshot({
@@ -288,12 +364,17 @@ export function publishRemoteReceiverTestPattern(receiver: ReceiverDisplaySettin
       updatedAt: new Date().toISOString()
     }
   };
+  pendingHostedMessage = pendingControllerMessage;
   updateControllerSnapshot({
-    url: getRemoteDisplayUrl(),
+    url: hostedReceiverRoomCode ? `hosted:${hostedReceiverRoomCode}` : getRemoteDisplayUrl(),
     lastReceiverMode: receiver.displayMode,
     lastPublishState: 'queued',
     detail: `Queued receiver test pattern for ${getRemoteDisplayUrl()}.`
   });
+  if (hostedReceiverRoomCode) {
+    void publishHostedReceiverMessage(pendingControllerMessage);
+    return true;
+  }
   ensureControllerConnection();
   const sent = controllerConnection?.send(pendingControllerMessage) ?? false;
   updateControllerSnapshot({
@@ -302,6 +383,37 @@ export function publishRemoteReceiverTestPattern(receiver: ReceiverDisplaySettin
     detail: sent ? `Sent receiver test pattern to ${getRemoteDisplayUrl()}.` : 'Queued receiver test pattern; controller socket is not open yet.'
   });
   return sent;
+}
+
+async function publishHostedReceiverMessage(message: RemoteDisplayMessage) {
+  const roomCode = normalizeHostedReceiverRoomCode(hostedReceiverRoomCode);
+  if (!roomCode) return false;
+  try {
+    const response = await fetch(`${openStageApiBaseUrl}/api/receiver-rooms/${encodeURIComponent(roomCode)}/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body?.ok) throw new Error(body?.error || 'Hosted receiver publish failed.');
+    updateControllerSnapshot({
+      status: 'connected',
+      url: `hosted:${roomCode}`,
+      lastPublishState: 'sent',
+      detail: `Sent ${message.type} to hosted receiver room ${roomCode}.`
+    });
+    setControllerStatus('connected', `Hosted receiver room ${roomCode} connected.`);
+    return true;
+  } catch (error) {
+    updateControllerSnapshot({
+      status: 'error',
+      url: `hosted:${roomCode}`,
+      lastPublishState: 'queued',
+      detail: error instanceof Error ? error.message : String(error)
+    });
+    setControllerStatus('error', error instanceof Error ? error.message : String(error));
+    return false;
+  }
 }
 
 export function connectRemoteDisplayControllerForDiagnostics() {
@@ -313,6 +425,7 @@ export function resetRemoteDisplayController() {
   controllerConnection = null;
   pendingControllerSongId = '';
   pendingControllerMessage = null;
+  pendingHostedMessage = null;
   updateControllerSnapshot({
     status: 'disconnected',
     url: getRemoteDisplayUrl(),
@@ -321,6 +434,10 @@ export function resetRemoteDisplayController() {
     lastReceiverMode: ''
   });
   setControllerStatus('disconnected', 'Controller connection reset.');
+}
+
+function normalizeHostedReceiverRoomCode(roomCode: string) {
+  return roomCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
 function ensureControllerConnection() {
