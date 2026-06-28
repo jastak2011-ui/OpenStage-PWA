@@ -10,11 +10,9 @@ const defaultPrompt = 'Say hello from OpenStage';
 const defaultAnthropicModel = 'claude-sonnet-4-6';
 const shareTtlMs = 7 * 24 * 60 * 60 * 1000;
 const roomTtlMs = 12 * 60 * 60 * 1000;
-const receiverRoomTtlMs = 12 * 60 * 60 * 1000;
 const roomCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const shareCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const openStageFrontendBaseUrl = 'https://openstage-pwa.onrender.com';
-const receiverRooms = new Map();
 
 const allowedOrigins = new Set([
   'https://openstage-pwa.onrender.com',
@@ -92,25 +90,6 @@ function createShareId() {
 function createRoomCode() {
   const bytes = randomBytes(4);
   return Array.from(bytes, (byte) => roomCodeAlphabet[byte % roomCodeAlphabet.length]).join('');
-}
-
-function cleanupReceiverRooms() {
-  const now = Date.now();
-  for (const [roomCode, room] of receiverRooms.entries()) {
-    if (room.expiresAtMs <= now) receiverRooms.delete(roomCode);
-  }
-}
-
-function createReceiverRoomCode() {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const roomCode = createRoomCode();
-    if (!receiverRooms.has(roomCode)) return roomCode;
-  }
-  throw new Error('Could not create receiver room code.');
-}
-
-function normalizeReceiverRoomCode(value) {
-  return typeof value === 'string' ? value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
 }
 
 function normalizeSharedSong(song) {
@@ -283,82 +262,6 @@ app.get('/api/room-status', async (_request, response) => {
       error: 'Room status check failed.'
     });
   }
-});
-
-app.post('/api/receiver-rooms/create', (_request, response) => {
-  cleanupReceiverRooms();
-  const roomCode = createReceiverRoomCode();
-  const now = Date.now();
-  const expiresAtMs = now + receiverRoomTtlMs;
-  receiverRooms.set(roomCode, {
-    roomCode,
-    createdAtMs: now,
-    expiresAtMs,
-    lastMessage: null,
-    lastUpdatedAt: ''
-  });
-
-  response.json({
-    ok: true,
-    roomCode,
-    expiresAt: new Date(expiresAtMs).toISOString()
-  });
-});
-
-app.get('/api/receiver-rooms/:roomCode/state', (request, response) => {
-  cleanupReceiverRooms();
-  const roomCode = normalizeReceiverRoomCode(request.params.roomCode);
-  const room = receiverRooms.get(roomCode);
-
-  if (!room) {
-    response.status(404).json({
-      ok: false,
-      error: 'Receiver room not found or expired.'
-    });
-    return;
-  }
-
-  response.json({
-    ok: true,
-    roomCode,
-    expiresAt: new Date(room.expiresAtMs).toISOString(),
-    hasMessage: Boolean(room.lastMessage),
-    lastUpdatedAt: room.lastUpdatedAt,
-    message: room.lastMessage
-  });
-});
-
-app.post('/api/receiver-rooms/:roomCode/state', (request, response) => {
-  cleanupReceiverRooms();
-  const roomCode = normalizeReceiverRoomCode(request.params.roomCode);
-  const room = receiverRooms.get(roomCode);
-  const message = request.body?.message;
-
-  if (!room) {
-    response.status(404).json({
-      ok: false,
-      error: 'Receiver room not found or expired.'
-    });
-    return;
-  }
-
-  if (!message || typeof message !== 'object' || typeof message.type !== 'string') {
-    response.status(400).json({
-      ok: false,
-      error: 'Receiver message is required.'
-    });
-    return;
-  }
-
-  room.lastMessage = message;
-  room.lastUpdatedAt = new Date().toISOString();
-  room.expiresAtMs = Date.now() + receiverRoomTtlMs;
-
-  response.json({
-    ok: true,
-    roomCode,
-    lastUpdatedAt: room.lastUpdatedAt
-  });
 });
 
 app.post('/api/rooms/create', async (request, response) => {

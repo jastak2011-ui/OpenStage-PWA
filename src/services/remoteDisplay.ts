@@ -1,4 +1,5 @@
 import type { PerformanceState, ReceiverDisplaySettings, Song } from '../types';
+import { supabase } from '../data/supabase';
 
 export type RemoteReceiverPayload = {
   song: Song;
@@ -65,15 +66,18 @@ type RemoteDisplayConnectionOptions = {
 
 const remoteDisplayUrlStorageKey = 'openstage-remote-display-ws-url-v1';
 const hostedReceiverRoomStorageKey = 'openstage-hosted-receiver-room-v1';
-const openStageApiBaseUrl = 'https://openstage-api.onrender.com';
 const reconnectDelayMs = 1200;
 const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const receiverRoomAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 let controllerConnection: ReturnType<typeof connectRemoteDisplay> | null = null;
 let pendingControllerSongId = '';
 let pendingControllerMessage: RemoteDisplayMessage | null = null;
 let pendingHostedMessage: RemoteDisplayMessage | null = null;
 let hostedReceiverRoomCode = getHostedReceiverRoomCode();
+let hostedReceiverChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null;
+let hostedReceiverChannelCode = '';
+let lastDurableReceiverSignature = '';
 let controllerStatus: RemoteDisplayStatus = 'disconnected';
 const controllerStatusListeners = new Set<(status: RemoteDisplayStatus) => void>();
 let controllerSnapshot: RemoteDisplayControllerSnapshot = {
@@ -137,42 +141,101 @@ export function saveHostedReceiverRoomCode(roomCode: string) {
     // Pairing can still work for this session.
   }
   updateControllerSnapshot({
-    url: hostedReceiverRoomCode ? `hosted:${hostedReceiverRoomCode}` : getRemoteDisplayUrl(),
-    detail: hostedReceiverRoomCode ? `Hosted receiver room ${hostedReceiverRoomCode} saved.` : 'Hosted receiver room cleared.'
+    url: hostedReceiverRoomCode ? `supabase:${hostedReceiverRoomCode}` : getRemoteDisplayUrl(),
+    detail: hostedReceiverRoomCode ? `Supabase receiver room ${hostedReceiverRoomCode} saved.` : 'Supabase receiver room cleared.'
   });
 }
 
 export async function createHostedReceiverRoom() {
-  const response = await fetch(`${openStageApiBaseUrl}/api/receiver-rooms/create`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}'
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body?.ok || typeof body.roomCode !== 'string') {
-    throw new Error(body?.error || 'Could not create receiver room.');
+  if (!supabase) throw new Error('Supabase is not configured.');
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const roomCode = createReceiverRoomCode();
+    const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+    const { error } = await supabase
+      .from('receiver_state')
+      .insert({
+        pairing_code: roomCode,
+        latest_message: null,
+        durable_payload: null,
+        updated_at: new Date().toISOString(),
+        expires_at: expiresAt
+      });
+    if (!error) return { roomCode, expiresAt };
+    if (error.code !== '23505') throw error;
   }
-  return {
-    roomCode: normalizeHostedReceiverRoomCode(body.roomCode),
-    expiresAt: typeof body.expiresAt === 'string' ? body.expiresAt : ''
-  };
+  throw new Error('Could not create receiver room.');
 }
 
 export async function fetchHostedReceiverRoomState(roomCode: string) {
+  if (!supabase) throw new Error('Supabase is not configured.');
   const normalized = normalizeHostedReceiverRoomCode(roomCode);
   if (!normalized) throw new Error('Receiver room code is required.');
-  const response = await fetch(`${openStageApiBaseUrl}/api/receiver-rooms/${encodeURIComponent(normalized)}/state`, {
-    cache: 'no-store'
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body?.ok) {
-    throw new Error(body?.error || 'Receiver room is unavailable.');
-  }
-  const message = parseRemoteDisplayMessage(JSON.stringify(body.message));
+  const { data, error } = await supabase
+    .from('receiver_state')
+    .select('latest_message, updated_at')
+    .eq('pairing_code', normalized)
+    .maybeSingle();
+  if (error) throw error;
+  const message = parseRemoteDisplayMessage(JSON.stringify(data?.latest_message ?? null));
   return {
     roomCode: normalized,
-    lastUpdatedAt: typeof body.lastUpdatedAt === 'string' ? body.lastUpdatedAt : '',
+    lastUpdatedAt: typeof data?.updated_at === 'string' ? data.updated_at : '',
     message
+  };
+}
+
+export function subscribeHostedReceiverRoom({
+  roomCode,
+  role,
+  onMessage,
+  onStatus
+}: {
+  roomCode: string;
+  role: 'controller' | 'display';
+  onMessage?: (message: RemoteDisplayMessage) => void;
+  onStatus?: (status: RemoteDisplayStatus, detail?: string) => void;
+}) {
+  if (!supabase) {
+    onStatus?.('error', 'Supabase is not configured.');
+    return { close: () => undefined };
+  }
+  const supabaseClient = supabase;
+  const normalized = normalizeHostedReceiverRoomCode(roomCode);
+  const channel = supabaseClient.channel(receiverChannelName(normalized), {
+    config: {
+      broadcast: { self: false },
+      presence: { key: `${role}-${clientId}` }
+    }
+  });
+  let closed = false;
+
+  channel
+    .on('broadcast', { event: 'receiver-message' }, (event) => {
+      const message = parseRemoteDisplayMessage(JSON.stringify(event.payload?.message));
+      if (message) onMessage?.(message);
+    })
+    .on('presence', { event: 'sync' }, () => {
+      if (!closed) onStatus?.('connected', `Supabase receiver room ${normalized} connected.`);
+    })
+    .subscribe((status) => {
+      if (closed) return;
+      if (status === 'SUBSCRIBED') {
+        onStatus?.('connected', `Supabase receiver room ${normalized} connected.`);
+        void channel.track({ role, clientId, onlineAt: new Date().toISOString() });
+        return;
+      }
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        onStatus?.('error', `Supabase receiver room ${normalized} ${status.toLowerCase()}.`);
+      }
+      if (status === 'CLOSED') onStatus?.('disconnected', `Supabase receiver room ${normalized} closed.`);
+    });
+
+  return {
+    close: () => {
+      closed = true;
+      void channel.untrack();
+      void supabaseClient.removeChannel(channel);
+    }
   };
 }
 
@@ -335,11 +398,13 @@ export function publishRemoteReceiverState(payload: RemoteReceiverPayload) {
   pendingControllerMessage = { type: 'receiver-state', payload };
   pendingHostedMessage = pendingControllerMessage;
   updateControllerSnapshot({
-    url: hostedReceiverRoomCode ? `hosted:${hostedReceiverRoomCode}` : getRemoteDisplayUrl(),
+    url: hostedReceiverRoomCode ? `supabase:${hostedReceiverRoomCode}` : getRemoteDisplayUrl(),
     lastSongId: payload.song.id,
     lastReceiverMode: payload.receiver.displayMode,
     lastPublishState: 'queued',
-    detail: `Queued receiver update ${payload.song.title || payload.song.id} for ${getRemoteDisplayUrl()}.`
+    detail: hostedReceiverRoomCode
+      ? `Queued receiver update ${payload.song.title || payload.song.id} for Supabase room ${hostedReceiverRoomCode}.`
+      : `Queued receiver update ${payload.song.title || payload.song.id} for ${getRemoteDisplayUrl()}.`
   });
   if (hostedReceiverRoomCode) {
     void publishHostedReceiverMessage(pendingControllerMessage);
@@ -366,10 +431,12 @@ export function publishRemoteReceiverTestPattern(receiver: ReceiverDisplaySettin
   };
   pendingHostedMessage = pendingControllerMessage;
   updateControllerSnapshot({
-    url: hostedReceiverRoomCode ? `hosted:${hostedReceiverRoomCode}` : getRemoteDisplayUrl(),
+    url: hostedReceiverRoomCode ? `supabase:${hostedReceiverRoomCode}` : getRemoteDisplayUrl(),
     lastReceiverMode: receiver.displayMode,
     lastPublishState: 'queued',
-    detail: `Queued receiver test pattern for ${getRemoteDisplayUrl()}.`
+    detail: hostedReceiverRoomCode
+      ? `Queued receiver test pattern for Supabase room ${hostedReceiverRoomCode}.`
+      : `Queued receiver test pattern for ${getRemoteDisplayUrl()}.`
   });
   if (hostedReceiverRoomCode) {
     void publishHostedReceiverMessage(pendingControllerMessage);
@@ -386,28 +453,37 @@ export function publishRemoteReceiverTestPattern(receiver: ReceiverDisplaySettin
 }
 
 async function publishHostedReceiverMessage(message: RemoteDisplayMessage) {
+  if (!supabase) {
+    setControllerStatus('error', 'Supabase is not configured.');
+    return false;
+  }
   const roomCode = normalizeHostedReceiverRoomCode(hostedReceiverRoomCode);
   if (!roomCode) return false;
   try {
-    const response = await fetch(`${openStageApiBaseUrl}/api/receiver-rooms/${encodeURIComponent(roomCode)}/state`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
+    const channel = await getHostedReceiverControllerChannel(roomCode);
+    const sendResult = await channel.send({
+      type: 'broadcast',
+      event: 'receiver-message',
+      payload: { message }
     });
-    const body = await response.json().catch(() => null);
-    if (!response.ok || !body?.ok) throw new Error(body?.error || 'Hosted receiver publish failed.');
+    if (sendResult !== 'ok') throw new Error(`Supabase broadcast failed: ${sendResult}`);
+    await maybePersistDurableReceiverMessage(roomCode, message);
+    const hasReceiver = channelPresenceHasRole(channel, 'display');
+    const detail = hasReceiver
+      ? `Sent ${message.type} to Supabase receiver room ${roomCode}.`
+      : `Sent ${message.type} to Supabase room ${roomCode}; waiting for FireTV receiver presence.`;
     updateControllerSnapshot({
-      status: 'connected',
-      url: `hosted:${roomCode}`,
+      status: hasReceiver ? 'connected' : 'disconnected',
+      url: `supabase:${roomCode}`,
       lastPublishState: 'sent',
-      detail: `Sent ${message.type} to hosted receiver room ${roomCode}.`
+      detail
     });
-    setControllerStatus('connected', `Hosted receiver room ${roomCode} connected.`);
+    setControllerStatus(hasReceiver ? 'connected' : 'disconnected', detail);
     return true;
   } catch (error) {
     updateControllerSnapshot({
       status: 'error',
-      url: `hosted:${roomCode}`,
+      url: `supabase:${roomCode}`,
       lastPublishState: 'queued',
       detail: error instanceof Error ? error.message : String(error)
     });
@@ -438,6 +514,115 @@ export function resetRemoteDisplayController() {
 
 function normalizeHostedReceiverRoomCode(roomCode: string) {
   return roomCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function createReceiverRoomCode() {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => receiverRoomAlphabet[byte % receiverRoomAlphabet.length]).join('');
+}
+
+function receiverChannelName(roomCode: string) {
+  return `receiver:${roomCode}`;
+}
+
+async function getHostedReceiverControllerChannel(roomCode: string) {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  if (hostedReceiverChannel && hostedReceiverChannelCode === roomCode) return hostedReceiverChannel;
+  if (hostedReceiverChannel) {
+    void supabase.removeChannel(hostedReceiverChannel);
+    hostedReceiverChannel = null;
+  }
+  hostedReceiverChannelCode = roomCode;
+  hostedReceiverChannel = supabase.channel(receiverChannelName(roomCode), {
+    config: {
+      broadcast: { self: false },
+      presence: { key: `controller-${clientId}` }
+    }
+  });
+  const channel = hostedReceiverChannel;
+  channel.on('presence', { event: 'sync' }, () => {
+    const hasReceiver = channelPresenceHasRole(channel, 'display');
+    const detail = hasReceiver
+      ? `Receiver ${roomCode} is present.`
+      : `Supabase receiver room ${roomCode} connected. Waiting for FireTV receiver presence.`;
+    updateControllerSnapshot({
+      status: hasReceiver ? 'connected' : 'disconnected',
+      url: `supabase:${roomCode}`,
+      detail
+    });
+    setControllerStatus(hasReceiver ? 'connected' : 'disconnected', detail);
+  });
+  await new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error('Supabase receiver channel timed out.')), 5000);
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        window.clearTimeout(timeout);
+        void channel.track({ role: 'controller', clientId, onlineAt: new Date().toISOString() });
+        resolve();
+      }
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        window.clearTimeout(timeout);
+        reject(new Error(`Supabase receiver channel ${status.toLowerCase()}.`));
+      }
+    });
+  });
+  return channel;
+}
+
+function channelPresenceHasRole(channel: ReturnType<NonNullable<typeof supabase>['channel']>, role: 'controller' | 'display') {
+  const state = channel.presenceState() as Record<string, Array<{ role?: string }>>;
+  return Object.values(state).some((metas) => metas.some((meta) => meta.role === role));
+}
+
+async function maybePersistDurableReceiverMessage(roomCode: string, message: RemoteDisplayMessage) {
+  if (!supabase) return;
+  if (message.type !== 'receiver-state' && message.type !== 'receiver-test-pattern') return;
+  const durableSignature = durableReceiverMessageSignature(message);
+  if (durableSignature === lastDurableReceiverSignature) return;
+  lastDurableReceiverSignature = durableSignature;
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from('receiver_state')
+    .upsert({
+      pairing_code: roomCode,
+      latest_message: message,
+      durable_payload: durableReceiverPayload(message),
+      updated_at: now,
+      expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString()
+    }, { onConflict: 'pairing_code' });
+  if (error) throw error;
+}
+
+function durableReceiverMessageSignature(message: RemoteDisplayMessage) {
+  return JSON.stringify(durableReceiverPayload(message));
+}
+
+function durableReceiverPayload(message: RemoteDisplayMessage) {
+  if (message.type === 'receiver-test-pattern') {
+    return {
+      type: message.type,
+      receiver: message.payload.receiver
+    };
+  }
+  if (message.type !== 'receiver-state') return { type: message.type };
+  const payload = message.payload;
+  return {
+    type: message.type,
+    song: payload.song,
+    receiver: payload.receiver,
+    visualTheme: payload.visualTheme,
+    typography: payload.typography,
+    transpose: payload.performance.transpose,
+    showChords: payload.performance.showChords,
+    showChordsByProfile: payload.performance.showChordsByProfile,
+    showHarmonyCues: payload.performance.showHarmonyCues,
+    showHarmonyCuesByProfile: payload.performance.showHarmonyCuesByProfile,
+    showNashvilleNumbers: payload.performance.showNashvilleNumbers,
+    stageTheme: payload.performance.stageTheme,
+    theme: payload.performance.theme,
+    activeProfile: payload.performance.activeProfile
+  };
 }
 
 function ensureControllerConnection() {

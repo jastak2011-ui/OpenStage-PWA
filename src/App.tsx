@@ -100,6 +100,7 @@ import {
   saveHostedReceiverRoomCode,
   saveRemoteDisplayUrl,
   shouldUseLocalReceiverRelay,
+  subscribeHostedReceiverRoom,
   subscribeRemoteDisplayControllerSnapshot,
   subscribeRemoteDisplayControllerStatus,
   type RemoteDisplayControllerSnapshot,
@@ -3558,8 +3559,7 @@ function RemoteReceiverApp() {
   useEffect(() => {
     if (useLocalRelay) return;
     let cancelled = false;
-    let intervalId: number | null = null;
-    let roomCode = '';
+    let subscription: ReturnType<typeof subscribeHostedReceiverRoom> | null = null;
 
     const applyMessage = (message: Awaited<ReturnType<typeof fetchHostedReceiverRoomState>>['message'], lastUpdatedAt: string) => {
       if (!message) return;
@@ -3574,32 +3574,27 @@ function RemoteReceiverApp() {
       }
     };
 
-    const poll = async () => {
-      if (!roomCode || cancelled) return;
-      try {
-        const state = await fetchHostedReceiverRoomState(roomCode);
-        if (cancelled) return;
-        setStatus('connected');
-        setHostedError('');
-        applyMessage(state.message, state.lastUpdatedAt);
-      } catch (error) {
-        if (cancelled) return;
-        setStatus('error');
-        setHostedError(error instanceof Error ? error.message : String(error));
-      }
-    };
-
     const start = async () => {
       try {
         setStatus('connecting');
         const room = await createHostedReceiverRoom();
         if (cancelled) return;
-        roomCode = room.roomCode;
         setHostedRoomCode(room.roomCode);
         setHostedError('');
-        setStatus('connected');
-        await poll();
-        intervalId = window.setInterval(() => void poll(), 650);
+        const state = await fetchHostedReceiverRoomState(room.roomCode);
+        if (cancelled) return;
+        applyMessage(state.message, state.lastUpdatedAt);
+        subscription = subscribeHostedReceiverRoom({
+          roomCode: room.roomCode,
+          role: 'display',
+          onStatus: (nextStatus, detail) => {
+            setStatus(nextStatus);
+            setHostedError(nextStatus === 'error' ? detail || 'Supabase receiver connection failed.' : '');
+          },
+          onMessage: (message) => {
+            applyMessage(message, new Date().toISOString());
+          }
+        });
       } catch (error) {
         if (cancelled) return;
         setStatus('error');
@@ -3610,7 +3605,7 @@ function RemoteReceiverApp() {
     void start();
     return () => {
       cancelled = true;
-      if (intervalId !== null) window.clearInterval(intervalId);
+      subscription?.close();
     };
   }, [useLocalRelay]);
 
@@ -3630,7 +3625,7 @@ function RemoteReceiverApp() {
           </div>
           <div className="grid gap-3 rounded-md border border-slate-700 bg-slate-900/80 p-4 text-left text-xl text-slate-200">
             <div className="flex items-center justify-between gap-3">
-              <span>{useLocalRelay ? 'WebSocket' : 'Hosted HTTPS'}</span>
+              <span>{useLocalRelay ? 'WebSocket' : 'Supabase Realtime'}</span>
               <span className={`rounded-full border px-3 py-1 text-sm font-semibold ${remoteDisplayStatusClass(status)}`}>
                 {remoteDisplayStatusLabel(status)}
               </span>
@@ -3680,7 +3675,7 @@ function RemoteReceiverApp() {
           settings={receiver}
           viewport={viewport}
           status={status}
-          relayUrl={useLocalRelay ? (relayUrl || getRemoteDisplayUrl()) : `hosted:${hostedRoomCode || '-'}`}
+          relayUrl={useLocalRelay ? (relayUrl || getRemoteDisplayUrl()) : `supabase:${hostedRoomCode || '-'}`}
           metrics={scrollMetrics}
           forcedByUrl={diagnosticsForcedByUrl}
         />
@@ -8034,7 +8029,7 @@ function ExternalDisplayControls({
 
   function saveReceiverPairingCode() {
     saveHostedReceiverRoomCode(hostedRoomCodeInput);
-    flashReceiverMessage(hostedRoomCodeInput.trim() ? 'Hosted receiver pairing code saved' : 'Hosted receiver pairing cleared');
+    flashReceiverMessage(hostedRoomCodeInput.trim() ? 'Supabase receiver pairing code saved' : 'Supabase receiver pairing cleared');
     window.setTimeout(() => {
       onSendReceiver();
     }, 50);
@@ -8063,7 +8058,7 @@ function ExternalDisplayControls({
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="font-semibold text-white">FireTV Receiver</div>
-            <div className="text-slate-300">Open /receiver on the FireTV and point it at the same relay address.</div>
+            <div className="text-slate-300">Open /receiver on the FireTV and enter its pairing code here.</div>
           </div>
           <span className="rounded-full border border-sky-300/40 bg-black/30 px-2 py-1 text-[0.65rem] font-semibold">
             {remoteDisplayStatusLabel(receiverStatus)}
@@ -8102,12 +8097,12 @@ function ExternalDisplayControls({
             <button className="stage-menu-button" type="button" onClick={() => {
               setHostedRoomCodeInput('');
               saveHostedReceiverRoomCode('');
-              flashReceiverMessage('Hosted receiver pairing cleared');
+              flashReceiverMessage('Supabase receiver pairing cleared');
             }}>
               <X size={18} /> Clear Pairing
             </button>
           </div>
-          <div className="text-slate-300">Normal mode uses the hosted HTTPS receiver relay. The local WebSocket relay remains available only with /receiver?remoteWs=...</div>
+          <div className="text-slate-300">Normal mode uses Supabase Realtime. The local WebSocket relay is debug-only with /receiver?transport=ws.</div>
         </div>
         <label className="grid gap-1">
           Safe Margin {receiver.safeMargin}%
@@ -8135,7 +8130,7 @@ function ExternalDisplayControls({
         </div>
         <div className="rounded-md border border-sky-200/20 bg-black/20 p-2 text-slate-200">
           <div>Receiver URL: <span className="font-mono">/receiver</span></div>
-          <div>Local debug URL: <span className="font-mono">/receiver?remoteWs={getRemoteDisplayUrl()}</span></div>
+          <div>Local debug URL: <span className="font-mono">/receiver?transport=ws&amp;remoteWs={getRemoteDisplayUrl()}</span></div>
           <div>Mode: {receiverDisplayModeLabel(receiver.displayMode)}</div>
           {receiverMessage && <div className="font-semibold text-teal-100">{receiverMessage}</div>}
         </div>
