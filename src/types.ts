@@ -135,6 +135,12 @@ export type ReadingPace = 'slower' | 'normal' | 'faster';
 export type ExternalDisplayRotation = 'normal' | 'cw-90' | 'ccw-90' | 'rotate-180';
 export type ExternalDisplayScaleMode = 'fit' | 'fill' | 'manual';
 export type ExternalDisplayOutputMode = 'standard' | 'airplay-portrait-fill';
+export type ReceiverDisplayMode =
+  | 'landscape-lyrics'
+  | 'fit-portrait'
+  | 'fill-portrait-crop-safe'
+  | 'rotate-90-cw'
+  | 'rotate-90-ccw';
 export type StageDocumentThemeName =
   | 'standard-white'
   | 'sepia'
@@ -169,6 +175,14 @@ export type ExternalDisplaySettings = {
   showCalibration: boolean;
   fillScreenTest: boolean;
   profileName: string;
+};
+
+export type ReceiverDisplaySettings = {
+  displayMode: ReceiverDisplayMode;
+  blackBackground: boolean;
+  fontScale: number;
+  showTestPattern: boolean;
+  safeMargin: number;
 };
 
 export type PerformanceState = {
@@ -272,6 +286,7 @@ export type PerformanceState = {
   castReceiverEnabled: boolean;
   castReceiverLastSync?: string;
   externalDisplay: ExternalDisplaySettings;
+  receiverDisplay: ReceiverDisplaySettings;
 };
 
 export type DeviceProfile =

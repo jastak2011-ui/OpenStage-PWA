@@ -358,6 +358,13 @@ export const defaultPerformanceState: PerformanceState = {
     showCalibration: false,
     fillScreenTest: false,
     profileName: 'Standard External Display'
+  },
+  receiverDisplay: {
+    displayMode: 'landscape-lyrics',
+    blackBackground: true,
+    fontScale: 1,
+    showTestPattern: false,
+    safeMargin: 4
   }
 };
 

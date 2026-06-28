@@ -90,12 +90,17 @@ import {
   connectRemoteDisplayControllerForDiagnostics,
   getRemoteDisplayUrl,
   isDisplayRoute,
+  isReceiverRoute,
   publishRemoteDisplaySong,
+  publishRemoteReceiverState,
+  publishRemoteReceiverTestPattern,
   saveRemoteDisplayUrl,
   subscribeRemoteDisplayControllerSnapshot,
   subscribeRemoteDisplayControllerStatus,
   type RemoteDisplayControllerSnapshot,
-  type RemoteDisplayStatus
+  type RemoteDisplayStatus,
+  type RemoteReceiverPayload,
+  type RemoteReceiverTestPatternPayload
 } from './services/remoteDisplay';
 import {
   anchoredChordLineLayout,
@@ -228,6 +233,8 @@ import type {
   PerformanceState,
   PerformanceTheme,
   ParsedChordProLine,
+  ReceiverDisplayMode,
+  ReceiverDisplaySettings,
   RenderDiagnostics,
   SavedSetlist,
   SetlistItem,
@@ -282,6 +289,22 @@ type ToastState = {
   actionLabel?: string;
   onAction?: () => void;
 } | null;
+
+const receiverDisplayModeOptions: Array<{ value: ReceiverDisplayMode; label: string }> = [
+  { value: 'landscape-lyrics', label: 'Landscape Lyrics Mode' },
+  { value: 'fit-portrait', label: 'Fit Portrait' },
+  { value: 'fill-portrait-crop-safe', label: 'Fill Portrait / Crop Safe' },
+  { value: 'rotate-90-cw', label: 'Rotate 90 Clockwise' },
+  { value: 'rotate-90-ccw', label: 'Rotate 90 Counterclockwise' }
+];
+
+const defaultReceiverDisplaySettings: ReceiverDisplaySettings = {
+  displayMode: 'landscape-lyrics',
+  blackBackground: true,
+  fontScale: 1,
+  showTestPattern: false,
+  safeMargin: 4
+};
 
 type AutoscrollDebugInfo = {
   targetType: string;
@@ -747,6 +770,7 @@ function withSongDefaults(song: Song): Song {
 
 export default function App() {
   if (isExternalPrompterRoute()) return <ExternalPrompterApp />;
+  if (isReceiverRoute()) return <RemoteReceiverApp />;
   if (isDisplayRoute()) return <RemoteDisplayApp />;
 
   const sharedImportId = getSharedImportIdFromPath();
@@ -857,6 +881,7 @@ export default function App() {
   const finalPixelsPerSecondRef = useRef(0);
   const scrollSaveFrameRef = useRef<number | null>(null);
   const scrollSaveTimeoutRef = useRef<number | null>(null);
+  const receiverPublishTimeoutRef = useRef<number | null>(null);
   const pendingScrollPositionRef = useRef<{ songId: string; scrollTop: number } | null>(null);
   const restoredScrollSongRef = useRef('');
   const isUserScrollingRef = useRef(false);
@@ -919,6 +944,7 @@ export default function App() {
   const previousNavigationSong = activeNavigationIndex >= 0 ? activeNavigationSongs[activeNavigationIndex - 1] : undefined;
   const isStageSurface = activeMode === 'perform' || activeMode === 'stage';
   const selectedEffectiveCapo = selectedSong ? getEffectiveCapo(selectedSong, performanceState) : 0;
+  const receiverSettings = normalizeReceiverDisplaySettings(performanceState.receiverDisplay);
 
   useEffect(() => {
     clearRenderCache();
@@ -1005,9 +1031,27 @@ export default function App() {
   }, [selectedSongId]);
 
   useEffect(() => {
-    if (!isStageSurface || !selectedSongId) return;
-    publishRemoteDisplaySong(selectedSongId);
-  }, [isStageSurface, selectedSongId]);
+    if (!isStageSurface || !selectedSong) return;
+    publishRemoteDisplaySong(selectedSong.id);
+    scheduleReceiverPublish(80);
+  }, [
+    isStageSurface,
+    selectedSong?.id,
+    selectedSong?.title,
+    selectedSong?.artist,
+    selectedSong?.chart,
+    selectedSong?.rawChordPro,
+    selectedSong?.displayPreference,
+    performanceState.transpose,
+    performanceState.fontSize,
+    performanceState.lineSpacing,
+    performanceState.showChords,
+    performanceState.showHarmonyCues,
+    performanceState.showNashvilleNumbers,
+    performanceState.activeProfile,
+    performanceState.receiverDisplay,
+    isAutoscrolling
+  ]);
 
   useEffect(() => {
     if (!isStageSurface || !selectedSong || !performanceState.castReceiverEnabled) return;
@@ -1619,9 +1663,46 @@ export default function App() {
     await saveSong({ ...selectedSong, durationSeconds: Math.round(estimate.durationSeconds) });
   }
 
+  function buildReceiverPayload(): RemoteReceiverPayload | null {
+    if (!selectedSong) return null;
+    const target = resolveAutoscrollTarget(stageRef.current);
+    const pendingScroll = pendingScrollPositionRef.current?.songId === selectedSong.id ? pendingScrollPositionRef.current.scrollTop : undefined;
+    const savedScroll = performanceStateRef.current.scrollPositions[selectedSong.id] ?? 0;
+    return {
+      song: selectedSong,
+      performance: {
+        ...performanceStateRef.current,
+        activeProfile: 'prompter-display',
+        portraitMode: receiverSettings.displayMode !== 'landscape-lyrics',
+        receiverDisplay: receiverSettings
+      },
+      effectiveCapo: getEffectiveCapo(selectedSong, performanceStateRef.current),
+      scrollTop: Math.round(pendingScroll ?? target?.element.scrollTop ?? savedScroll),
+      autoscrollActive: autoscrollControllerRef.current.active || isAutoscrolling,
+      receiver: receiverSettings,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  function sendReceiverNow() {
+    const payload = buildReceiverPayload();
+    if (!payload) return false;
+    return publishRemoteReceiverState(payload);
+  }
+
+  function scheduleReceiverPublish(delayMs = 180) {
+    if (!isStageSurface || !selectedSong) return;
+    if (receiverPublishTimeoutRef.current !== null) window.clearTimeout(receiverPublishTimeoutRef.current);
+    receiverPublishTimeoutRef.current = window.setTimeout(() => {
+      receiverPublishTimeoutRef.current = null;
+      sendReceiverNow();
+    }, delayMs);
+  }
+
   function saveStageScroll(songId: string, scrollTop: number) {
     handleManualAutoscrollScroll(scrollTop);
     pendingScrollPositionRef.current = { songId, scrollTop };
+    scheduleReceiverPublish(120);
     if (autoscrollControllerRef.current.active) return;
     scheduleStageScrollSave();
   }
@@ -2567,6 +2648,8 @@ export default function App() {
           onLiveHarmonyEdit={(operation, start, end) => updateStageHarmony(selectedSong.id, start, end, operation)}
           onSongShared={markSongShared}
           onScroll={(scrollTop) => saveStageScroll(selectedSong.id, scrollTop)}
+          onSendReceiver={sendReceiverNow}
+          onSendReceiverTestPattern={() => publishRemoteReceiverTestPattern(receiverSettings)}
           countdownRemaining={countdownRemaining}
         />
       )}
@@ -2645,6 +2728,8 @@ export default function App() {
           onLiveHarmonyEdit={(operation, start, end) => updateStageHarmony(selectedSong.id, start, end, operation)}
           onSongShared={markSongShared}
           onScroll={(scrollTop) => saveStageScroll(selectedSong.id, scrollTop)}
+          onSendReceiver={sendReceiverNow}
+          onSendReceiverTestPattern={() => publishRemoteReceiverTestPattern(receiverSettings)}
           countdownRemaining={countdownRemaining}
           stageSetlistMode
         />
@@ -3348,9 +3433,104 @@ function HelpView() {
   );
 }
 
+function RemoteReceiverApp() {
+  const [payload, setPayload] = useState<RemoteReceiverPayload | null>(null);
+  const [testPattern, setTestPattern] = useState<RemoteReceiverTestPatternPayload | null>(null);
+  const [status, setStatus] = useState<RemoteDisplayStatus>('connecting');
+  const [relayUrl, setRelayUrl] = useState(() => getRemoteDisplayUrl());
+  const [connectionKey, setConnectionKey] = useState(0);
+  const [lastMessageAt, setLastMessageAt] = useState('');
+  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  const receiver = normalizeReceiverDisplaySettings(testPattern?.receiver ?? payload?.receiver);
+
+  useEffect(() => {
+    const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    resize();
+    window.addEventListener('resize', resize);
+    window.addEventListener('orientationchange', resize);
+    return () => {
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('orientationchange', resize);
+    };
+  }, []);
+
+  useEffect(() => {
+    const connection = connectRemoteDisplay({
+      role: 'display',
+      onStatus: setStatus,
+      onMessage: (message) => {
+        if (message.type === 'receiver-state') {
+          setPayload(message.payload);
+          setTestPattern(message.payload.receiver.showTestPattern ? { receiver: message.payload.receiver, updatedAt: message.payload.updatedAt } : null);
+          setLastMessageAt(new Date().toLocaleTimeString());
+        }
+        if (message.type === 'receiver-test-pattern') {
+          setTestPattern(message.payload);
+          setLastMessageAt(new Date().toLocaleTimeString());
+        }
+      }
+    });
+    return () => connection.close();
+  }, [connectionKey]);
+
+  function saveReceiverRelayUrl() {
+    saveRemoteDisplayUrl(relayUrl.trim());
+    setStatus('connecting');
+    setConnectionKey((key) => key + 1);
+  }
+
+  if (!payload && !testPattern) {
+    return (
+      <main className="grid h-screen w-screen place-items-center overflow-hidden bg-black p-8 text-center text-slate-100">
+        <section className="grid max-w-2xl gap-5">
+          <div>
+            <div className="text-6xl font-bold leading-tight">OpenStage Receiver</div>
+            <div className="mt-4 text-3xl text-slate-300">Waiting for iPad controller</div>
+          </div>
+          <div className="grid gap-3 rounded-md border border-slate-700 bg-slate-900/80 p-4 text-left text-xl text-slate-200">
+            <div className="flex items-center justify-between gap-3">
+              <span>WebSocket</span>
+              <span className={`rounded-full border px-3 py-1 text-sm font-semibold ${remoteDisplayStatusClass(status)}`}>
+                {remoteDisplayStatusLabel(status)}
+              </span>
+            </div>
+            <label className="grid gap-1 text-sm">
+              <span className="font-semibold text-slate-100">Relay address</span>
+              <input
+                className="rounded-md border border-slate-600 bg-black px-3 py-3 font-mono text-slate-100"
+                value={relayUrl}
+                placeholder="wss://192.168.68.125:8788"
+                onChange={(event) => setRelayUrl(event.target.value)}
+              />
+            </label>
+            <button className="rounded-md bg-teal-700 px-4 py-3 text-base font-semibold text-white" type="button" onClick={saveReceiverRelayUrl}>
+              Save and Reconnect
+            </button>
+            <div className="text-sm text-slate-400">Open this route on FireTV: /receiver</div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="relative h-screen w-screen overflow-hidden bg-black text-white">
+      <ReceiverCanvas settings={receiver} viewport={viewport}>
+        {testPattern ? (
+          <ReceiverTestPattern settings={receiver} viewport={viewport} status={status} lastMessageAt={lastMessageAt} />
+        ) : payload ? (
+          <ReceiverSong payload={payload} />
+        ) : null}
+      </ReceiverCanvas>
+    </main>
+  );
+}
+
 function RemoteDisplayApp() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [selectedSongId, setSelectedSongId] = useState('');
+  const [receiverPayload, setReceiverPayload] = useState<RemoteReceiverPayload | null>(null);
+  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const [missingSongId, setMissingSongId] = useState('');
   const [status, setStatus] = useState<RemoteDisplayStatus>('connecting');
   const [lastMessageAt, setLastMessageAt] = useState('');
@@ -3372,6 +3552,16 @@ function RemoteDisplayApp() {
   };
   const songMap = useMemo(() => new Map(songs.map((song) => [song.id, song])), [songs]);
   const song = selectedSongId ? songMap.get(selectedSongId) : undefined;
+
+  useEffect(() => {
+    const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', resize);
+    window.addEventListener('orientationchange', resize);
+    return () => {
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('orientationchange', resize);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -3396,7 +3586,15 @@ function RemoteDisplayApp() {
       role: 'display',
       onStatus: setStatus,
       onMessage: (message) => {
+        if (message.type === 'receiver-state') {
+          setReceiverPayload(message.payload);
+          setSelectedSongId(message.payload.song.id);
+          setMissingSongId('');
+          setLastMessageAt(new Date().toLocaleTimeString());
+          return;
+        }
         if (message.type !== 'song') return;
+        setReceiverPayload(null);
         setSelectedSongId(message.songId);
         setMissingSongId('');
         setLastMessageAt(new Date().toLocaleTimeString());
@@ -3429,6 +3627,18 @@ function RemoteDisplayApp() {
       error={startupError}
     />
   );
+
+  if (receiverPayload) {
+    const receiver = normalizeReceiverDisplaySettings(receiverPayload.receiver);
+    return (
+      <main className="relative h-screen w-screen overflow-hidden bg-black text-white">
+        {diagnostics}
+        <ReceiverCanvas settings={receiver} viewport={viewport}>
+          <ReceiverSong payload={receiverPayload} />
+        </ReceiverCanvas>
+      </main>
+    );
+  }
 
   if (!song) {
     return (
@@ -3597,6 +3807,163 @@ function RemoteDisplaySong({ song, state, diagnostics }: { song: Song; state: Pe
         ))}
       </article>
     </main>
+  );
+}
+
+function ReceiverCanvas({
+  settings,
+  viewport,
+  children
+}: {
+  settings: ReceiverDisplaySettings;
+  viewport: { width: number; height: number };
+  children: React.ReactNode;
+}) {
+  const layout = calculateReceiverLayout(settings, viewport.width, viewport.height);
+  return (
+    <div className="absolute inset-0 flex items-center justify-center overflow-hidden" style={{ background: settings.blackBackground ? '#000' : '#f8fafc' }}>
+      <div
+        className="absolute left-1/2 top-1/2 overflow-hidden"
+        style={{
+          width: `${layout.contentWidth}px`,
+          height: `${layout.contentHeight}px`,
+          transform: `translate(-50%, -50%) rotate(${layout.rotation}deg) scale(${layout.scale})`,
+          transformOrigin: 'center center'
+        }}
+      >
+        <div className="h-full w-full overflow-hidden" style={{ padding: `${settings.safeMargin}vmin`, boxSizing: 'border-box' }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReceiverSong({ payload }: { payload: RemoteReceiverPayload }) {
+  const receiver = normalizeReceiverDisplaySettings(payload.receiver);
+  const state = scaleReceiverPerformanceState(payload.performance, receiver);
+  const lyricFontSize = getEffectiveLyricFontSize(state);
+  const lineSpacing = getEffectiveLineSpacing(state);
+  const headerFontSize = getEffectiveHeaderFontSize(state);
+  const chordFontSize = getEffectiveChordFontSize(state);
+  const documentTheme = getDocumentThemePreset(receiver.blackBackground ? 'dark-stage' : getEffectiveDocumentTheme(state));
+  const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
+  const chordFontFamily = getEffectiveUseMonospaceChords(state) ? 'Consolas, "Courier New", monospace' : stageFontFamily;
+  const rendered = renderSong(payload.song, {
+    transpose: state.transpose,
+    capo: payload.effectiveCapo,
+    showNashvilleNumbers: state.showNashvilleNumbers,
+    songKey: payload.song.performanceKey || payload.song.key,
+    activeProfile: state.activeProfile,
+    lyricFontSize,
+    lineSpacing,
+    chordFontSize,
+    headerFontSize,
+    songTitleFontSize: getEffectiveSongTitleFontSize(state),
+    songArtistFontSize: getEffectiveSongArtistFontSize(state),
+    sectionFontSize: getEffectiveSectionFontSize(state),
+    sectionSpacingBefore: getEffectiveSectionSpacingBefore(state),
+    sectionSpacingAfter: getEffectiveSectionSpacingAfter(state),
+    viewportWidth: window.innerWidth,
+    displayMode: receiver.displayMode
+  });
+  const songTitleStyle = buildSongDocumentTextStyle({
+    size: getEffectiveSongTitleFontSize(state),
+    color: getEffectiveSongTitleColor(state),
+    bold: getEffectiveSongTitleBold(state),
+    italic: getEffectiveSongTitleItalic(state),
+    documentTheme,
+    fallbackColor: documentTheme.text
+  });
+  const songArtistStyle = buildSongDocumentTextStyle({
+    size: getEffectiveSongArtistFontSize(state),
+    color: getEffectiveSongArtistColor(state),
+    bold: getEffectiveSongArtistBold(state),
+    italic: getEffectiveSongArtistItalic(state),
+    documentTheme,
+    fallbackColor: documentTheme.muted
+  });
+
+  return (
+    <article
+      className="font-chart h-full w-full whitespace-pre-wrap"
+      style={{
+        transform: `translateY(-${Math.max(0, payload.scrollTop)}px)`,
+        color: documentTheme.text,
+        fontFamily: stageFontFamily,
+        fontSize: `${lyricFontSize}px`,
+        lineHeight: 1.52
+      }}
+    >
+      {rendered.lines.map((line, index) => (
+        <ChordProDisplayLine
+          key={`${line.raw}-${index}`}
+          line={line}
+          transpose={state.transpose}
+          showNashville={state.showNashvilleNumbers}
+          songKey={payload.song.performanceKey || payload.song.key}
+          boldChords={getEffectiveBoldChords(state)}
+          italicChords={getEffectiveItalicChords(state)}
+          showChords={getEffectiveShowChords(state)}
+          chordFontColor={getEffectiveChordFontColor(state)}
+          chordHighlightColor={getEffectiveChordHighlightColor(state)}
+          sectionFontSize={getEffectiveSectionFontSize(state)}
+          sectionFontColor={getEffectiveSectionFontColor(state)}
+          sectionBold={getEffectiveSectionBold(state)}
+          sectionItalic={getEffectiveSectionItalic(state)}
+          sectionUppercase={getEffectiveSectionUppercase(state)}
+          sectionSpacingBefore={getEffectiveSectionSpacingBefore(state)}
+          sectionSpacingAfter={getEffectiveSectionSpacingAfter(state)}
+          songTitleStyle={songTitleStyle}
+          songArtistStyle={songArtistStyle}
+          showHarmonyCues={getEffectiveShowHarmonyCues(state)}
+          harmonyTextColor={getEffectiveHarmonyTextColor(state)}
+          harmonyIconColor={getEffectiveHarmonyIconColor(state)}
+          harmonyItalic={getEffectiveHarmonyItalic(state)}
+          harmonyUnderline={getEffectiveHarmonyUnderline(state)}
+          harmonyIconVisible={getEffectiveHarmonyIconVisible(state)}
+          displayPreference={payload.song.displayPreference ?? 'inline'}
+          lineIndex={index}
+          chordFontSize={chordFontSize}
+          chordFontFamily={chordFontFamily}
+          lyricFontSize={lyricFontSize}
+          lineSpacing={lineSpacing}
+          chordVerticalOffset={getEffectiveChordVerticalOffset(state)}
+          mobileReflowMode={false}
+          showAnchorDebug={false}
+          showHarmonyDebug={false}
+        />
+      ))}
+    </article>
+  );
+}
+
+function ReceiverTestPattern({
+  settings,
+  viewport,
+  status,
+  lastMessageAt
+}: {
+  settings: ReceiverDisplaySettings;
+  viewport: { width: number; height: number };
+  status: RemoteDisplayStatus;
+  lastMessageAt: string;
+}) {
+  return (
+    <div className="relative grid h-full w-full place-items-center overflow-hidden bg-black text-amber-100">
+      <div className="absolute border-4 border-amber-300" style={{ inset: `${settings.safeMargin}vmin` }} />
+      <div className="absolute inset-x-0 top-1/2 border-t border-amber-200/80" />
+      <div className="absolute inset-y-0 left-1/2 border-l border-amber-200/80" />
+      <div className="grid h-full w-full place-items-center border-[2vmin] border-sky-300 p-[5vmin]">
+        <div className="grid gap-3 rounded-md bg-black/70 px-8 py-6 text-center text-[4vmin] font-bold leading-tight">
+          <div>OPENSTAGE RECEIVER TEST</div>
+          <div className="text-[0.5em] font-semibold text-amber-200">viewport {viewport.width} x {viewport.height}</div>
+          <div className="text-[0.5em] font-semibold text-amber-200">mode {receiverDisplayModeLabel(settings.displayMode)}</div>
+          <div className="text-[0.5em] font-semibold text-amber-200">rotation {receiverRotationLabel(settings.displayMode)}</div>
+          <div className="text-[0.5em] font-semibold text-amber-200">connected {status === 'connected' ? 'yes' : 'no'} / last {lastMessageAt || '-'}</div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -4533,7 +4900,8 @@ function RemoteDisplaySettingsCard() {
     detail: 'Controller has not connected yet.',
     lastEventAt: '',
     lastSongId: '',
-    lastPublishState: 'none'
+    lastPublishState: 'none',
+    lastReceiverMode: ''
   });
   const [message, setMessage] = useState('');
 
@@ -4578,6 +4946,7 @@ function RemoteDisplaySettingsCard() {
           <div>Status: <span className="font-semibold">{remoteDisplayStatusLabel(diagnostics.status)}</span></div>
           <div>Last event: {diagnostics.lastEventAt || '-'}</div>
           <div>Last song: <span className="font-mono">{diagnostics.lastSongId || '-'}</span></div>
+          <div>Receiver mode: {diagnostics.lastReceiverMode ? receiverDisplayModeLabel(diagnostics.lastReceiverMode as ReceiverDisplayMode) : '-'}</div>
           <div>Publish state: {diagnostics.lastPublishState}</div>
           <div className={diagnostics.status === 'error' ? 'font-semibold text-red-700' : ''}>Message: {diagnostics.detail || '-'}</div>
         </div>
@@ -4602,6 +4971,78 @@ function remoteDisplayStatusClass(status: RemoteDisplayStatus) {
   if (status === 'connecting') return 'border-amber-300 bg-amber-50 text-amber-800';
   if (status === 'error') return 'border-red-300 bg-red-50 text-red-800';
   return 'border-slate-300 bg-slate-100 text-slate-700';
+}
+
+function normalizeReceiverDisplaySettings(settings: Partial<ReceiverDisplaySettings> | undefined): ReceiverDisplaySettings {
+  const requestedDisplayMode = settings?.displayMode;
+  const displayMode: ReceiverDisplayMode = receiverDisplayModeOptions.some((option) => option.value === requestedDisplayMode)
+    ? requestedDisplayMode as ReceiverDisplayMode
+    : defaultReceiverDisplaySettings.displayMode;
+  return {
+    displayMode,
+    blackBackground: settings?.blackBackground ?? defaultReceiverDisplaySettings.blackBackground,
+    fontScale: clampNumber(settings?.fontScale ?? defaultReceiverDisplaySettings.fontScale, 0.65, 1.8),
+    showTestPattern: Boolean(settings?.showTestPattern),
+    safeMargin: clampNumber(settings?.safeMargin ?? defaultReceiverDisplaySettings.safeMargin, 0, 14)
+  };
+}
+
+function receiverDisplayModeLabel(mode: ReceiverDisplayMode) {
+  return receiverDisplayModeOptions.find((option) => option.value === mode)?.label ?? 'Landscape Lyrics Mode';
+}
+
+function receiverRotationLabel(mode: ReceiverDisplayMode) {
+  if (mode === 'rotate-90-cw') return '90 clockwise';
+  if (mode === 'rotate-90-ccw') return '90 counterclockwise';
+  return 'none';
+}
+
+function calculateReceiverLayout(settings: ReceiverDisplaySettings, viewportWidth: number, viewportHeight: number) {
+  const portraitMode = settings.displayMode !== 'landscape-lyrics';
+  const rotation = settings.displayMode === 'rotate-90-cw' ? 90 : settings.displayMode === 'rotate-90-ccw' ? -90 : 0;
+  const contentWidth = portraitMode ? 1080 : 1920;
+  const contentHeight = portraitMode ? 1920 : 1080;
+  const rotatedWidth = Math.abs(rotation) === 90 ? contentHeight : contentWidth;
+  const rotatedHeight = Math.abs(rotation) === 90 ? contentWidth : contentHeight;
+  const fitScale = Math.min(viewportWidth / rotatedWidth, viewportHeight / rotatedHeight);
+  const fillScale = Math.max(viewportWidth / rotatedWidth, viewportHeight / rotatedHeight);
+  const shouldFill = settings.displayMode === 'fill-portrait-crop-safe' || settings.displayMode === 'rotate-90-cw' || settings.displayMode === 'rotate-90-ccw';
+  const scale = Math.max(0.1, shouldFill ? fillScale : fitScale);
+  return { contentWidth, contentHeight, rotation, scale };
+}
+
+function scaleReceiverPerformanceState(state: PerformanceState, receiver: ReceiverDisplaySettings): PerformanceState {
+  const scale = receiver.fontScale;
+  const scaledLyric = Math.round(getEffectiveLyricFontSize(state) * scale);
+  const scaledHeader = Math.round(getEffectiveHeaderFontSize(state) * scale);
+  const scaledTitle = Math.round(getEffectiveSongTitleFontSize(state) * scale);
+  const scaledArtist = Math.round(getEffectiveSongArtistFontSize(state) * scale);
+  const scaledChord = Math.round(getEffectiveChordFontSize(state) * scale);
+  const scaledSection = Math.round(getEffectiveSectionFontSize(state) * scale);
+  return {
+    ...state,
+    activeProfile: 'prompter-display',
+    theme: receiver.blackBackground ? 'dark' : state.theme,
+    documentTheme: receiver.blackBackground ? 'dark-stage' : state.documentTheme,
+    fontSize: scaledLyric,
+    fontSizesByProfile: { ...(state.fontSizesByProfile ?? {}), 'prompter-display': scaledLyric },
+    headerFontSize: scaledHeader,
+    headerFontSizesByProfile: { ...(state.headerFontSizesByProfile ?? {}), 'prompter-display': scaledHeader },
+    songTitleFontSize: scaledTitle,
+    songTitleFontSizesByProfile: { ...(state.songTitleFontSizesByProfile ?? {}), 'prompter-display': scaledTitle },
+    songArtistFontSize: scaledArtist,
+    songArtistFontSizesByProfile: { ...(state.songArtistFontSizesByProfile ?? {}), 'prompter-display': scaledArtist },
+    chordFontSize: scaledChord,
+    chordFontSizesByProfile: { ...(state.chordFontSizesByProfile ?? {}), 'prompter-display': scaledChord },
+    sectionFontSize: scaledSection,
+    sectionFontSizesByProfile: { ...(state.sectionFontSizesByProfile ?? {}), 'prompter-display': scaledSection },
+    receiverDisplay: receiver
+  };
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
 }
 
 function SettingsCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -6264,6 +6705,8 @@ function PerformanceView({
   onLiveHarmonyEdit,
   onSongShared,
   onScroll,
+  onSendReceiver,
+  onSendReceiverTestPattern,
   countdownRemaining,
   stageSetlistMode = false
 }: {
@@ -6306,6 +6749,8 @@ function PerformanceView({
   onLiveHarmonyEdit: (operation: StageHarmonyEditOperation, start: number, end: number) => void | Promise<void>;
   onSongShared: (songId: string) => void | Promise<void>;
   onScroll: (scrollTop: number) => void;
+  onSendReceiver: () => boolean;
+  onSendReceiverTestPattern: () => boolean;
   countdownRemaining: number;
   stageSetlistMode?: boolean;
 }) {
@@ -6909,6 +7354,8 @@ function PerformanceView({
             onPedals={() => void leaveStageWithShareCheck(onPedals)}
             onImportExport={() => void leaveStageWithShareCheck(onImportExport)}
             onSync={() => void leaveStageWithShareCheck(onSync)}
+            onSendReceiver={onSendReceiver}
+            onSendReceiverTestPattern={onSendReceiverTestPattern}
           />
         </div>
       )}
@@ -7154,17 +7601,33 @@ function PerformanceView({
 
 function ExternalDisplayControls({
   state,
-  setState
+  setState,
+  onSendReceiver,
+  onSendReceiverTestPattern
 }: {
   state: PerformanceState;
   setState: (next: Partial<PerformanceState>) => void;
+  onSendReceiver: () => boolean;
+  onSendReceiverTestPattern: () => boolean;
 }) {
   const settings = getExternalDisplaySettings(state);
+  const receiver = normalizeReceiverDisplaySettings(state.receiverDisplay);
+  const [receiverStatus, setReceiverStatus] = useState<RemoteDisplayStatus>('disconnected');
+  const [receiverMessage, setReceiverMessage] = useState('');
   const [status, setStatus] = useState('');
   const updateSettings = (next: Partial<PerformanceState['externalDisplay']>) =>
     setState({ externalDisplay: { ...settings, ...next } });
+  const updateReceiver = (next: Partial<ReceiverDisplaySettings>) =>
+    setState({ receiverDisplay: normalizeReceiverDisplaySettings({ ...receiver, ...next }) });
   const activateAirPlayPortrait = () => setState({ externalDisplay: appleTvPortraitPrompterSettings(settings) });
   const outputStatus = status || (settings.enabled ? 'External output connected' : 'Open the external output first to preview changes.');
+
+  useEffect(() => subscribeRemoteDisplayControllerStatus(setReceiverStatus), []);
+
+  function flashReceiverMessage(message: string) {
+    setReceiverMessage(message);
+    window.setTimeout(() => setReceiverMessage(''), 2400);
+  }
 
   async function launchExternalDisplay() {
     updateSettings({ enabled: true });
@@ -7185,6 +7648,59 @@ function ExternalDisplayControls({
 
   return (
     <div className="grid gap-3 rounded-md border border-slate-700 bg-slate-950 p-3 text-xs">
+      <div className="grid gap-3 rounded-md border border-sky-300/30 bg-sky-300/10 p-3 text-sky-50">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-semibold text-white">FireTV Receiver</div>
+            <div className="text-slate-300">Open /receiver on the FireTV and point it at the same relay address.</div>
+          </div>
+          <span className="rounded-full border border-sky-300/40 bg-black/30 px-2 py-1 text-[0.65rem] font-semibold">
+            {remoteDisplayStatusLabel(receiverStatus)}
+          </span>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="grid gap-1">
+            Display Mode
+            <select
+              className="input bg-slate-900 text-white"
+              value={receiver.displayMode}
+              onChange={(event) => updateReceiver({ displayMode: event.target.value as ReceiverDisplayMode })}
+            >
+              {receiverDisplayModeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1">
+            Font Scale {receiver.fontScale.toFixed(2)}x
+            <input type="range" min={0.65} max={1.8} step={0.05} value={receiver.fontScale} onChange={(event) => updateReceiver({ fontScale: Number(event.target.value) })} />
+          </label>
+        </div>
+        <label className="grid gap-1">
+          Safe Margin {receiver.safeMargin}%
+          <input type="range" min={0} max={14} step={1} value={receiver.safeMargin} onChange={(event) => updateReceiver({ safeMargin: Number(event.target.value) })} />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <button className="stage-menu-button" type="button" onClick={() => updateReceiver({ blackBackground: !receiver.blackBackground })}>
+            <Moon size={18} /> Black Background {receiver.blackBackground ? 'On' : 'Off'}
+          </button>
+          <button className="stage-menu-button" type="button" onClick={() => {
+            const sent = onSendReceiver();
+            flashReceiverMessage(sent ? 'Current song sent to receiver' : 'Receiver update queued');
+          }}>
+            <Share2 size={18} /> Send Current Song
+          </button>
+          <button className="stage-menu-button" type="button" onClick={() => {
+            const sent = onSendReceiverTestPattern();
+            flashReceiverMessage(sent ? 'Test pattern sent' : 'Test pattern queued');
+          }}>
+            <Gauge size={18} /> Test Pattern
+          </button>
+        </div>
+        <div className="rounded-md border border-sky-200/20 bg-black/20 p-2 text-slate-200">
+          <div>Receiver URL: <span className="font-mono">/receiver?remoteWs={getRemoteDisplayUrl()}</span></div>
+          <div>Mode: {receiverDisplayModeLabel(receiver.displayMode)}</div>
+          {receiverMessage && <div className="font-semibold text-teal-100">{receiverMessage}</div>}
+        </div>
+      </div>
       <div className="grid gap-2">
         <div className="flex items-start justify-between gap-2">
           <div>
@@ -7642,7 +8158,9 @@ function StageControlPopover({
   onDiagnostics,
   onPedals,
   onImportExport,
-  onSync
+  onSync,
+  onSendReceiver,
+  onSendReceiverTestPattern
 }: {
   active: StagePopoverName;
   formatTab: StageFormatTab;
@@ -7678,6 +8196,8 @@ function StageControlPopover({
   onPedals: () => void;
   onImportExport: () => void;
   onSync: () => void;
+  onSendReceiver: () => boolean;
+  onSendReceiverTestPattern: () => boolean;
 }) {
   const [libraryQuery, setLibraryQuery] = useState('');
   const [newSongMenuOpen, setNewSongMenuOpen] = useState(false);
@@ -8142,7 +8662,14 @@ function StageControlPopover({
                 </div>
               </div>
             )}
-            {formatTab === 'external' && <ExternalDisplayControls state={{ ...state, externalDisplay: externalDisplaySettings }} setState={setState} />}
+            {formatTab === 'external' && (
+              <ExternalDisplayControls
+                state={{ ...state, externalDisplay: externalDisplaySettings }}
+                setState={setState}
+                onSendReceiver={onSendReceiver}
+                onSendReceiverTestPattern={onSendReceiverTestPattern}
+              />
+            )}
           </div>
           <div className="stage-format-tabbar grid shrink-0 grid-cols-4 gap-1 border-t border-slate-700 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 sm:grid-cols-8">
             <StageTabButton icon={<FileJson size={16} />} label="Document" active={formatTab === 'document'} onClick={() => setFormatTab('document')} />

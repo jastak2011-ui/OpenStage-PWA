@@ -1,6 +1,25 @@
+import type { PerformanceState, ReceiverDisplaySettings, Song } from '../types';
+
+export type RemoteReceiverPayload = {
+  song: Song;
+  performance: PerformanceState;
+  effectiveCapo: number;
+  scrollTop: number;
+  autoscrollActive: boolean;
+  receiver: ReceiverDisplaySettings;
+  updatedAt: string;
+};
+
+export type RemoteReceiverTestPatternPayload = {
+  receiver: ReceiverDisplaySettings;
+  updatedAt: string;
+};
+
 export type RemoteDisplayMessage =
   | { type: 'hello'; role: 'controller' | 'display'; clientId: string }
-  | { type: 'song'; songId: string };
+  | { type: 'song'; songId: string }
+  | { type: 'receiver-state'; payload: RemoteReceiverPayload }
+  | { type: 'receiver-test-pattern'; payload: RemoteReceiverTestPatternPayload };
 
 export type RemoteDisplayStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -11,6 +30,7 @@ export type RemoteDisplayControllerSnapshot = {
   lastEventAt: string;
   lastSongId: string;
   lastPublishState: 'none' | 'queued' | 'sent';
+  lastReceiverMode: string;
 };
 
 type RemoteDisplayConnectionOptions = {
@@ -25,6 +45,7 @@ const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(
 
 let controllerConnection: ReturnType<typeof connectRemoteDisplay> | null = null;
 let pendingControllerSongId = '';
+let pendingControllerMessage: RemoteDisplayMessage | null = null;
 let controllerStatus: RemoteDisplayStatus = 'disconnected';
 const controllerStatusListeners = new Set<(status: RemoteDisplayStatus) => void>();
 let controllerSnapshot: RemoteDisplayControllerSnapshot = {
@@ -33,12 +54,17 @@ let controllerSnapshot: RemoteDisplayControllerSnapshot = {
   detail: 'Controller has not connected yet.',
   lastEventAt: '',
   lastSongId: '',
-  lastPublishState: 'none'
+  lastPublishState: 'none',
+  lastReceiverMode: ''
 };
 const controllerSnapshotListeners = new Set<(snapshot: RemoteDisplayControllerSnapshot) => void>();
 
 export function isDisplayRoute() {
   return window.location.pathname.replace(/\/+$/, '') === '/display';
+}
+
+export function isReceiverRoute() {
+  return window.location.pathname.replace(/\/+$/, '') === '/receiver';
 }
 
 export function getRemoteDisplayUrl() {
@@ -192,30 +218,15 @@ export function connectRemoteDisplay({ role, onMessage, onStatus }: RemoteDispla
 export function publishRemoteDisplaySong(songId: string) {
   if (!songId) return false;
   pendingControllerSongId = songId;
+  pendingControllerMessage = { type: 'song', songId };
   updateControllerSnapshot({
     url: getRemoteDisplayUrl(),
     lastSongId: songId,
     lastPublishState: 'queued',
     detail: `Queued song update ${songId} for ${getRemoteDisplayUrl()}.`
   });
-  if (!controllerConnection) {
-    controllerConnection = connectRemoteDisplay({
-      role: 'controller',
-      onStatus: (status, detail) => {
-        setControllerStatus(status, detail);
-        if (status !== 'connected' || !pendingControllerSongId) return;
-        const sentPending = controllerConnection?.send({ type: 'song', songId: pendingControllerSongId });
-        updateControllerSnapshot({
-          lastSongId: pendingControllerSongId,
-          lastPublishState: sentPending ? 'sent' : 'queued',
-          detail: sentPending
-            ? `Sent song update ${pendingControllerSongId} to ${getRemoteDisplayUrl()}.`
-            : `Controller connected but song update ${pendingControllerSongId} could not be sent yet.`
-        });
-      }
-    });
-  }
-  const sent = controllerConnection.send({ type: 'song', songId });
+  ensureControllerConnection();
+  const sent = controllerConnection?.send({ type: 'song', songId }) ?? false;
   updateControllerSnapshot({
     lastSongId: songId,
     lastPublishState: sent ? 'sent' : 'queued',
@@ -224,27 +235,87 @@ export function publishRemoteDisplaySong(songId: string) {
   return sent;
 }
 
+export function publishRemoteReceiverState(payload: RemoteReceiverPayload) {
+  pendingControllerSongId = payload.song.id;
+  pendingControllerMessage = { type: 'receiver-state', payload };
+  updateControllerSnapshot({
+    url: getRemoteDisplayUrl(),
+    lastSongId: payload.song.id,
+    lastReceiverMode: payload.receiver.displayMode,
+    lastPublishState: 'queued',
+    detail: `Queued receiver update ${payload.song.title || payload.song.id} for ${getRemoteDisplayUrl()}.`
+  });
+  ensureControllerConnection();
+  const sent = controllerConnection?.send(pendingControllerMessage) ?? false;
+  updateControllerSnapshot({
+    lastSongId: payload.song.id,
+    lastReceiverMode: payload.receiver.displayMode,
+    lastPublishState: sent ? 'sent' : 'queued',
+    detail: sent ? `Sent receiver update to ${getRemoteDisplayUrl()}.` : 'Queued receiver update; controller socket is not open yet.'
+  });
+  return sent;
+}
+
+export function publishRemoteReceiverTestPattern(receiver: ReceiverDisplaySettings) {
+  pendingControllerMessage = {
+    type: 'receiver-test-pattern',
+    payload: {
+      receiver,
+      updatedAt: new Date().toISOString()
+    }
+  };
+  updateControllerSnapshot({
+    url: getRemoteDisplayUrl(),
+    lastReceiverMode: receiver.displayMode,
+    lastPublishState: 'queued',
+    detail: `Queued receiver test pattern for ${getRemoteDisplayUrl()}.`
+  });
+  ensureControllerConnection();
+  const sent = controllerConnection?.send(pendingControllerMessage) ?? false;
+  updateControllerSnapshot({
+    lastReceiverMode: receiver.displayMode,
+    lastPublishState: sent ? 'sent' : 'queued',
+    detail: sent ? `Sent receiver test pattern to ${getRemoteDisplayUrl()}.` : 'Queued receiver test pattern; controller socket is not open yet.'
+  });
+  return sent;
+}
+
 export function connectRemoteDisplayControllerForDiagnostics() {
-  if (!controllerConnection) {
-    controllerConnection = connectRemoteDisplay({
-      role: 'controller',
-      onStatus: (status, detail) => setControllerStatus(status, detail)
-    });
-  }
-  return controllerConnection;
+  return ensureControllerConnection();
 }
 
 export function resetRemoteDisplayController() {
   controllerConnection?.close();
   controllerConnection = null;
   pendingControllerSongId = '';
+  pendingControllerMessage = null;
   updateControllerSnapshot({
     status: 'disconnected',
     url: getRemoteDisplayUrl(),
     detail: 'Controller connection reset.',
-    lastPublishState: 'none'
+    lastPublishState: 'none',
+    lastReceiverMode: ''
   });
   setControllerStatus('disconnected', 'Controller connection reset.');
+}
+
+function ensureControllerConnection() {
+  if (controllerConnection) return controllerConnection;
+  controllerConnection = connectRemoteDisplay({
+    role: 'controller',
+    onStatus: (status, detail) => {
+      setControllerStatus(status, detail);
+      if (status !== 'connected' || !pendingControllerMessage) return;
+      const sentPending = controllerConnection?.send(pendingControllerMessage);
+      updateControllerSnapshot({
+        lastPublishState: sentPending ? 'sent' : 'queued',
+        detail: sentPending
+          ? `Sent pending ${pendingControllerMessage.type} to ${getRemoteDisplayUrl()}.`
+          : `Controller connected but pending ${pendingControllerMessage.type} could not be sent yet.`
+      });
+    }
+  });
+  return controllerConnection;
 }
 
 function parseRemoteDisplayMessage(data: unknown): RemoteDisplayMessage | null {
@@ -252,6 +323,10 @@ function parseRemoteDisplayMessage(data: unknown): RemoteDisplayMessage | null {
   try {
     const parsed = JSON.parse(data) as Partial<RemoteDisplayMessage>;
     if (parsed.type === 'song' && typeof parsed.songId === 'string') return { type: 'song', songId: parsed.songId };
+    if (parsed.type === 'receiver-state' && isRemoteReceiverPayload(parsed.payload)) return { type: 'receiver-state', payload: parsed.payload };
+    if (parsed.type === 'receiver-test-pattern' && isRemoteReceiverTestPatternPayload(parsed.payload)) {
+      return { type: 'receiver-test-pattern', payload: parsed.payload };
+    }
     if (
       parsed.type === 'hello' &&
       (parsed.role === 'controller' || parsed.role === 'display') &&
@@ -263,4 +338,25 @@ function parseRemoteDisplayMessage(data: unknown): RemoteDisplayMessage | null {
     return null;
   }
   return null;
+}
+
+function isRemoteReceiverPayload(payload: unknown): payload is RemoteReceiverPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const candidate = payload as Partial<RemoteReceiverPayload>;
+  return Boolean(
+    candidate.song &&
+      typeof candidate.song === 'object' &&
+      typeof candidate.song.id === 'string' &&
+      candidate.performance &&
+      typeof candidate.performance === 'object' &&
+      candidate.receiver &&
+      typeof candidate.receiver === 'object' &&
+      typeof candidate.updatedAt === 'string'
+  );
+}
+
+function isRemoteReceiverTestPatternPayload(payload: unknown): payload is RemoteReceiverTestPatternPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const candidate = payload as Partial<RemoteReceiverTestPatternPayload>;
+  return Boolean(candidate.receiver && typeof candidate.receiver === 'object' && typeof candidate.updatedAt === 'string');
 }
