@@ -4148,7 +4148,7 @@ function ReceiverCanvas({
 }) {
   const layout = calculateReceiverLayout(settings, viewport.width, viewport.height);
   return (
-    <div className="absolute inset-0 flex items-center justify-center overflow-hidden" style={{ background: backgroundColor ?? (settings.blackBackground ? '#000' : '#f8fafc') }}>
+    <div className="absolute inset-0 h-screen w-screen overflow-hidden" style={{ background: backgroundColor ?? (settings.blackBackground ? '#000' : '#f8fafc') }}>
       <div
         className="absolute left-1/2 top-1/2 overflow-hidden"
         style={{
@@ -5547,10 +5547,18 @@ function receiverRotationLabel(mode: ReceiverDisplayMode) {
 }
 
 function calculateReceiverLayout(settings: ReceiverDisplaySettings, viewportWidth: number, viewportHeight: number) {
-  const portraitMode = settings.displayMode !== 'landscape-lyrics';
+  if (settings.displayMode === 'landscape-lyrics') {
+    return {
+      contentWidth: viewportWidth,
+      contentHeight: viewportHeight,
+      rotation: 0,
+      scale: 1
+    };
+  }
+
   const rotation = settings.displayMode === 'rotate-90-cw' ? 90 : settings.displayMode === 'rotate-90-ccw' ? -90 : 0;
-  const contentWidth = portraitMode ? 1080 : 1920;
-  const contentHeight = portraitMode ? 1920 : 1080;
+  const contentWidth = 1080;
+  const contentHeight = 1920;
   const rotatedWidth = Math.abs(rotation) === 90 ? contentHeight : contentWidth;
   const rotatedHeight = Math.abs(rotation) === 90 ? contentWidth : contentHeight;
   const fitScale = Math.min(viewportWidth / rotatedWidth, viewportHeight / rotatedHeight);
