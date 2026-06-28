@@ -148,22 +148,27 @@ export function saveHostedReceiverRoomCode(roomCode: string) {
 
 export async function createHostedReceiverRoom() {
   if (!supabase) throw new Error('Supabase is not configured.');
+  const storedRoomCode = normalizeHostedReceiverRoomCode(getHostedReceiverRoomCode());
+  if (isReceiverRoomCode(storedRoomCode)) {
+    return ensureHostedReceiverRoom(storedRoomCode, false);
+  }
+
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const roomCode = createReceiverRoomCode();
-    const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
-    const { error } = await supabase
-      .from('receiver_state')
-      .insert({
-        pairing_code: roomCode,
-        latest_message: null,
-        durable_payload: null,
-        updated_at: new Date().toISOString(),
-        expires_at: expiresAt
-      });
-    if (!error) return { roomCode, expiresAt };
-    if (error.code !== '23505') throw error;
+    try {
+      const room = await ensureHostedReceiverRoom(roomCode, true);
+      saveHostedReceiverRoomCode(room.roomCode);
+      return room;
+    } catch (error) {
+      if (typeof error === 'object' && error && 'code' in error && error.code === '23505') continue;
+      throw error;
+    }
   }
   throw new Error('Could not create receiver room.');
+}
+
+export function resetHostedReceiverRoomCode() {
+  saveHostedReceiverRoomCode('');
 }
 
 export async function fetchHostedReceiverRoomState(roomCode: string) {
@@ -514,6 +519,33 @@ export function resetRemoteDisplayController() {
 
 function normalizeHostedReceiverRoomCode(roomCode: string) {
   return roomCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function isReceiverRoomCode(roomCode: string) {
+  return /^[A-Z0-9]{8}$/.test(roomCode);
+}
+
+async function ensureHostedReceiverRoom(roomCode: string, createNew: boolean) {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+  const row = {
+    pairing_code: roomCode,
+    updated_at: new Date().toISOString(),
+    expires_at: expiresAt
+  };
+  const { error } = createNew
+    ? await supabase
+      .from('receiver_state')
+      .insert({
+        ...row,
+        latest_message: null,
+        durable_payload: null
+      })
+    : await supabase
+      .from('receiver_state')
+      .upsert(row, { onConflict: 'pairing_code' });
+  if (error) throw error;
+  return { roomCode, expiresAt };
 }
 
 function createReceiverRoomCode() {

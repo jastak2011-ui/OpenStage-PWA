@@ -97,6 +97,7 @@ import {
   publishRemoteDisplaySong,
   publishRemoteReceiverState,
   publishRemoteReceiverTestPattern,
+  resetHostedReceiverRoomCode,
   saveHostedReceiverRoomCode,
   saveRemoteDisplayUrl,
   shouldUseLocalReceiverRelay,
@@ -3607,10 +3608,36 @@ function RemoteReceiverApp() {
       cancelled = true;
       subscription?.close();
     };
+  }, [connectionKey, useLocalRelay]);
+
+  useEffect(() => {
+    if (useLocalRelay) return;
+    const reconnect = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine !== false) {
+        setConnectionKey((key) => key + 1);
+      }
+    };
+    window.addEventListener('online', reconnect);
+    document.addEventListener('visibilitychange', reconnect);
+    return () => {
+      window.removeEventListener('online', reconnect);
+      document.removeEventListener('visibilitychange', reconnect);
+    };
   }, [useLocalRelay]);
 
   function saveReceiverRelayUrl() {
     saveRemoteDisplayUrl(relayUrl.trim());
+    setStatus('connecting');
+    setConnectionKey((key) => key + 1);
+  }
+
+  function resetReceiverPairing() {
+    resetHostedReceiverRoomCode();
+    setHostedRoomCode('');
+    setHostedError('');
+    setPayload(null);
+    setTestPattern(null);
+    setLastMessageAt('');
     setStatus('connecting');
     setConnectionKey((key) => key + 1);
   }
@@ -3647,10 +3674,15 @@ function RemoteReceiverApp() {
               </>
             )}
             {!useLocalRelay && (
-              <div className="rounded-md border border-teal-300/30 bg-teal-300/10 p-4 text-center">
-                <div className="text-sm font-semibold uppercase tracking-wide text-teal-100">Pairing Code</div>
-                <div className="mt-2 font-mono text-6xl font-bold tracking-[0.18em] text-white">{hostedRoomCode || '...'}</div>
-              </div>
+              <>
+                <div className="rounded-md border border-teal-300/30 bg-teal-300/10 p-4 text-center">
+                  <div className="text-sm font-semibold uppercase tracking-wide text-teal-100">Pairing Code</div>
+                  <div className="mt-2 font-mono text-6xl font-bold tracking-[0.18em] text-white">{hostedRoomCode || '...'}</div>
+                </div>
+                <button className="rounded-md border border-slate-600 bg-slate-800 px-4 py-3 text-base font-semibold text-slate-100" type="button" onClick={resetReceiverPairing}>
+                  Reset Receiver Pairing
+                </button>
+              </>
             )}
             {hostedError && <div className="rounded-md border border-red-400/40 bg-red-950/40 p-2 text-sm text-red-100">{hostedError}</div>}
             <div className="text-sm text-slate-400">{useLocalRelay ? 'Local relay fallback active.' : 'Enter this code in OpenStage FireTV Receiver settings.'}</div>
@@ -3679,6 +3711,15 @@ function RemoteReceiverApp() {
           metrics={scrollMetrics}
           forcedByUrl={diagnosticsForcedByUrl}
         />
+      )}
+      {!useLocalRelay && (
+        <button
+          className="fixed bottom-3 left-3 z-50 rounded-md border border-white/20 bg-black/55 px-3 py-2 text-xs font-semibold text-white/80"
+          type="button"
+          onClick={resetReceiverPairing}
+        >
+          Reset Receiver Pairing
+        </button>
       )}
     </main>
   );
