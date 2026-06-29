@@ -3561,10 +3561,13 @@ function RemoteReceiverApp() {
   const [receiverName, setReceiverName] = useState(() => getReceiverDisplayName());
   const [receiverNameDraft, setReceiverNameDraft] = useState(() => getReceiverDisplayName() || 'FireTV Receiver');
   const [renamingReceiver, setRenamingReceiver] = useState(false);
+  const [receiverSettingsOpen, setReceiverSettingsOpen] = useState(false);
+  const [receiverDiagnosticsVisible, setReceiverDiagnosticsVisible] = useState(false);
+  const [wakeLockStatus, setWakeLockStatus] = useState<'active' | 'unsupported' | 'error' | 'released'>('released');
   const receiver = normalizeReceiverDisplaySettings(testPattern?.receiver ?? payload?.receiver);
   const diagnosticsForcedByUrl = new URLSearchParams(window.location.search).get('diagnostics') === '1';
   const useLocalRelay = shouldUseLocalReceiverRelay();
-  const showDiagnostics = diagnosticsForcedByUrl || receiver.showDiagnostics;
+  const showDiagnostics = diagnosticsForcedByUrl || receiver.showDiagnostics || receiverDiagnosticsVisible;
 
   useEffect(() => {
     const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -3691,6 +3694,45 @@ function RemoteReceiverApp() {
     };
   }, [useLocalRelay]);
 
+  useEffect(() => {
+    if (useLocalRelay) return;
+    let wakeLock: any = null;
+    let cancelled = false;
+
+    const requestWakeLock = async () => {
+      const wakeLockApi = (navigator as any).wakeLock;
+      if (!wakeLockApi?.request) {
+        setWakeLockStatus('unsupported');
+        return;
+      }
+      try {
+        wakeLock = await wakeLockApi.request('screen');
+        if (cancelled) {
+          void wakeLock?.release?.();
+          return;
+        }
+        setWakeLockStatus('active');
+        wakeLock.addEventListener?.('release', () => {
+          if (!cancelled) setWakeLockStatus('released');
+        });
+      } catch {
+        if (!cancelled) setWakeLockStatus('error');
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void requestWakeLock();
+    };
+
+    void requestWakeLock();
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', handleVisibility);
+      void wakeLock?.release?.();
+    };
+  }, [useLocalRelay]);
+
   function saveReceiverRelayUrl() {
     saveRemoteDisplayUrl(relayUrl.trim());
     setStatus('connecting');
@@ -3705,6 +3747,7 @@ function RemoteReceiverApp() {
     setTestPattern(null);
     setLastMessageAt('');
     setStatus('connecting');
+    setReceiverSettingsOpen(false);
     setConnectionKey((key) => key + 1);
   }
 
@@ -3829,31 +3872,63 @@ function RemoteReceiverApp() {
           relayUrl={useLocalRelay ? (relayUrl || getRemoteDisplayUrl()) : `supabase:${hostedRoomCode || '-'}`}
           metrics={scrollMetrics}
           forcedByUrl={diagnosticsForcedByUrl}
+          wakeLockStatus={wakeLockStatus}
         />
       )}
       {!useLocalRelay && (
-        <div className="fixed bottom-3 left-3 z-50 flex flex-wrap gap-2">
+        <>
           <button
-            className="rounded-md border border-white/20 bg-black/55 px-3 py-2 text-xs font-semibold text-white/80"
+            className="fixed right-2 top-2 z-50 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/20 text-white/45 opacity-50 transition hover:bg-black/60 hover:text-white hover:opacity-100"
             type="button"
-            onClick={() => setRenamingReceiver((value) => !value)}
+            aria-label="Receiver settings"
+            onClick={() => setReceiverSettingsOpen(true)}
           >
-            Rename Receiver
+            <Settings size={17} />
           </button>
-          <button
-            className="rounded-md border border-white/20 bg-black/55 px-3 py-2 text-xs font-semibold text-white/80"
-            type="button"
-            onClick={resetReceiverPairing}
-          >
-            Reset Receiver Pairing
-          </button>
-          {renamingReceiver && (
-            <div className="grid gap-2 rounded-md border border-white/20 bg-black/75 p-2">
-              <input className="rounded-md border border-white/20 bg-black px-2 py-2 text-sm text-white" value={receiverNameDraft} onChange={(event) => setReceiverNameDraft(event.target.value)} />
-              <button className="rounded-md bg-teal-700 px-3 py-2 text-xs font-semibold text-white" type="button" onClick={saveReceiverName}>Save Name</button>
+          {receiverSettingsOpen && (
+            <div className="fixed inset-0 z-[90] grid place-items-center bg-black/70 p-4">
+              <div className="grid w-full max-w-md gap-3 rounded-md border border-white/15 bg-slate-950 p-4 text-left text-slate-100 shadow-2xl">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-lg font-semibold text-white">Receiver Settings</div>
+                    <div className="text-sm text-slate-400">Use Silk fullscreen or install OpenStage as an app for the cleanest TV view.</div>
+                  </div>
+                  <button className="icon-button" type="button" aria-label="Close receiver settings" onClick={() => setReceiverSettingsOpen(false)}>
+                    <X size={18} />
+                  </button>
+                </div>
+                <label className="grid gap-1 text-sm font-semibold">
+                  Rename Display
+                  <input className="rounded-md border border-slate-600 bg-black px-3 py-3 text-slate-100" value={receiverNameDraft} onChange={(event) => setReceiverNameDraft(event.target.value)} />
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button className="stage-menu-button" type="button" onClick={saveReceiverName}>Save Name</button>
+                  <button className="stage-menu-button" type="button" onClick={() => {
+                    setReceiverSettingsOpen(false);
+                    resetReceiverPairing();
+                  }}>
+                    Reset Pairing
+                  </button>
+                  <button className="stage-menu-button" type="button" onClick={() => setReceiverDiagnosticsVisible((visible) => !visible)}>
+                    {showDiagnostics ? 'Hide Diagnostics' : 'Show Diagnostics'}
+                  </button>
+                  <button className="stage-menu-button" type="button" onClick={() => {
+                    setPayload(null);
+                    setTestPattern(null);
+                    setReceiverSettingsOpen(false);
+                  }}>
+                    Exit Performance Mode
+                  </button>
+                </div>
+                <div className="rounded-md border border-slate-700 bg-black/30 p-2 text-sm text-slate-300">
+                  <div>Diagnostics: {showDiagnostics ? 'On' : 'Off'}</div>
+                  <div>Wake Lock: {wakeLockStatus}</div>
+                  <div>Pairing Code: <span className="font-mono">{hostedRoomCode || '-'}</span></div>
+                </div>
+              </div>
             </div>
           )}
-        </div>
+        </>
       )}
     </main>
   );
@@ -4363,7 +4438,8 @@ function ReceiverDiagnosticsOverlay({
   status,
   relayUrl,
   metrics,
-  forcedByUrl
+  forcedByUrl,
+  wakeLockStatus
 }: {
   payload: RemoteReceiverPayload;
   settings: ReceiverDisplaySettings;
@@ -4372,6 +4448,7 @@ function ReceiverDiagnosticsOverlay({
   relayUrl: string;
   metrics: ReceiverScrollMetrics;
   forcedByUrl: boolean;
+  wakeLockStatus: 'active' | 'unsupported' | 'error' | 'released';
 }) {
   const [, refresh] = useState(0);
   useEffect(() => {
@@ -4397,6 +4474,7 @@ function ReceiverDiagnosticsOverlay({
       <div>Progress: {metrics.progress.toFixed(3)}</div>
       <div>ScrollTop: {metrics.scrollTop}</div>
       <div>Relay: <span className="font-mono">{relayUrl || '-'}</span></div>
+      <div>Wake Lock: {wakeLockStatus}</div>
       <div>Last Payload: {payload.updatedAt || '-'}</div>
       <div>Seconds Since Update: {secondsSinceUpdate ?? '-'}</div>
     </div>

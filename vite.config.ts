@@ -25,7 +25,7 @@ export default defineConfig({
         description: 'Offline-first songbook and performance chart app for musicians.',
         theme_color: '#0f172a',
         background_color: '#0b1020',
-        display: 'standalone',
+        display: 'fullscreen',
         orientation: 'any',
         start_url: '/',
         icons: [
