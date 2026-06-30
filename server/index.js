@@ -286,6 +286,63 @@ app.get('/api/sync-status', async (_request, response) => {
   }
 });
 
+app.post('/api/sync/song', async (request, response) => {
+  const userId = typeof request.body?.userId === 'string' ? request.body.userId.trim() : '';
+  const song = request.body?.song && typeof request.body.song === 'object' ? request.body.song : null;
+  const songUuid = typeof song?.songUuid === 'string' ? song.songUuid.trim() : '';
+  const title = typeof song?.title === 'string' ? song.title.trim() : '';
+
+  if (!userId || !song || !songUuid || !title) {
+    response.status(400).json({
+      ok: false,
+      error: 'userId, song, song.songUuid, and song.title are required.'
+    });
+    return;
+  }
+
+  const revision = Number.isFinite(Number(song.version))
+    ? Math.max(1, Math.floor(Number(song.version)))
+    : Number.isFinite(Number(song.revision))
+      ? Math.max(1, Math.floor(Number(song.revision)))
+      : 1;
+
+  try {
+    const supabase = createSupabaseClient();
+    const { error } = await supabase
+      .from('user_songs')
+      .upsert(
+        {
+          user_id: userId,
+          song_uuid: songUuid,
+          song_json: song,
+          revision,
+          updated_at: new Date().toISOString()
+        },
+        {
+          onConflict: 'user_id,song_uuid'
+        }
+      );
+
+    if (error) throw error;
+
+    response.json({
+      ok: true,
+      songUuid,
+      revision
+    });
+  } catch (error) {
+    logSupabaseError('Song sync failed', error, {
+      userId,
+      songUuid,
+      title
+    });
+    response.status(500).json({
+      ok: false,
+      error: 'Song sync failed.'
+    });
+  }
+});
+
 app.post('/api/rooms/create', async (request, response) => {
   const displayName = typeof request.body?.displayName === 'string' ? request.body.displayName.trim() : '';
   const deviceId = typeof request.body?.deviceId === 'string' ? request.body.deviceId.trim() : '';

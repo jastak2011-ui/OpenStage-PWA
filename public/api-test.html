@@ -148,6 +148,7 @@
             <option value="test-anthropic">Test Anthropic</option>
             <option value="share-song">Share Song</option>
             <option value="create-room">Create Room</option>
+            <option value="backup-test-song">Backup Test Song</option>
           </select>
         </div>
 
@@ -174,6 +175,11 @@
   "displayName": "Al",
   "deviceId": "test-device-001"
 }</textarea>
+        </div>
+
+        <div id="backup-test-song-fields" hidden>
+          <label for="backup-song-json">Backup Test Song Request JSON</label>
+          <textarea id="backup-song-json"></textarea>
         </div>
 
         <div class="actions">
@@ -203,16 +209,19 @@
       const endpoints = {
         'test-anthropic': '/api/test-anthropic',
         'share-song': '/api/share-song',
-        'create-room': '/api/rooms/create'
+        'create-room': '/api/rooms/create',
+        'backup-test-song': '/api/sync/song'
       };
 
       const endpointSelect = document.getElementById('endpoint');
       const testAnthropicFields = document.getElementById('test-anthropic-fields');
       const shareSongFields = document.getElementById('share-song-fields');
       const createRoomFields = document.getElementById('create-room-fields');
+      const backupTestSongFields = document.getElementById('backup-test-song-fields');
       const promptBox = document.getElementById('prompt');
       const shareJsonBox = document.getElementById('share-json');
       const roomJsonBox = document.getElementById('room-json');
+      const backupSongJsonBox = document.getElementById('backup-song-json');
       const sendButton = document.getElementById('send');
       const copyButton = document.getElementById('copy-response');
       const statusBox = document.getElementById('status');
@@ -225,14 +234,44 @@
         return JSON.stringify(value, null, 2);
       }
 
+      function createId() {
+        if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+          return globalThis.crypto.randomUUID();
+        }
+        return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+      }
+
+      function buildDefaultBackupSongRequest() {
+        return {
+          userId: 'local-test-user',
+          song: {
+            songUuid: createId(),
+            version: 1,
+            title: 'Cloud Backup Test Song',
+            artist: 'OpenStage',
+            chart: 'Intro:\nC G Am F\n\nVerse:\nThis is a cloud backup test song.'
+          }
+        };
+      }
+
+      backupSongJsonBox.value = pretty(buildDefaultBackupSongRequest());
+
       function buildRequest() {
         const selected = endpointSelect.value;
         const path = endpoints[selected];
         const url = `${backendBaseUrl}${path}`;
 
-        if (selected === 'share-song' || selected === 'create-room') {
-          const editor = selected === 'share-song' ? shareJsonBox : roomJsonBox;
-          const label = selected === 'share-song' ? 'Share Song' : 'Create Room';
+        if (selected === 'share-song' || selected === 'create-room' || selected === 'backup-test-song') {
+          const editor = selected === 'share-song'
+            ? shareJsonBox
+            : selected === 'create-room'
+              ? roomJsonBox
+              : backupSongJsonBox;
+          const label = selected === 'share-song'
+            ? 'Share Song'
+            : selected === 'create-room'
+              ? 'Create Room'
+              : 'Backup Test Song';
           let body;
           try {
             body = JSON.parse(editor.value);
@@ -262,9 +301,11 @@
       function updateVisibleFields() {
         const isShareSong = endpointSelect.value === 'share-song';
         const isCreateRoom = endpointSelect.value === 'create-room';
-        testAnthropicFields.hidden = isShareSong || isCreateRoom;
+        const isBackupTestSong = endpointSelect.value === 'backup-test-song';
+        testAnthropicFields.hidden = isShareSong || isCreateRoom || isBackupTestSong;
         shareSongFields.hidden = !isShareSong;
         createRoomFields.hidden = !isCreateRoom;
+        backupTestSongFields.hidden = !isBackupTestSong;
         const request = buildRequest();
         requestUrlBox.textContent = request.displayUrl;
         requestJsonBox.textContent = pretty(request.body);
@@ -362,7 +403,7 @@
       });
 
       endpointSelect.addEventListener('change', updateVisibleFields);
-      [promptBox, shareJsonBox, roomJsonBox].forEach((input) => {
+      [promptBox, shareJsonBox, roomJsonBox, backupSongJsonBox].forEach((input) => {
         input.addEventListener('input', () => {
           const request = buildRequest();
           requestUrlBox.textContent = request.displayUrl;
