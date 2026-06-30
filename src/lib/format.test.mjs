@@ -17,7 +17,8 @@ import {
   chordOverTextToAnchoredLine,
   chordTokensToAnchoredLine,
   convertInlineChordLine,
-  inlineChordsToChordOverLyrics
+  inlineChordsToChordOverLyrics,
+  nearestLyricAnchorIndex
 } from './chordLayout-test-target.mjs';
 import { parseChordPro } from './chordpro-test-target.mjs';
 import { harmonyTextRuns, isRangeInsideHarmonyMarkup, lyricHarmonyRenderModel, lyricHarmonyRenderModelFromParsed, markHarmonyRange, parseHarmonyText, removeHarmonyRange, stripHarmonyMarkup } from './harmony-test-target.mjs';
@@ -476,6 +477,17 @@ assert.deepEqual(longInlineLine.anchors, [{ chord: 'G', index: 0 }, { chord: 'Ca
 const longChordOverLine = chordOverTextToAnchoredLine('G                                   Cadd9', longWrappingLyric);
 assert.equal(longChordOverLine.lyricLine, longWrappingLyric);
 assert.equal(longChordOverLine.anchors.length, 2);
+
+const twilightLyric = "So you'll come to know    when the bullet hits the bone";
+const twilightChordLine = `${' '.repeat(twilightLyric.indexOf('come'))}G${' '.repeat(Math.max(1, twilightLyric.indexOf('when') - twilightLyric.indexOf('come') - 1))}Em${' '.repeat(twilightLyric.length)}Bm`;
+const twilightAnchored = chordOverTextToAnchoredLine(twilightChordLine, twilightLyric);
+assert.deepEqual(twilightAnchored.anchors, [
+  { chord: 'G', index: twilightLyric.indexOf('come') },
+  { chord: 'Em', index: twilightLyric.indexOf('when') },
+  { chord: 'Bm', index: twilightLyric.indexOf('bone') }
+]);
+assert.equal(nearestLyricAnchorIndex(twilightLyric, twilightLyric.indexOf('when') - 2), twilightLyric.indexOf('when'));
+assert.equal(nearestLyricAnchorIndex(twilightLyric, twilightLyric.length + 8), twilightLyric.indexOf('bone'));
 
 const displayState = {
   activeProfile: 'desktop',

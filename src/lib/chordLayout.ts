@@ -96,7 +96,7 @@ export function chordOverTextToAnchoredLine(chordLine: string, lyricLine: string
     .filter((match) => isChordAnchorToken(match[0]))
     .map((match) => ({
       chord: match[0],
-      index: match.index ?? 0
+      index: nearestLyricAnchorIndex(parsedLyric.text, match.index ?? 0)
     }));
 
   return {
@@ -104,6 +104,36 @@ export function chordOverTextToAnchoredLine(chordLine: string, lyricLine: string
     anchors,
     harmonyRanges: parsedLyric.ranges
   };
+}
+
+export function nearestLyricAnchorIndex(lyricLine: string, index: number) {
+  if (!lyricLine) return 0;
+  if (index >= lyricLine.length) return finalLyricWordStart(lyricLine);
+  const bounded = Math.max(0, Math.min(index, lyricLine.length - 1));
+  if (!/\s/.test(lyricLine[bounded])) return bounded;
+
+  for (let next = bounded; next < lyricLine.length; next += 1) {
+    if (!/\s/.test(lyricLine[next])) return next;
+  }
+
+  for (let previous = lyricLine.length - 1; previous >= 0; previous -= 1) {
+    if (!/\s/.test(lyricLine[previous])) {
+      while (previous > 0 && !/\s/.test(lyricLine[previous - 1])) previous -= 1;
+      return previous;
+    }
+  }
+
+  return 0;
+}
+
+function finalLyricWordStart(lyricLine: string) {
+  for (let previous = lyricLine.length - 1; previous >= 0; previous -= 1) {
+    if (!/\s/.test(lyricLine[previous])) {
+      while (previous > 0 && !/\s/.test(lyricLine[previous - 1])) previous -= 1;
+      return previous;
+    }
+  }
+  return 0;
 }
 
 function isChordAnchorToken(value: string) {
