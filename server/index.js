@@ -264,6 +264,28 @@ app.get('/api/room-status', async (_request, response) => {
   }
 });
 
+app.get('/api/sync-status', async (_request, response) => {
+  try {
+    const supabase = createSupabaseClient();
+    const [songs, setlists] = await Promise.all([
+      getTableCount(supabase, 'user_songs'),
+      getTableCount(supabase, 'user_setlists')
+    ]);
+
+    response.json({
+      ok: true,
+      songs,
+      setlists
+    });
+  } catch (error) {
+    logSupabaseError('Cloud sync status check failed', error);
+    response.status(500).json({
+      ok: false,
+      error: 'Cloud sync status check failed.'
+    });
+  }
+});
+
 app.post('/api/rooms/create', async (request, response) => {
   const displayName = typeof request.body?.displayName === 'string' ? request.body.displayName.trim() : '';
   const deviceId = typeof request.body?.deviceId === 'string' ? request.body.deviceId.trim() : '';
