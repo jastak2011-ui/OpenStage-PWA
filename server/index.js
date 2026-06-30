@@ -13,6 +13,7 @@ const roomTtlMs = 12 * 60 * 60 * 1000;
 const roomCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const shareCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const openStageFrontendBaseUrl = 'https://openstage-pwa.onrender.com';
+const cloudBackupTestUserId = '00000000-0000-0000-0000-000000000001';
 
 const allowedOrigins = new Set([
   'https://openstage-pwa.onrender.com',
@@ -286,6 +287,58 @@ app.get('/api/sync-status', async (_request, response) => {
   }
 });
 
+app.get('/api/sync/library', async (_request, response) => {
+  try {
+    const supabase = createSupabaseClient();
+    const [songResult, setlistResult] = await Promise.all([
+      supabase
+        .from('user_songs')
+        .select('song_uuid, song_json, revision, updated_at')
+        .eq('user_id', cloudBackupTestUserId),
+      supabase
+        .from('user_setlists')
+        .select('setlist_uuid, setlist_json, updated_at')
+        .eq('user_id', cloudBackupTestUserId)
+    ]);
+
+    if (songResult.error) throw songResult.error;
+    if (setlistResult.error) throw setlistResult.error;
+
+    const songs = (songResult.data || [])
+      .map((row) => ({
+        songUuid: row.song_uuid,
+        title: typeof row.song_json?.title === 'string' ? row.song_json.title : '',
+        revision: Number.isFinite(Number(row.revision)) ? Number(row.revision) : 1,
+        updatedAt: row.updated_at
+      }))
+      .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+
+    const setlists = (setlistResult.data || [])
+      .map((row) => ({
+        setlistUuid: row.setlist_uuid,
+        name: typeof row.setlist_json?.name === 'string'
+          ? row.setlist_json.name
+          : typeof row.setlist_json?.title === 'string'
+            ? row.setlist_json.title
+            : '',
+        updatedAt: row.updated_at
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+    response.json({
+      ok: true,
+      songs,
+      setlists
+    });
+  } catch (error) {
+    logSupabaseError('Cloud library verification failed', error);
+    response.status(500).json({
+      ok: false,
+      error: 'Cloud library verification failed.'
+    });
+  }
+});
+
 app.post('/api/sync/song', async (request, response) => {
   const userId = typeof request.body?.userId === 'string' ? request.body.userId.trim() : '';
   const song = request.body?.song && typeof request.body.song === 'object' ? request.body.song : null;
@@ -339,6 +392,60 @@ app.post('/api/sync/song', async (request, response) => {
     response.status(500).json({
       ok: false,
       error: 'Song sync failed.'
+    });
+  }
+});
+
+app.post('/api/sync/setlist', async (request, response) => {
+  const userId = typeof request.body?.userId === 'string' ? request.body.userId.trim() : '';
+  const setlist = request.body?.setlist && typeof request.body.setlist === 'object' ? request.body.setlist : null;
+  const setlistUuid = typeof setlist?.setlistUuid === 'string' ? setlist.setlistUuid.trim() : '';
+  const name = typeof setlist?.name === 'string' && setlist.name.trim()
+    ? setlist.name.trim()
+    : typeof setlist?.title === 'string'
+      ? setlist.title.trim()
+      : '';
+
+  if (!userId || !setlist || !setlistUuid || !name) {
+    response.status(400).json({
+      ok: false,
+      error: 'userId, setlist, setlist.setlistUuid, and setlist.name or setlist.title are required.'
+    });
+    return;
+  }
+
+  try {
+    const supabase = createSupabaseClient();
+    const { error } = await supabase
+      .from('user_setlists')
+      .upsert(
+        {
+          user_id: userId,
+          setlist_uuid: setlistUuid,
+          setlist_json: setlist,
+          updated_at: new Date().toISOString()
+        },
+        {
+          onConflict: 'user_id,setlist_uuid'
+        }
+      );
+
+    if (error) throw error;
+
+    response.json({
+      ok: true,
+      setlistUuid,
+      name
+    });
+  } catch (error) {
+    logSupabaseError('Setlist sync failed', error, {
+      userId,
+      setlistUuid,
+      name
+    });
+    response.status(500).json({
+      ok: false,
+      error: 'Setlist sync failed.'
     });
   }
 });

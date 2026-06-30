@@ -1,11 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
 import type { Song } from '../types';
+import { supabase } from '../cloud/config';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-export const supabase =
-  supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+export { supabase };
 
 export async function signInWithEmail(email: string) {
   if (!supabase) {

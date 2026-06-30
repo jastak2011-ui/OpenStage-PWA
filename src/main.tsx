@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App';
 import './styles.css';
+import { CloudProvider } from './cloud/cloud';
 import { installGlobalErrorHandlers } from './services/errors/errorService';
 import { getStartupDiagnostics, markStartupError, shouldShowStartupDebug } from './services/startupDiagnostics';
 import { fallbackCastState, fetchStaticCastState, loadLocalCastState, normalizeCastState } from './services/castState';
@@ -195,11 +196,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       {isCastReceiverRoute ? (
         <CastReceiverTestPage />
       ) : (
-        <>
+        <CloudProvider>
           <MountMarker />
           <App />
           <StartupDebugPanel appStarted />
-        </>
+        </CloudProvider>
       )}
     </ErrorBoundary>
   </React.StrictMode>

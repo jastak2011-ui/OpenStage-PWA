@@ -333,6 +333,7 @@ export const defaultPerformanceState: PerformanceState = {
   activeProfile: 'desktop',
   stageTheme: 'standard-dark',
   showAutoscrollDebug: false,
+  lastBackupTime: '',
   tempoStopAfter10Sec: false,
   tempoStopAfter10SecByProfile: {
     desktop: false,

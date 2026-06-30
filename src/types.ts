@@ -282,6 +282,7 @@ export type PerformanceState = {
   activeProfile: DeviceProfile;
   stageTheme: StageThemeName;
   showAutoscrollDebug: boolean;
+  lastBackupTime?: string;
   tempoStopAfter10Sec: boolean;
   tempoStopAfter10SecByProfile: Partial<Record<DeviceProfile, boolean>>;
   castReceiverEnabled: boolean;

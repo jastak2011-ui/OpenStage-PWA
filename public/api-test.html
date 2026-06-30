@@ -149,6 +149,7 @@
             <option value="share-song">Share Song</option>
             <option value="create-room">Create Room</option>
             <option value="backup-test-song">Backup Test Song</option>
+            <option value="cloud-library">Cloud Library</option>
           </select>
         </div>
 
@@ -182,6 +183,10 @@
           <textarea id="backup-song-json"></textarea>
         </div>
 
+        <div id="cloud-library-fields" hidden>
+          <p class="hint">Reads the temporary test user's backed-up songs and setlists from Supabase.</p>
+        </div>
+
         <div class="actions">
           <button id="send" type="button">Send Request</button>
           <button id="copy-response" class="secondary" type="button">Copy Response</button>
@@ -190,6 +195,22 @@
       </section>
 
       <section class="panel">
+        <div id="cloud-library-summary" hidden>
+          <h2>Cloud Library</h2>
+          <p>Total Songs: <strong id="cloud-song-total">0</strong></p>
+          <p>Total Setlists: <strong id="cloud-setlist-total">0</strong></p>
+          <div class="grid">
+            <div>
+              <label for="cloud-song-list">Song list</label>
+              <pre id="cloud-song-list">Waiting...</pre>
+            </div>
+            <div>
+              <label for="cloud-setlist-list">Setlist list</label>
+              <pre id="cloud-setlist-list">Waiting...</pre>
+            </div>
+          </div>
+        </div>
+
         <label for="request-url">Request URL</label>
         <pre id="request-url">Waiting...</pre>
 
@@ -210,7 +231,8 @@
         'test-anthropic': '/api/test-anthropic',
         'share-song': '/api/share-song',
         'create-room': '/api/rooms/create',
-        'backup-test-song': '/api/sync/song'
+        'backup-test-song': '/api/sync/song',
+        'cloud-library': '/api/sync/library'
       };
 
       const endpointSelect = document.getElementById('endpoint');
@@ -218,10 +240,16 @@
       const shareSongFields = document.getElementById('share-song-fields');
       const createRoomFields = document.getElementById('create-room-fields');
       const backupTestSongFields = document.getElementById('backup-test-song-fields');
+      const cloudLibraryFields = document.getElementById('cloud-library-fields');
       const promptBox = document.getElementById('prompt');
       const shareJsonBox = document.getElementById('share-json');
       const roomJsonBox = document.getElementById('room-json');
       const backupSongJsonBox = document.getElementById('backup-song-json');
+      const cloudLibrarySummary = document.getElementById('cloud-library-summary');
+      const cloudSongTotal = document.getElementById('cloud-song-total');
+      const cloudSetlistTotal = document.getElementById('cloud-setlist-total');
+      const cloudSongList = document.getElementById('cloud-song-list');
+      const cloudSetlistList = document.getElementById('cloud-setlist-list');
       const sendButton = document.getElementById('send');
       const copyButton = document.getElementById('copy-response');
       const statusBox = document.getElementById('status');
@@ -241,9 +269,13 @@
         return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
       }
 
+      function currentCloudUserId() {
+        return '00000000-0000-0000-0000-000000000001';
+      }
+
       function buildDefaultBackupSongRequest() {
         return {
-          userId: '00000000-0000-0000-0000-000000000001',
+          userId: currentCloudUserId(),
           song: {
             songUuid: createId(),
             version: 1,
@@ -260,6 +292,15 @@
         const selected = endpointSelect.value;
         const path = endpoints[selected];
         const url = `${backendBaseUrl}${path}`;
+
+        if (selected === 'cloud-library') {
+          return {
+            url,
+            displayUrl: `GET ${url}`,
+            method: 'GET',
+            body: null
+          };
+        }
 
         if (selected === 'share-song' || selected === 'create-room' || selected === 'backup-test-song') {
           const editor = selected === 'share-song'
@@ -284,6 +325,7 @@
           return {
             url,
             displayUrl: `POST ${url}`,
+            method: 'POST',
             body,
             rawBody: editor.value
           };
@@ -292,6 +334,7 @@
         return {
           url,
           displayUrl: `POST ${url}`,
+          method: 'POST',
           body: {
             prompt: promptBox.value
           }
@@ -302,15 +345,22 @@
         const isShareSong = endpointSelect.value === 'share-song';
         const isCreateRoom = endpointSelect.value === 'create-room';
         const isBackupTestSong = endpointSelect.value === 'backup-test-song';
-        testAnthropicFields.hidden = isShareSong || isCreateRoom || isBackupTestSong;
+        const isCloudLibrary = endpointSelect.value === 'cloud-library';
+        testAnthropicFields.hidden = isShareSong || isCreateRoom || isBackupTestSong || isCloudLibrary;
         shareSongFields.hidden = !isShareSong;
         createRoomFields.hidden = !isCreateRoom;
         backupTestSongFields.hidden = !isBackupTestSong;
+        cloudLibraryFields.hidden = !isCloudLibrary;
+        cloudLibrarySummary.hidden = !isCloudLibrary;
         const request = buildRequest();
         requestUrlBox.textContent = request.displayUrl;
-        requestJsonBox.textContent = pretty(request.body);
+        requestJsonBox.textContent = request.body ? pretty(request.body) : 'No request body';
         httpStatusBox.textContent = 'Waiting...';
         responseJsonBox.textContent = 'Waiting...';
+        cloudSongTotal.textContent = '0';
+        cloudSetlistTotal.textContent = '0';
+        cloudSongList.textContent = 'Waiting...';
+        cloudSetlistList.textContent = 'Waiting...';
         statusBox.textContent = '';
       }
 
@@ -346,18 +396,21 @@
         sendButton.disabled = true;
         statusBox.textContent = 'Sending request...';
         requestUrlBox.textContent = request.displayUrl;
-        requestJsonBox.textContent = pretty(request.body);
+        requestJsonBox.textContent = request.body ? pretty(request.body) : 'No request body';
         httpStatusBox.textContent = 'Pending...';
         responseJsonBox.textContent = 'Pending...';
 
         try {
-          const response = await fetch(request.url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: request.rawBody || JSON.stringify(request.body)
-          });
+          const fetchOptions = request.method === 'GET'
+            ? { method: 'GET' }
+            : {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: request.rawBody || JSON.stringify(request.body)
+            };
+          const response = await fetch(request.url, fetchOptions);
           const body = await parseResponse(response);
           const result = {
             ok: response.ok,
@@ -374,6 +427,15 @@
 
           if (body && typeof body === 'object' && body.ok === false && body.error) {
             result.backendError = body.error;
+          }
+
+          if (endpointSelect.value === 'cloud-library' && body && typeof body === 'object' && body.ok) {
+            const songs = Array.isArray(body.songs) ? body.songs : [];
+            const setlists = Array.isArray(body.setlists) ? body.setlists : [];
+            cloudSongTotal.textContent = String(songs.length);
+            cloudSetlistTotal.textContent = String(setlists.length);
+            cloudSongList.textContent = songs.map((song) => `${song.title || '(Untitled)'} | ${song.songUuid || '-'} | rev ${song.revision || 1} | ${song.updatedAt || '-'}`).join('\n') || 'No songs found.';
+            cloudSetlistList.textContent = setlists.map((setlist) => `${setlist.name || '(Untitled)'} | ${setlist.setlistUuid || '-'} | ${setlist.updatedAt || '-'}`).join('\n') || 'No setlists found.';
           }
 
           httpStatusBox.textContent = `${response.status} ${response.statusText || ''}`.trim();
@@ -407,7 +469,7 @@
         input.addEventListener('input', () => {
           const request = buildRequest();
           requestUrlBox.textContent = request.displayUrl;
-          requestJsonBox.textContent = pretty(request.body);
+          requestJsonBox.textContent = request.body ? pretty(request.body) : 'No request body';
         });
       });
 
