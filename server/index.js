@@ -287,18 +287,22 @@ app.get('/api/sync-status', async (_request, response) => {
   }
 });
 
-app.get('/api/sync/library', async (_request, response) => {
+app.get('/api/sync/library', async (request, response) => {
+  const requestedUserId = typeof request.query?.userId === 'string' ? request.query.userId.trim() : '';
+  const userId = requestedUserId || cloudBackupTestUserId;
+  const includeFull = request.query?.includeFull === 'true';
+
   try {
     const supabase = createSupabaseClient();
     const [songResult, setlistResult] = await Promise.all([
       supabase
         .from('user_songs')
         .select('song_uuid, song_json, revision, updated_at')
-        .eq('user_id', cloudBackupTestUserId),
+        .eq('user_id', userId),
       supabase
         .from('user_setlists')
         .select('setlist_uuid, setlist_json, updated_at')
-        .eq('user_id', cloudBackupTestUserId)
+        .eq('user_id', userId)
     ]);
 
     if (songResult.error) throw songResult.error;
@@ -309,7 +313,8 @@ app.get('/api/sync/library', async (_request, response) => {
         songUuid: row.song_uuid,
         title: typeof row.song_json?.title === 'string' ? row.song_json.title : '',
         revision: Number.isFinite(Number(row.revision)) ? Number(row.revision) : 1,
-        updatedAt: row.updated_at
+        updatedAt: row.updated_at,
+        ...(includeFull ? { song: row.song_json } : {})
       }))
       .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
 
@@ -321,7 +326,8 @@ app.get('/api/sync/library', async (_request, response) => {
           : typeof row.setlist_json?.title === 'string'
             ? row.setlist_json.title
             : '',
-        updatedAt: row.updated_at
+        updatedAt: row.updated_at,
+        ...(includeFull ? { setlist: row.setlist_json } : {})
       }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 

@@ -283,6 +283,7 @@ export type PerformanceState = {
   stageTheme: StageThemeName;
   showAutoscrollDebug: boolean;
   lastBackupTime?: string;
+  lastRestoreTime?: string;
   tempoStopAfter10Sec: boolean;
   tempoStopAfter10SecByProfile: Partial<Record<DeviceProfile, boolean>>;
   castReceiverEnabled: boolean;

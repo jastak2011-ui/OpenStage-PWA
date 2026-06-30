@@ -334,6 +334,7 @@ export const defaultPerformanceState: PerformanceState = {
   stageTheme: 'standard-dark',
   showAutoscrollDebug: false,
   lastBackupTime: '',
+  lastRestoreTime: '',
   tempoStopAfter10Sec: false,
   tempoStopAfter10SecByProfile: {
     desktop: false,

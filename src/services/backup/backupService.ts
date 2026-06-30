@@ -1,4 +1,4 @@
-import { db } from '../../data/db';
+import { db, type RestorePoint } from '../../data/db';
 import { markStartupError } from '../../services/startupDiagnostics';
 import type { PerformanceState, SavedSetlist, SetlistItem, Song } from '../../types';
 
@@ -12,6 +12,9 @@ export type PortableBackup = {
   performanceState: PerformanceState;
 };
 
+const restorePointId = 'restorePoint';
+const restorePointTtlMs = 7 * 24 * 60 * 60 * 1000;
+
 export async function createPortableBackup(performanceState: PerformanceState, checkpointName = 'manual') {
   const [songs, setlist, setlists] = await Promise.all([db.songs.toArray(), db.setlist.toArray(), db.setlists.toArray()]);
   return {
@@ -23,6 +26,48 @@ export async function createPortableBackup(performanceState: PerformanceState, c
     setlists,
     performanceState
   } satisfies PortableBackup;
+}
+
+export async function createRestorePoint(performanceState: PerformanceState) {
+  const [songs, setlist, setlists] = await Promise.all([db.songs.toArray(), db.setlist.toArray(), db.setlists.toArray()]);
+  const timestamp = new Date().toISOString();
+  const restorePoint: RestorePoint = {
+    id: restorePointId,
+    songs,
+    setlist,
+    setlists,
+    settings: performanceState,
+    timestamp,
+    expiresAt: new Date(Date.now() + restorePointTtlMs).toISOString()
+  };
+
+  await db.restorePoints.put(restorePoint);
+  return restorePoint;
+}
+
+export async function loadRestorePoint() {
+  const restorePoint = await db.restorePoints.get(restorePointId);
+  if (!restorePoint) return null;
+  if (new Date(restorePoint.expiresAt).getTime() <= Date.now()) {
+    await db.restorePoints.delete(restorePointId);
+    return null;
+  }
+  return restorePoint;
+}
+
+export async function restoreFromRestorePoint(restorePoint: RestorePoint) {
+  await db.transaction('rw', db.songs, db.setlist, db.setlists, async () => {
+    await db.songs.clear();
+    await db.setlist.clear();
+    await db.setlists.clear();
+    await db.songs.bulkPut(restorePoint.songs ?? []);
+    await db.setlist.bulkPut(restorePoint.setlist ?? []);
+    await db.setlists.bulkPut(restorePoint.setlists ?? []);
+  });
+}
+
+export async function pruneExpiredRestorePoint() {
+  await loadRestorePoint();
 }
 
 export async function restorePortableBackup(backup: PortableBackup) {

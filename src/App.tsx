@@ -207,7 +207,15 @@ import {
 } from './lib/displaySettings';
 import { isRangeInsideHarmonyMarkup, markHarmonyRange, removeHarmonyRange, type HarmonyRange } from './lib/harmony';
 import { isOnSongArchiveFileName, parseOnSongArchive } from './lib/onsongArchive';
-import { createPortableBackup, restorePortableBackup, saveLocalCheckpoint } from './services/backup/backupService';
+import {
+  createPortableBackup,
+  createRestorePoint,
+  loadRestorePoint,
+  pruneExpiredRestorePoint,
+  restoreFromRestorePoint,
+  restorePortableBackup,
+  saveLocalCheckpoint
+} from './services/backup/backupService';
 import { reportError } from './services/errors/errorService';
 import {
   applyEnrichment,
@@ -322,6 +330,11 @@ type CloudBackupProgress = {
   failed: CloudBackupFailure[];
   startedAt?: number;
   completedSeconds?: number;
+};
+
+type CloudRestoreResult = {
+  songCount: number;
+  setlistCount: number;
 };
 
 type ReceiverScrollMetrics = {
@@ -1117,6 +1130,10 @@ export default function App() {
     runBackup();
     return () => window.clearInterval(timer);
   }, [performanceState]);
+
+  useEffect(() => {
+    void pruneExpiredRestorePoint().catch((error) => reportError('Restore point cleanup failed', error));
+  }, []);
 
   useEffect(() => {
     if (songs.length === 0 || selectedSongId) return;
@@ -2334,6 +2351,87 @@ export default function App() {
     updatePerformanceState({ lastBackupTime: completedAt });
   }
 
+  async function restoreLibraryFromCloud(userId: string): Promise<CloudRestoreResult> {
+    if (!userId) throw new Error('Sign in to restore your cloud library.');
+    let restorePoint: Awaited<ReturnType<typeof createRestorePoint>> | null = null;
+
+    try {
+      const response = await fetch(`${openStageApiBaseUrl}/api/sync/library?userId=${encodeURIComponent(userId)}&includeFull=true`);
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok || !body?.ok) {
+        throw new Error(body?.error || `Cloud library restore failed with HTTP ${response.status}`);
+      }
+
+      if (!Array.isArray(body.songs) || !Array.isArray(body.setlists)) {
+        throw new Error('Cloud library response is invalid.');
+      }
+
+      const downloadedSongCount = body.songs.length;
+      const downloadedSetlistCount = body.setlists.length;
+      const cloudSongs = body.songs.map((item: { song?: unknown }, index: number) => {
+        const song = item?.song;
+        if (!song || typeof song !== 'object' || typeof (song as Song).id !== 'string') {
+          throw new Error(`Cloud song ${index + 1} is invalid.`);
+        }
+        return withSongDefaults(song as Song);
+      });
+      const cloudSetlists = body.setlists.map((item: { setlist?: unknown }, index: number) => {
+        const setlist = item?.setlist;
+        if (!setlist || typeof setlist !== 'object' || typeof (setlist as SavedSetlist).id !== 'string' || !Array.isArray((setlist as SavedSetlist).songIds)) {
+          throw new Error(`Cloud setlist ${index + 1} is invalid.`);
+        }
+        return setlist as SavedSetlist;
+      });
+
+      if (cloudSongs.length !== downloadedSongCount || cloudSetlists.length !== downloadedSetlistCount) {
+        throw new Error('Cloud library restore count validation failed before import.');
+      }
+
+      restorePoint = await createRestorePoint(performanceState);
+
+      await db.transaction('rw', db.songs, db.setlist, db.setlists, async () => {
+        await db.songs.clear();
+        await db.setlist.clear();
+        await db.setlists.clear();
+        await db.songs.bulkPut(cloudSongs);
+        await db.setlists.bulkPut(cloudSetlists);
+      });
+
+      const [insertedSongCount, insertedSetlistCount] = await Promise.all([
+        db.songs.count(),
+        db.setlists.count()
+      ]);
+
+      if (insertedSongCount !== downloadedSongCount || insertedSetlistCount !== downloadedSetlistCount) {
+        throw new Error(`Restore count mismatch. Downloaded ${downloadedSongCount} songs and ${downloadedSetlistCount} setlists, inserted ${insertedSongCount} songs and ${insertedSetlistCount} setlists.`);
+      }
+
+      updateStorePerformance({ lastRestoreTime: new Date().toISOString() });
+      await loadData();
+      return {
+        songCount: insertedSongCount,
+        setlistCount: insertedSetlistCount
+      };
+    } catch (error) {
+      reportError('Cloud restore failed; restoring local restore point', error);
+      if (restorePoint) {
+        await restoreFromRestorePoint(restorePoint);
+        updateStorePerformance(restorePoint.settings);
+        await loadData();
+      }
+      throw error;
+    }
+  }
+
+  async function undoLastRestore() {
+    const restorePoint = await loadRestorePoint();
+    if (!restorePoint) throw new Error('No restore point is available.');
+    await restoreFromRestorePoint(restorePoint);
+    updateStorePerformance({ ...restorePoint.settings, lastRestoreTime: new Date().toISOString() });
+    await loadData();
+  }
+
   async function importChordProCandidates(candidates: ImportCandidate[], strategy: DuplicateStrategy) {
     const existingByFingerprint = new Map<string, Song>();
     songs.forEach((song) => {
@@ -2824,6 +2922,8 @@ export default function App() {
           onSyncNow={syncNow}
           onBackupLibrary={() => backupLibraryToCloud(cloud.user?.id ?? '', false)}
           onRetryFailedBackup={() => backupLibraryToCloud(cloud.user?.id ?? '', true)}
+          onRestoreLibrary={(userId) => restoreLibraryFromCloud(userId)}
+          onUndoLastRestore={undoLastRestore}
           cloudBackupProgress={cloudBackupProgress}
           onPedals={() => setActiveMode('pedals')}
           onImport={() => setActiveMode('import')}
@@ -5451,6 +5551,8 @@ function SettingsView({
   onSyncNow,
   onBackupLibrary,
   onRetryFailedBackup,
+  onRestoreLibrary,
+  onUndoLastRestore,
   cloudBackupProgress,
   onPedals,
   onImport,
@@ -5466,6 +5568,8 @@ function SettingsView({
   onSyncNow: () => void;
   onBackupLibrary: () => void;
   onRetryFailedBackup: () => void;
+  onRestoreLibrary: (userId: string) => Promise<CloudRestoreResult>;
+  onUndoLastRestore: () => Promise<void>;
   cloudBackupProgress: CloudBackupProgress;
   onPedals: () => void;
   onImport: () => void;
@@ -5520,6 +5624,8 @@ function SettingsView({
           progress={cloudBackupProgress}
           onBackupLibrary={onBackupLibrary}
           onRetryFailedBackup={onRetryFailedBackup}
+          onRestoreLibrary={onRestoreLibrary}
+          onUndoLastRestore={onUndoLastRestore}
         />
         <SettingsCard title="Sync Foundation">
           <p className="text-sm text-slate-600">Automatic sync and restore are not enabled yet. Manual Cloud Backup is available above.</p>
@@ -5585,16 +5691,26 @@ function cloudAuthErrorMessage(error: unknown) {
   return message || 'OpenStage Cloud authentication failed.';
 }
 
+type CloudLibraryPreview = {
+  songs: Array<{ songUuid: string; title: string; revision: number; updatedAt: string; song?: Song }>;
+  setlists: Array<{ setlistUuid: string; name: string; updatedAt: string; setlist?: SavedSetlist }>;
+  lastBackup: string;
+};
+
 function OpenStageCloudSettingsCard({
   state,
   progress,
   onBackupLibrary,
-  onRetryFailedBackup
+  onRetryFailedBackup,
+  onRestoreLibrary,
+  onUndoLastRestore
 }: {
   state: PerformanceState;
   progress: CloudBackupProgress;
   onBackupLibrary: () => void;
   onRetryFailedBackup: () => void;
+  onRestoreLibrary: (userId: string) => Promise<CloudRestoreResult>;
+  onUndoLastRestore: () => Promise<void>;
 }) {
   const cloud = useCloud();
   const [message, setMessage] = useState('');
@@ -5603,6 +5719,11 @@ function OpenStageCloudSettingsCard({
   const [password, setPassword] = useState('');
   const [emailError, setEmailError] = useState('');
   const [emailSubmitting, setEmailSubmitting] = useState(false);
+  const [restorePreview, setRestorePreview] = useState<CloudLibraryPreview | null>(null);
+  const [restoreStep, setRestoreStep] = useState<'preview' | 'confirm'>('preview');
+  const [restoreLoading, setRestoreLoading] = useState(false);
+  const [restoreSubmitting, setRestoreSubmitting] = useState(false);
+  const [restoreError, setRestoreError] = useState('');
   const isRunning = progress.phase === 'songs' || progress.phase === 'setlists';
   const failedSongs = progress.failed.filter((failure) => failure.type === 'song').length;
   const failedSetlists = progress.failed.filter((failure) => failure.type === 'setlist').length;
@@ -5642,6 +5763,75 @@ function OpenStageCloudSettingsCard({
     }
   }
 
+  async function openRestorePreview() {
+    if (!cloud.user?.id) return;
+
+    setRestoreLoading(true);
+    setRestoreError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${openStageApiBaseUrl}/api/sync/library?userId=${encodeURIComponent(cloud.user.id)}`);
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok || !body?.ok) {
+        throw new Error(body?.error || `Cloud library preview failed with HTTP ${response.status}`);
+      }
+
+      const songs = Array.isArray(body.songs) ? body.songs : [];
+      const setlists = Array.isArray(body.setlists) ? body.setlists : [];
+      const latestUpdatedAt = [...songs, ...setlists]
+        .map((item) => typeof item.updatedAt === 'string' ? item.updatedAt : '')
+        .filter(Boolean)
+        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || '';
+
+      setRestorePreview({
+        songs,
+        setlists,
+        lastBackup: latestUpdatedAt
+      });
+      setRestoreStep('preview');
+    } catch (error) {
+      reportError('Cloud restore preview failed', error);
+      setRestoreError(error instanceof Error ? error.message : 'Could not load cloud backup preview.');
+    } finally {
+      setRestoreLoading(false);
+    }
+  }
+
+  function closeRestorePreview() {
+    setRestorePreview(null);
+    setRestoreStep('preview');
+    setRestoreError('');
+    setRestoreSubmitting(false);
+  }
+
+  async function confirmRestoreLibrary() {
+    if (!cloud.user?.id) return;
+    setRestoreSubmitting(true);
+    setRestoreError('');
+    try {
+      const result = await onRestoreLibrary(cloud.user.id);
+      setMessage(`Restore Complete\n${result.songCount} Songs\n${result.setlistCount} Setlists\nRestore completed successfully.`);
+      closeRestorePreview();
+    } catch (error) {
+      setRestoreError('Restore failed.\nYour previous library has been restored.');
+    } finally {
+      setRestoreSubmitting(false);
+    }
+  }
+
+  async function undoLastRestore() {
+    setRestoreError('');
+    setMessage('');
+    try {
+      await onUndoLastRestore();
+      setMessage('Undo restore complete.');
+    } catch (error) {
+      reportError('Undo last restore failed', error);
+      setRestoreError(error instanceof Error ? error.message : 'Undo restore failed.');
+    }
+  }
+
   return (
     <SettingsCard title="☁ OpenStage Cloud">
       <div className="grid gap-3 text-sm text-slate-700">
@@ -5665,7 +5855,7 @@ function OpenStageCloudSettingsCard({
               <Cloud size={18} />
               Backup My Library
             </button>
-            <button className="secondary-button" type="button" disabled>
+            <button className="secondary-button" type="button" disabled={restoreLoading} onClick={() => void openRestorePreview()}>
               Restore Library
             </button>
           </div>
@@ -5690,6 +5880,13 @@ function OpenStageCloudSettingsCard({
             <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
               <div className="text-xs font-semibold uppercase text-slate-500">Last Backup</div>
               <div className="mt-1 text-base font-semibold text-slate-900">{formatLastBackupTime(state.lastBackupTime)}</div>
+            </div>
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-semibold uppercase text-slate-500">Last Restore</div>
+              <div className="mt-1 text-base font-semibold text-slate-900">{formatLastBackupTime(state.lastRestoreTime)}</div>
+              <button className="secondary-button mt-3 w-fit" type="button" onClick={() => void undoLastRestore()}>
+                Undo Last Restore
+              </button>
             </div>
             {isRunning && (
               <div className="rounded-md border border-teal-200 bg-teal-50 p-3 text-teal-900">
@@ -5720,7 +5917,8 @@ function OpenStageCloudSettingsCard({
           </>
         )}
         {!cloud.configured && <p className="text-xs text-amber-700">OpenStage Cloud is not configured in this build.</p>}
-        {message && <p className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">{message}</p>}
+        {message && <p className="whitespace-pre-line rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">{message}</p>}
+        {restoreError && <p className="whitespace-pre-line rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{restoreError}</p>}
       </div>
       {emailModalOpen && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4">
@@ -5750,6 +5948,50 @@ function OpenStageCloudSettingsCard({
               </button>
             </div>
           </form>
+        </div>
+      )}
+      {restorePreview && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4">
+          <section className="grid w-full max-w-md gap-4 rounded-md border border-slate-300 bg-white p-5 text-slate-900 shadow-2xl">
+            <div>
+              <h3 className="text-xl font-semibold">Restore Library</h3>
+              <p className="mt-1 text-sm font-semibold text-slate-600">Cloud Backup</p>
+            </div>
+            {restoreStep === 'preview' ? (
+              <>
+                <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-4 text-sm">
+                  <div>Songs: <span className="font-semibold">{restorePreview.songs.length}</span></div>
+                  <div>Setlists: <span className="font-semibold">{restorePreview.setlists.length}</span></div>
+                  <div>Last Backup: <span className="font-semibold">{formatLastBackupTime(restorePreview.lastBackup)}</span></div>
+                </div>
+                <div className="border-t border-slate-200" />
+                <p className="text-sm font-semibold text-slate-700">Nothing on this screen modifies local data.</p>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button className="primary-button" type="button" onClick={() => setRestoreStep('confirm')}>
+                    Continue
+                  </button>
+                  <button className="secondary-button" type="button" onClick={closeRestorePreview}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+                  This will replace your current local library with the cloud backup.
+                </p>
+                <p className="text-sm text-slate-700">Your current library will be backed up first.</p>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button className="primary-button" type="button" disabled={restoreSubmitting} onClick={() => void confirmRestoreLibrary()}>
+                    Restore
+                  </button>
+                  <button className="secondary-button" type="button" disabled={restoreSubmitting} onClick={closeRestorePreview}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
         </div>
       )}
     </SettingsCard>
