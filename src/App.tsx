@@ -967,6 +967,11 @@ export default function App() {
   const activeNavigationIndex = activeNavigationContext === 'setlist' ? currentSetlistIndex : currentLibraryIndex;
   const nextNavigationSong = activeNavigationIndex >= 0 ? activeNavigationSongs[activeNavigationIndex + 1] : undefined;
   const previousNavigationSong = activeNavigationIndex >= 0 ? activeNavigationSongs[activeNavigationIndex - 1] : undefined;
+  const activeStageSetlistName = activeSetlistId
+    ? activeSavedSetlist?.name ?? 'Setlist'
+    : navigationContext === 'setlist'
+      ? setlistName
+      : '';
   const isStageSurface = activeMode === 'perform' || activeMode === 'stage';
   const selectedEffectiveCapo = selectedSong ? getEffectiveCapo(selectedSong, performanceState) : 0;
   const receiverSettings = normalizeReceiverDisplaySettings(performanceState.receiverDisplay);
@@ -1640,9 +1645,8 @@ export default function App() {
     updatePerformanceState({ recoverToStageMode: true });
   }
 
-  function selectStageLibrarySong(songId: string) {
-    setActiveSetlistId(null);
-    setNavigationContext('library');
+  function selectStageLibrarySong(songId: string, source: NavigationContext = 'library') {
+    setNavigationContext(source);
     setSelectedSongId(songId);
     setActiveMode('stage');
     restoredScrollSongRef.current = '';
@@ -2706,6 +2710,7 @@ export default function App() {
           previousSong={previousNavigationSong}
           navigationLabel={activeNavigationContext === 'setlist' ? `Setlist: ${activeSavedSetlist?.name ?? 'Setlist'}` : 'Library Mode'}
           navigationPosition={activeNavigationContext === 'setlist' ? `${activeNavigationIndex + 1} of ${activeNavigationSongs.length}` : `${activeNavigationIndex + 1}/${activeNavigationSongs.length}`}
+          activeSetlistName={activeStageSetlistName}
           isTransitioningSong={isTransitioningSong}
           state={performanceState}
           setState={updatePerformanceState}
@@ -2765,12 +2770,13 @@ export default function App() {
           song={selectedSong}
           songs={songs}
           savedSetlists={savedSetlists}
-          entries={orderedSetlist}
+          entries={activeSetlistEntries}
           stageRef={stageRef}
           nextSong={nextNavigationSong}
           previousSong={previousNavigationSong}
           navigationLabel={activeNavigationContext === 'setlist' ? `Setlist: ${activeSavedSetlist?.name ?? 'Setlist'}` : 'Library Mode'}
           navigationPosition={activeNavigationContext === 'setlist' ? `${activeNavigationIndex + 1} of ${activeNavigationSongs.length}` : `${activeNavigationIndex + 1}/${activeNavigationSongs.length}`}
+          activeSetlistName={activeStageSetlistName}
           isTransitioningSong={isTransitioningSong}
           state={{ ...performanceState, stageLocked: true, recoverToStageMode: true }}
           setState={updatePerformanceState}
@@ -7321,6 +7327,7 @@ function PerformanceView({
   previousSong,
   navigationLabel,
   navigationPosition,
+  activeSetlistName,
   isTransitioningSong,
   state,
   setState,
@@ -7366,6 +7373,7 @@ function PerformanceView({
   previousSong?: Song;
   navigationLabel: string;
   navigationPosition: string;
+  activeSetlistName: string;
   isTransitioningSong: boolean;
   state: PerformanceState;
   setState: (next: Partial<PerformanceState>) => void;
@@ -7382,7 +7390,7 @@ function PerformanceView({
   onStageMode: () => void;
   onSettings: () => void;
   onDisplays: () => void;
-  onSelectStageSong: (songId: string) => void;
+  onSelectStageSong: (songId: string, source?: NavigationContext) => void;
   onNewSongAction: (action: NewSongAction) => void;
   onToggleFavorite: (songId: string) => void;
   onRunStageSetlist: (setlist: SavedSetlist) => void;
@@ -7879,7 +7887,7 @@ function PerformanceView({
       >
         <div className={`stage-toolbar-inner mx-auto grid max-w-7xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 sm:px-5 ${headerText}`} style={{ fontSize: `${headerFontSize}px`, color: documentTheme.text, fontFamily: stageFontFamily }}>
           <div className="stage-left-actions flex items-center gap-1 rounded-full border border-white/10 bg-black/25 p-1 backdrop-blur-md">
-            <StageIconButton icon={<Library size={19} />} label="Library" tone={toolbarButton} active={activePopover === 'library'} onClick={() => togglePopover('library')} />
+            <StageIconButton icon={<Library size={19} />} label={activeSetlistName ? `${activeSetlistName} ▼` : 'Library'} tone={toolbarButton} active={activePopover === 'library'} onClick={() => togglePopover('library')} />
             <StageIconButton icon={<ListMusic size={19} />} label="Setlists" tone={toolbarButton} active={activePopover === 'setlists'} onClick={() => togglePopover('setlists')} />
           </div>
 
@@ -7965,6 +7973,9 @@ function PerformanceView({
             menuSurface={menuSurface}
             songs={songs}
             savedSetlists={savedSetlists}
+            activeSetlistName={activeSetlistName}
+            activeSetlistSongs={entries.map((entry) => entry.song).filter((entrySong): entrySong is Song => Boolean(entrySong))}
+            activeSetlistPosition={activeSetlistName && navigationLabel.startsWith('Setlist:') ? navigationPosition : ''}
             currentSongId={song.id}
             state={state}
             setState={setState}
@@ -7973,8 +7984,8 @@ function PerformanceView({
             onCalculateDuration={onCalculateDuration}
             isAutoscrolling={isAutoscrolling}
             onToggleAutoscroll={onToggleAutoscroll}
-            onSelectStageSong={(songId) => {
-              onSelectStageSong(songId);
+            onSelectStageSong={(songId, source) => {
+              onSelectStageSong(songId, source);
               setActivePopover(null);
             }}
             onNewSongAction={(action) => {
@@ -9159,6 +9170,9 @@ function StageControlPopover({
   menuSurface,
   songs,
   savedSetlists,
+  activeSetlistName,
+  activeSetlistSongs,
+  activeSetlistPosition,
   currentSongId,
   state,
   setState,
@@ -9197,6 +9211,9 @@ function StageControlPopover({
   menuSurface: string;
   songs: Song[];
   savedSetlists: SavedSetlist[];
+  activeSetlistName: string;
+  activeSetlistSongs: Song[];
+  activeSetlistPosition: string;
   currentSongId: string;
   state: PerformanceState;
   setState: (next: Partial<PerformanceState>) => void;
@@ -9205,7 +9222,7 @@ function StageControlPopover({
   onCalculateDuration: () => void;
   isAutoscrolling: boolean;
   onToggleAutoscroll: () => void;
-  onSelectStageSong: (songId: string) => void;
+  onSelectStageSong: (songId: string, source?: NavigationContext) => void;
   onNewSongAction: (action: NewSongAction) => void;
   onToggleFavorite: (songId: string) => void;
   onPublishSong: () => void;
@@ -9230,6 +9247,7 @@ function StageControlPopover({
   onSendReceiverTestPattern: () => boolean;
 }) {
   const [libraryQuery, setLibraryQuery] = useState('');
+  const [libraryScope, setLibraryScope] = useState<'setlist' | 'all'>(activeSetlistSongs.length > 0 ? 'setlist' : 'all');
   const [newSongMenuOpen, setNewSongMenuOpen] = useState(false);
   const [selectedDisplayProfile, setSelectedDisplayProfile] = useState<DeviceProfile>(state.activeProfile);
   const [profileMessage, setProfileMessage] = useState('');
@@ -9239,23 +9257,26 @@ function StageControlPopover({
   const chordFontFamily = getEffectiveUseMonospaceChords(state) ? 'Consolas, "Courier New", monospace' : stageFontFamily;
   const previewChordColor = resolveChordFontColor(getEffectiveChordFontColor(state));
   const currentStageSong = songs.find((song) => song.id === currentSongId);
+  const hasActiveSetlist = activeSetlistSongs.length > 0 && Boolean(activeSetlistName);
+  const librarySourceSongs = hasActiveSetlist && libraryScope === 'setlist' ? activeSetlistSongs : songs;
   const filteredStageSongs = useMemo(() => {
     const query = libraryQuery.trim().toLowerCase();
     const matches = !query
-      ? songs
-      : songs.filter((song) =>
+      ? librarySourceSongs
+      : librarySourceSongs.filter((song) =>
         [song.title, song.artist, song.key, String(song.bpm || ''), song.tags.join(' ')]
         .join(' ')
         .toLowerCase()
         .includes(query)
       );
+    if (hasActiveSetlist && libraryScope === 'setlist') return matches;
     return [...matches].sort((left, right) => {
       if (Boolean(left.favorite) !== Boolean(right.favorite)) return left.favorite ? -1 : 1;
       return left.title.localeCompare(right.title);
     });
-  }, [libraryQuery, songs]);
-  const favoriteStageSongs = filteredStageSongs.filter((song) => song.favorite);
-  const regularStageSongs = filteredStageSongs.filter((song) => !song.favorite);
+  }, [hasActiveSetlist, libraryQuery, libraryScope, librarySourceSongs]);
+  const favoriteStageSongs = libraryScope === 'all' ? filteredStageSongs.filter((song) => song.favorite) : [];
+  const regularStageSongs = libraryScope === 'all' ? filteredStageSongs.filter((song) => !song.favorite) : filteredStageSongs;
   const activeProfileValues = {
     lyric: getEffectiveLyricFontSize(state),
     chord: getEffectiveChordFontSize(state),
@@ -9271,6 +9292,12 @@ function StageControlPopover({
   useEffect(() => {
     setSelectedDisplayProfile(state.activeProfile);
   }, [state.activeProfile]);
+
+  useEffect(() => {
+    if (active !== 'library') return;
+    setLibraryScope(hasActiveSetlist ? 'setlist' : 'all');
+    setLibraryQuery('');
+  }, [active, hasActiveSetlist, activeSetlistName]);
 
   function applySelectedProfile() {
     setState(applyDisplayProfilePatch(state, selectedDisplayProfile));
@@ -9292,7 +9319,14 @@ function StageControlPopover({
     >
       {active === 'library' && (
         <div className="grid gap-3">
-          <StagePopoverTitle title="Library" />
+          <div className="flex items-center justify-between gap-3">
+            <StagePopoverTitle title={hasActiveSetlist && libraryScope === 'setlist' ? activeSetlistName : 'Library'} />
+            {hasActiveSetlist && activeSetlistPosition && (
+              <span className="rounded-full border border-white/10 bg-black/30 px-2 py-1 text-[0.7rem] font-semibold text-slate-200">
+                Song {activeSetlistPosition}
+              </span>
+            )}
+          </div>
           <div className="relative">
             <button
               className="flex h-11 w-full items-center justify-center gap-2 rounded-md bg-teal-600 px-3 text-sm font-semibold text-white hover:bg-teal-500"
@@ -9311,6 +9345,19 @@ function StageControlPopover({
               />
             )}
           </div>
+          {hasActiveSetlist && (
+            <button
+              className="flex w-full items-center gap-2 rounded-md border border-slate-700/70 bg-black/20 px-3 py-2 text-left text-sm font-semibold hover:bg-white/10"
+              type="button"
+              onClick={() => {
+                setLibraryScope((scope) => (scope === 'setlist' ? 'all' : 'setlist'));
+                setLibraryQuery('');
+              }}
+            >
+              <ChevronLeft size={17} />
+              {libraryScope === 'setlist' ? 'All Songs' : `Back to ${activeSetlistName}`}
+            </button>
+          )}
           <label className="flex h-11 items-center gap-2 rounded-md border border-slate-700 bg-black/20 px-3">
             <Search size={17} />
             <input
@@ -9321,28 +9368,43 @@ function StageControlPopover({
             />
           </label>
           <div className="max-h-[60vh] overflow-auto rounded-md border border-slate-700/70">
+            {hasActiveSetlist && libraryScope === 'setlist' && (
+              <div className="sticky top-0 z-10 bg-black/60 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-normal text-amber-200 backdrop-blur">
+                {activeSetlistName}
+              </div>
+            )}
             {favoriteStageSongs.length > 0 && <div className="sticky top-0 z-10 bg-black/60 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-normal text-amber-200 backdrop-blur">Favorites</div>}
             {favoriteStageSongs.map((stageSong) => (
               <StageLibrarySongButton
                 key={stageSong.id}
                 song={stageSong}
                 currentSongId={currentSongId}
-                onSelectStageSong={onSelectStageSong}
+                onSelectStageSong={(songId) => onSelectStageSong(songId, 'library')}
                 onToggleFavorite={onToggleFavorite}
               />
             ))}
-            {regularStageSongs.length > 0 && <div className="sticky top-0 z-10 bg-black/60 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-normal text-slate-300 backdrop-blur">All Songs</div>}
+            {regularStageSongs.length > 0 && (
+              <div className="sticky top-0 z-10 bg-black/60 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-normal text-slate-300 backdrop-blur">
+                {hasActiveSetlist && libraryScope === 'setlist' ? 'Active Set' : 'All Songs'}
+              </div>
+            )}
             {regularStageSongs.map((stageSong) => (
               <StageLibrarySongButton
                 key={stageSong.id}
                 song={stageSong}
                 currentSongId={currentSongId}
-                onSelectStageSong={onSelectStageSong}
+                onSelectStageSong={(songId) => onSelectStageSong(songId, hasActiveSetlist && libraryScope === 'setlist' ? 'setlist' : 'library')}
                 onToggleFavorite={onToggleFavorite}
+                showCurrentMarker={hasActiveSetlist && libraryScope === 'setlist'}
               />
             ))}
             {filteredStageSongs.length === 0 && <div className="p-4 text-center text-sm text-slate-400">No songs found.</div>}
           </div>
+          {hasActiveSetlist && libraryScope === 'setlist' && activeSetlistPosition && (
+            <div className="rounded-md border border-slate-700/70 bg-black/20 px-3 py-2 text-center text-xs font-semibold text-slate-300">
+              {activeSetlistPosition}
+            </div>
+          )}
         </div>
       )}
 
@@ -9760,12 +9822,14 @@ function StageLibrarySongButton({
   song,
   currentSongId,
   onSelectStageSong,
-  onToggleFavorite
+  onToggleFavorite,
+  showCurrentMarker = false
 }: {
   song: Song;
   currentSongId: string;
   onSelectStageSong: (songId: string) => void;
   onToggleFavorite: (songId: string) => void;
+  showCurrentMarker?: boolean;
 }) {
   const selected = song.id === currentSongId;
   return (
@@ -9787,7 +9851,7 @@ function StageLibrarySongButton({
           <Star size={17} fill={song.favorite ? 'currentColor' : 'none'} />
         </span>
         <span className="min-w-0">
-          <span className="block truncate font-semibold">{song.title}</span>
+          <span className="block truncate font-semibold">{selected && showCurrentMarker ? `▶ ${song.title}` : song.title}</span>
           <span className="block truncate text-xs opacity-70">{song.artist || 'Unknown artist'}</span>
         </span>
       </span>
