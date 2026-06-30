@@ -294,6 +294,15 @@ type SetlistEntry = {
   song: Song | undefined;
 };
 
+type WrappedAnchoredLine = {
+  lyricLine: string;
+  anchors: Array<{ chord: string; index: number }>;
+  harmonyRanges: HarmonyRange[];
+  sourceRanges?: LyricSourceRange[];
+  sourceStart: number;
+  sourceEnd: number;
+};
+
 type SetlistSortMode = 'manual' | 'title' | 'artist' | 'key' | 'bpm' | 'duration';
 type StagePopoverName = 'library' | 'setlists' | 'format' | 'more';
 type StageFormatTab = 'document' | 'format' | 'chords' | 'harmony' | 'sections' | 'display' | 'autoscroll' | 'external';
@@ -12057,15 +12066,52 @@ function AnchoredChordDisplayLine({
 }) {
   const { lyricLineHeight, lyricTop, rowSpacing, totalLineHeight } = anchoredChordLineLayout(lyricFontSize, chordFontSize, lineSpacing);
   const markerRefs = useRef(new Map<number, HTMLSpanElement>());
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const lineBoxRef = useRef<HTMLDivElement | null>(null);
   const lyricRef = useRef<HTMLDivElement | null>(null);
   const [anchorPositions, setAnchorPositions] = useState<Record<number, { left: number; top: number }>>({});
   const [measuredLineHeight, setMeasuredLineHeight] = useState(totalLineHeight);
+  const [availableWidth, setAvailableWidth] = useState(0);
   const anchorKey = anchoredLine.anchors.map((anchor) => `${anchor.index}:${anchor.chord}`).join('|');
   const anchorIndexes = useMemo(
     () => Array.from(new Set(anchoredLine.anchors.map((anchor) => anchor.index))).sort((a, b) => a - b),
     [anchorKey]
   );
+  const wrappedLines = useMemo(
+    () => wrapAnchoredLineForStage(
+      anchoredLine,
+      sourceRanges,
+      availableWidth,
+      `${lyricFontSize}px ${stageChartMeasureFontFamily()}`
+    ),
+    [anchoredLine, sourceRanges, availableWidth, lyricFontSize]
+  );
+
+  useLayoutEffect(() => {
+    const updateWidth = () => {
+      const width = wrapperRef.current?.clientWidth ?? lineBoxRef.current?.clientWidth ?? 0;
+      setAvailableWidth((current) => (Math.abs(current - width) < 1 ? current : width));
+    };
+    updateWidth();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateWidth);
+      window.addEventListener('orientationchange', updateWidth);
+      return () => {
+        window.removeEventListener('resize', updateWidth);
+        window.removeEventListener('orientationchange', updateWidth);
+      };
+    }
+
+    const observer = new ResizeObserver(updateWidth);
+    if (wrapperRef.current) observer.observe(wrapperRef.current);
+    if (lineBoxRef.current) observer.observe(lineBoxRef.current);
+    window.addEventListener('orientationchange', updateWidth);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('orientationchange', updateWidth);
+    };
+  }, [lyricFontSize, chordFontSize, lineSpacing]);
 
   const measureAnchors = useCallback(() => {
     const nextPositions: Record<number, { left: number; top: number }> = {};
@@ -12121,8 +12167,36 @@ function AnchoredChordDisplayLine({
     };
   }, [measureAnchors]);
 
+  if (wrappedLines.length > 1) {
+    return (
+      <div ref={wrapperRef} data-line-index={lineIndex} className="stage-wrapped-chord-line font-mono" style={{ marginBottom: `${rowSpacing}px` }}>
+        {wrappedLines.map((wrappedLine, wrappedIndex) => (
+          <AnchoredChordDisplayLine
+            key={`${wrappedLine.sourceStart}-${wrappedLine.sourceEnd}-${wrappedIndex}`}
+            anchoredLine={wrappedLine}
+            sourceRanges={wrappedLine.sourceRanges}
+            lineIndex={lineIndex}
+            chordClassName={chordClassName}
+            chordStyle={chordStyle}
+            chordFontSize={chordFontSize}
+            lyricFontSize={lyricFontSize}
+            lineSpacing={lineSpacing}
+            chordVerticalOffset={chordVerticalOffset}
+            showAnchorDebug={showAnchorDebug}
+            showChords={showChords}
+            showHarmonyCues={showHarmonyCues}
+            harmonyStyle={harmonyStyle}
+            harmonyIconColor={harmonyIconColor}
+            harmonyIconVisible={harmonyIconVisible}
+            showHarmonyDebug={showHarmonyDebug}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div data-line-index={lineIndex} className="overflow-visible font-mono" style={{ marginBottom: `${rowSpacing}px` }}>
+    <div ref={wrapperRef} data-line-index={lineIndex} className="overflow-visible font-mono" style={{ marginBottom: `${rowSpacing}px` }}>
       <div
         ref={lineBoxRef}
         className="relative min-w-0 max-w-full overflow-hidden"
@@ -12159,6 +12233,119 @@ function AnchoredChordDisplayLine({
       </div>
     </div>
   );
+}
+
+function wrapAnchoredLineForStage(
+  anchoredLine: AnchoredChordLine,
+  sourceRanges: LyricSourceRange[] | undefined,
+  availableWidth: number,
+  font: string
+): WrappedAnchoredLine[] {
+  const lyricLine = anchoredLine.lyricLine;
+  if (!lyricLine || availableWidth <= 0) {
+    return [{
+      ...anchoredLine,
+      sourceRanges,
+      sourceStart: 0,
+      sourceEnd: lyricLine.length
+    }];
+  }
+
+  const usableWidth = Math.max(40, availableWidth - 4);
+  if (measureStageLyricText(lyricLine, font) <= usableWidth) {
+    return [{
+      ...anchoredLine,
+      sourceRanges,
+      sourceStart: 0,
+      sourceEnd: lyricLine.length
+    }];
+  }
+
+  const segments = splitLyricByMeasuredWidth(lyricLine, usableWidth, font);
+  if (segments.length <= 1) {
+    return [{
+      ...anchoredLine,
+      sourceRanges,
+      sourceStart: 0,
+      sourceEnd: lyricLine.length
+    }];
+  }
+
+  return segments.map((segment, segmentIndex) => {
+    const segmentText = lyricLine.slice(segment.start, segment.end);
+    const isLastSegment = segmentIndex === segments.length - 1;
+    const anchors = anchoredLine.anchors
+      .filter((anchor) => anchor.index >= segment.start && (anchor.index < segment.end || (isLastSegment && anchor.index <= segment.end)))
+      .map((anchor) => ({
+        chord: anchor.chord,
+        index: Math.max(0, Math.min(segmentText.length, anchor.index - segment.start))
+      }));
+
+    return {
+      lyricLine: segmentText,
+      anchors,
+      harmonyRanges: sliceHarmonyRanges(anchoredLine.harmonyRanges, segment.start, segment.end),
+      sourceRanges: sliceLyricSourceRanges(sourceRanges, segment.start, segment.end),
+      sourceStart: segment.start,
+      sourceEnd: segment.end
+    };
+  });
+}
+
+function splitLyricByMeasuredWidth(text: string, width: number, font: string) {
+  const segments: Array<{ start: number; end: number }> = [];
+  let start = 0;
+
+  while (start < text.length) {
+    while (start < text.length && /\s/.test(text[start])) start += 1;
+    if (start >= text.length) break;
+
+    if (measureStageLyricText(text.slice(start), font) <= width) {
+      segments.push({ start, end: text.length });
+      break;
+    }
+
+    let low = start + 1;
+    let high = text.length;
+    let best = low;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (measureStageLyricText(text.slice(start, mid), font) <= width) {
+        best = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    let end = best;
+    for (let index = best; index > start; index -= 1) {
+      if (/\s/.test(text[index - 1])) {
+        end = index - 1;
+        break;
+      }
+    }
+    if (end <= start) end = best;
+    segments.push({ start, end: Math.max(start + 1, end) });
+    start = Math.max(start + 1, end);
+  }
+
+  return segments;
+}
+
+let stageMeasureCanvas: HTMLCanvasElement | null = null;
+
+function measureStageLyricText(text: string, font: string) {
+  if (typeof document === 'undefined') return text.length * 12;
+  stageMeasureCanvas ??= document.createElement('canvas');
+  const context = stageMeasureCanvas.getContext('2d');
+  if (!context) return text.length * 12;
+  context.font = font;
+  return context.measureText(text).width;
+}
+
+function stageChartMeasureFontFamily() {
+  return 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
 }
 
 function sameAnchorPositions(

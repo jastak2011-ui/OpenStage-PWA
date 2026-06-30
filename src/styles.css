@@ -350,6 +350,15 @@ label,
 .stage-chord {
   filter: saturate(1.05);
   text-shadow: 0 0 16px rgba(214, 168, 90, 0.08);
+  max-width: none !important;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.stage-wrapped-chord-line {
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .stage-section {
