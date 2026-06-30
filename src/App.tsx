@@ -2356,13 +2356,18 @@ export default function App() {
     let restorePoint: Awaited<ReturnType<typeof createRestorePoint>> | null = null;
 
     try {
-      const response = await fetch(`${openStageApiBaseUrl}/api/sync/library?userId=${encodeURIComponent(userId)}&includeFull=true`);
+      console.log('RESTORE_PHASE: creating local restore point');
+      restorePoint = await createRestorePoint(performanceState);
+      const restoreUrl = `${openStageApiBaseUrl}/api/sync/library?userId=${encodeURIComponent(userId)}&includeFull=true`;
+      console.log('RESTORE_PHASE: downloading cloud library', restoreUrl);
+      const response = await fetch(restoreUrl);
       const body = await response.json().catch(() => null);
 
       if (!response.ok || !body?.ok) {
         throw new Error(body?.error || `Cloud library restore failed with HTTP ${response.status}`);
       }
 
+      console.log('RESTORE_PHASE: validating cloud data');
       if (!Array.isArray(body.songs) || !Array.isArray(body.setlists)) {
         throw new Error('Cloud library response is invalid.');
       }
@@ -2388,16 +2393,18 @@ export default function App() {
         throw new Error('Cloud library restore count validation failed before import.');
       }
 
-      restorePoint = await createRestorePoint(performanceState);
-
+      console.log('RESTORE_PHASE: clearing local library');
       await db.transaction('rw', db.songs, db.setlist, db.setlists, async () => {
         await db.songs.clear();
         await db.setlist.clear();
         await db.setlists.clear();
+        console.log('RESTORE_PHASE: restoring songs');
         await db.songs.bulkPut(cloudSongs);
+        console.log('RESTORE_PHASE: restoring setlists');
         await db.setlists.bulkPut(cloudSetlists);
       });
 
+      console.log('RESTORE_PHASE: verifying restore');
       const [insertedSongCount, insertedSetlistCount] = await Promise.all([
         db.songs.count(),
         db.setlists.count()
@@ -2409,6 +2416,7 @@ export default function App() {
 
       updateStorePerformance({ lastRestoreTime: new Date().toISOString() });
       await loadData();
+      console.log('RESTORE_PHASE: restore complete');
       return {
         songCount: insertedSongCount,
         setlistCount: insertedSetlistCount
@@ -5723,6 +5731,7 @@ function OpenStageCloudSettingsCard({
   const [restoreStep, setRestoreStep] = useState<'preview' | 'confirm'>('preview');
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [restoreSubmitting, setRestoreSubmitting] = useState(false);
+  const [restorePhase, setRestorePhase] = useState('');
   const [restoreError, setRestoreError] = useState('');
   const isRunning = progress.phase === 'songs' || progress.phase === 'setlists';
   const failedSongs = progress.failed.filter((failure) => failure.type === 'song').length;
@@ -5801,16 +5810,26 @@ function OpenStageCloudSettingsCard({
   function closeRestorePreview() {
     setRestorePreview(null);
     setRestoreStep('preview');
+    setRestorePhase('');
     setRestoreError('');
     setRestoreSubmitting(false);
   }
 
   async function confirmRestoreLibrary() {
-    if (!cloud.user?.id) return;
+    console.log('RESTORE_CLICKED');
+    if (!cloud.user?.id) {
+      setRestoreError('Sign in required to restore your library.');
+      return;
+    }
     setRestoreSubmitting(true);
+    setRestorePhase('Preparing restore...');
+    console.log('RESTORE_PHASE: preparing');
     setRestoreError('');
     try {
+      setRestorePhase('Downloading cloud library...');
+      console.log('RESTORE_PHASE: downloading cloud library');
       const result = await onRestoreLibrary(cloud.user.id);
+      setRestorePhase('Restore complete');
       setMessage(`Restore Complete\n${result.songCount} Songs\n${result.setlistCount} Setlists\nRestore completed successfully.`);
       closeRestorePreview();
     } catch (error) {
@@ -5981,6 +6000,7 @@ function OpenStageCloudSettingsCard({
                   This will replace your current local library with the cloud backup.
                 </p>
                 <p className="text-sm text-slate-700">Your current library will be backed up first.</p>
+                {restorePhase && <p className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-900">{restorePhase}</p>}
                 <div className="flex flex-wrap justify-end gap-2">
                   <button className="primary-button" type="button" disabled={restoreSubmitting} onClick={() => void confirmRestoreLibrary()}>
                     Restore
