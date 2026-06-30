@@ -5886,6 +5886,7 @@ function OpenStageCloudSettingsCard({
   const [password, setPassword] = useState('');
   const [emailError, setEmailError] = useState('');
   const [emailSubmitting, setEmailSubmitting] = useState(false);
+  const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [restorePreview, setRestorePreview] = useState<CloudLibraryPreview | null>(null);
   const [restoreStep, setRestoreStep] = useState<'preview' | 'confirm'>('preview');
   const [restoreLoading, setRestoreLoading] = useState(false);
@@ -5931,12 +5932,30 @@ function OpenStageCloudSettingsCard({
     }
   }
 
-  async function openRestorePreview() {
+  function openRestorePreview() {
+    if (!cloud.user?.id) return;
+
+    setRestoreModalOpen(true);
+    setRestorePreview(null);
+    setRestoreStep('preview');
+    setRestoreError('');
+    setRestorePhase('Preparing restore...');
+    setMessage('');
+
+    const startFetch = () => void fetchRestorePreview();
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => window.setTimeout(startFetch, 0));
+    } else {
+      setTimeout(startFetch, 0);
+    }
+  }
+
+  async function fetchRestorePreview() {
     if (!cloud.user?.id) return;
 
     setRestoreLoading(true);
     setRestoreError('');
-    setMessage('');
+    setRestorePhase('Checking cloud backup...');
     try {
       const response = await fetch(`${openStageApiBaseUrl}/api/sync/library?userId=${encodeURIComponent(cloud.user.id)}`);
       const body = await response.json().catch(() => null);
@@ -5958,15 +5977,18 @@ function OpenStageCloudSettingsCard({
         lastBackup: latestUpdatedAt
       });
       setRestoreStep('preview');
+      setRestorePhase('');
     } catch (error) {
       reportError('Cloud restore preview failed', error);
-      setRestoreError(error instanceof Error ? error.message : 'Could not load cloud backup preview.');
+      setRestoreError('Could not load cloud backup.');
+      setRestorePhase('');
     } finally {
       setRestoreLoading(false);
     }
   }
 
   function closeRestorePreview() {
+    setRestoreModalOpen(false);
     setRestorePreview(null);
     setRestoreStep('preview');
     setRestorePhase('');
@@ -6033,7 +6055,7 @@ function OpenStageCloudSettingsCard({
               <Cloud size={18} />
               Backup My Library
             </button>
-            <button className="secondary-button" type="button" disabled={restoreLoading} onClick={() => void openRestorePreview()}>
+            <button className="secondary-button" type="button" disabled={restoreLoading} onClick={openRestorePreview}>
               Restore Library
             </button>
           </div>
@@ -6096,7 +6118,7 @@ function OpenStageCloudSettingsCard({
         )}
         {!cloud.configured && <p className="text-xs text-amber-700">OpenStage Cloud is not configured in this build.</p>}
         {message && <p className="whitespace-pre-line rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">{message}</p>}
-        {restoreError && <p className="whitespace-pre-line rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{restoreError}</p>}
+        {restoreError && !restoreModalOpen && <p className="whitespace-pre-line rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{restoreError}</p>}
       </div>
       {emailModalOpen && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4">
@@ -6128,14 +6150,36 @@ function OpenStageCloudSettingsCard({
           </form>
         </div>
       )}
-      {restorePreview && (
+      {restoreModalOpen && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4">
           <section className="grid w-full max-w-md gap-4 rounded-md border border-slate-300 bg-white p-5 text-slate-900 shadow-2xl">
             <div>
               <h3 className="text-xl font-semibold">Restore Library</h3>
               <p className="mt-1 text-sm font-semibold text-slate-600">Cloud Backup</p>
             </div>
-            {restoreStep === 'preview' ? (
+            {restoreLoading && (
+              <>
+                <p className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-900">
+                  {restorePhase || 'Checking cloud backup...'}
+                </p>
+                <p className="text-sm text-slate-600">This may take a moment on iPad or slower networks.</p>
+              </>
+            )}
+            {!restoreLoading && restoreError ? (
+              <>
+                <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+                  {restoreError}
+                </p>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button className="primary-button" type="button" onClick={() => void fetchRestorePreview()}>
+                    Try Again
+                  </button>
+                  <button className="secondary-button" type="button" onClick={closeRestorePreview}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : !restoreLoading && restorePreview && restoreStep === 'preview' ? (
               <>
                 <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-4 text-sm">
                   <div>Songs: <span className="font-semibold">{restorePreview.songs.length}</span></div>
@@ -6153,7 +6197,7 @@ function OpenStageCloudSettingsCard({
                   </button>
                 </div>
               </>
-            ) : (
+            ) : !restoreLoading && restorePreview ? (
               <>
                 <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
                   This will replace your current local library with the cloud backup.
@@ -6169,7 +6213,7 @@ function OpenStageCloudSettingsCard({
                   </button>
                 </div>
               </>
-            )}
+            ) : null}
           </section>
         </div>
       )}
