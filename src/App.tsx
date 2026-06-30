@@ -2410,10 +2410,26 @@ export default function App() {
         db.setlists.count()
       ]);
 
+      console.log('Cloud Songs:', downloadedSongCount);
+      console.log('Inserted Songs:', insertedSongCount);
+      console.log('Cloud Setlists:', downloadedSetlistCount);
+      console.log('Inserted Setlists:', insertedSetlistCount);
+
       if (insertedSongCount !== downloadedSongCount || insertedSetlistCount !== downloadedSetlistCount) {
+        console.error('Verification FAILED', {
+          songs: {
+            expected: downloadedSongCount,
+            actual: insertedSongCount
+          },
+          setlists: {
+            expected: downloadedSetlistCount,
+            actual: insertedSetlistCount
+          }
+        });
         throw new Error(`Restore count mismatch. Downloaded ${downloadedSongCount} songs and ${downloadedSetlistCount} setlists, inserted ${insertedSongCount} songs and ${insertedSetlistCount} setlists.`);
       }
 
+      console.log('Verification PASSED');
       updateStorePerformance({ lastRestoreTime: new Date().toISOString() });
       await loadData();
       console.log('RESTORE_PHASE: restore complete');
