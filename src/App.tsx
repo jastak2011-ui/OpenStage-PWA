@@ -5597,20 +5597,25 @@ function OpenStageCloudSettingsCard() {
   }
 
   return (
-    <SettingsCard title="OpenStage Cloud">
+    <SettingsCard title="☁ OpenStage Cloud">
       <div className="grid gap-3 text-sm text-slate-700">
+        <p>Keep your songs, setlists, and settings safely backed up and available on all your devices.</p>
+        <p className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-teal-900">
+          Your library stays available offline. Cloud backup protects your work and helps restore it on another device.
+        </p>
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
           <div className="text-xs font-semibold uppercase text-slate-500">Status</div>
           <div className="mt-1 text-base font-semibold text-slate-900">
-            {cloud.loading ? 'Checking...' : cloud.user ? `Signed in as ${cloud.user.email || cloud.user.id}` : 'Not Signed In'}
+            Status: {cloud.loading ? 'Checking...' : cloud.user ? 'Signed In' : 'Not Signed In'}
           </div>
+          {cloud.user && <div className="mt-1 text-sm text-slate-600">{cloud.user.email || cloud.user.user_metadata?.name || cloud.user.id}</div>}
         </div>
         <div className="flex flex-wrap gap-2">
+          <button className="primary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => void handleCloudSignIn('apple')}>
+            Sign in with Apple
+          </button>
           <button className="secondary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => void handleCloudSignIn('google')}>
             Sign in with Google
-          </button>
-          <button className="secondary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => void handleCloudSignIn('apple')}>
-            Sign in with Apple
           </button>
           <button className="secondary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => void handleCloudSignIn('email')}>
             Sign in with Email
