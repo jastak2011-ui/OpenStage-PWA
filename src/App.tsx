@@ -5579,9 +5579,9 @@ function formatLastBackupTime(value?: string) {
 
 function cloudAuthErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  if (/invalid login credentials|invalid password|password/i.test(message)) return 'Invalid password';
   if (/already registered|already exists|user already/i.test(message)) return 'Email already exists';
-  if (/network|failed to fetch|load failed|offline/i.test(message)) return 'Network unavailable';
+  if (/invalid login credentials|invalid password|email|password/i.test(message)) return 'Invalid email or password';
+  if (/network|failed to fetch|load failed|offline/i.test(message)) return 'Network error';
   return message || 'OpenStage Cloud authentication failed.';
 }
 
@@ -5615,17 +5615,6 @@ function OpenStageCloudSettingsCard({
     ? `Backing up setlists... ${progress.setlistDone} / ${progress.setlistTotal}`
     : `Backing up songs... ${progress.songDone} / ${progress.songTotal}`;
 
-  async function handleCloudSignIn(method: 'google' | 'apple') {
-    setMessage('');
-    try {
-      await cloud.signIn(method);
-      setMessage(`Starting ${method === 'google' ? 'Google' : 'Apple'} sign-in...`);
-    } catch (error) {
-      reportError('OpenStage Cloud sign-in failed', error);
-      setMessage(cloudAuthErrorMessage(error));
-    }
-  }
-
   async function submitEmailAuth(action: 'sign-in' | 'create') {
     setEmailError('');
     setMessage('');
@@ -5638,7 +5627,7 @@ function OpenStageCloudSettingsCard({
     try {
       if (action === 'create') {
         await cloud.createAccount(email.trim(), password);
-        setMessage('Account created. If Supabase requires confirmation, check your email before signing in.');
+        setMessage('Please check your email to confirm your account, if email confirmation is required.');
       } else {
         await cloud.signIn('email', email.trim(), password);
         setMessage('Signed in to OpenStage Cloud.');
@@ -5683,10 +5672,10 @@ function OpenStageCloudSettingsCard({
         ) : (
           <>
             <div className="flex flex-wrap gap-2">
-              <button className="primary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => void handleCloudSignIn('apple')}>
+              <button className="primary-button opacity-60" type="button" disabled title="Coming soon">
                 Sign in with Apple
               </button>
-              <button className="secondary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => void handleCloudSignIn('google')}>
+              <button className="secondary-button opacity-60" type="button" disabled title="Coming soon">
                 Sign in with Google
               </button>
               <button className="secondary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => setEmailModalOpen(true)}>
