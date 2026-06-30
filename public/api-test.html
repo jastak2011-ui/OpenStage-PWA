@@ -178,7 +178,7 @@
         </div>
 
         <div id="backup-test-song-fields" hidden>
-          <label for="backup-song-json">Backup Test Song Request JSON</label>
+          <label for="backup-song-json">Backup Test Song Request JSON - Test User UUID</label>
           <textarea id="backup-song-json"></textarea>
         </div>
 
@@ -243,7 +243,7 @@
 
       function buildDefaultBackupSongRequest() {
         return {
-          userId: 'local-test-user',
+          userId: '00000000-0000-0000-0000-000000000001',
           song: {
             songUuid: createId(),
             version: 1,
