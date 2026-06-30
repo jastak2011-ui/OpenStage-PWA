@@ -1,7 +1,7 @@
 import { createContext, createElement, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { User } from '@supabase/supabase-js';
 import {
-  currentCloudUserId,
+  createAccountWithEmail,
   getCurrentUser,
   onAuthStateChanged,
   signInWithApple,
@@ -17,7 +17,8 @@ type CloudContextValue = {
   user: User | null;
   loading: boolean;
   configured: boolean;
-  signIn: (method: CloudSignInMethod, email?: string) => Promise<void>;
+  signIn: (method: CloudSignInMethod, email?: string, password?: string) => Promise<void>;
+  createAccount: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -26,6 +27,7 @@ const CloudContext = createContext<CloudContextValue>({
   loading: true,
   configured: cloudConfigured,
   signIn: async () => undefined,
+  createAccount: async () => undefined,
   signOut: async () => undefined
 });
 
@@ -62,12 +64,13 @@ export function CloudProvider({ children }: { children: ReactNode }) {
     user,
     loading,
     configured: cloudConfigured,
-    async signIn(method, email) {
+    async signIn(method, email, password) {
       if (method === 'google') return signInWithGoogle();
       if (method === 'apple') return signInWithApple();
-      if (!email) throw new Error('Email is required.');
-      return signInWithEmail(email);
+      if (!email || !password) throw new Error('Email and password are required.');
+      return signInWithEmail(email, password);
     },
+    createAccount: createAccountWithEmail,
     signOut: signOutCloud
   }), [loading, user]);
 
@@ -77,5 +80,3 @@ export function CloudProvider({ children }: { children: ReactNode }) {
 export function useCloud() {
   return useContext(CloudContext);
 }
-
-export { currentCloudUserId };

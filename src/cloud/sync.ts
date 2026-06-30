@@ -1,11 +1,9 @@
-import { currentCloudUserId } from './auth';
-
 export type CloudSyncContext = {
   userId: string;
 };
 
-export function getCloudSyncContext(): CloudSyncContext {
+export function getCloudSyncContext(userId: string): CloudSyncContext {
   return {
-    userId: currentCloudUserId()
+    userId
   };
 }

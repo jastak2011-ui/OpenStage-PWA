@@ -60,7 +60,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { db, ensureSeedData } from './data/db';
 import { lyricTextHarmonyState, renderLyricTextWithHarmony, type LyricTextWithHarmonyOptions } from './components/LyricTextWithHarmony';
-import { currentCloudUserId, useCloud } from './cloud/cloud';
+import { useCloud } from './cloud/cloud';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './lib/importExport';
 import { chordOverTextToAnchoredLine, chordTokensToAnchoredLine, inlineChordsToChordOverLyrics, type AnchoredChordLine } from './lib/chordLayout';
 import { isChordProFileName, parseChordPro, parseChordProBundle } from './lib/chordpro';
@@ -705,14 +705,14 @@ async function publishSongToOpenStageApi(song: Song) {
   };
 }
 
-async function backupSongToOpenStageApi(song: Song) {
+async function backupSongToOpenStageApi(song: Song, userId: string) {
   const response = await fetch(`${openStageApiBaseUrl}/api/sync/song`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      userId: currentCloudUserId(),
+      userId,
       song
     })
   });
@@ -725,7 +725,7 @@ async function backupSongToOpenStageApi(song: Song) {
   return body;
 }
 
-async function backupSetlistToOpenStageApi(setlist: SavedSetlist) {
+async function backupSetlistToOpenStageApi(setlist: SavedSetlist, userId: string) {
   const setlistPayload = {
     ...setlist,
     setlistUuid: (setlist as SavedSetlist & { setlistUuid?: string }).setlistUuid || setlist.id
@@ -736,7 +736,7 @@ async function backupSetlistToOpenStageApi(setlist: SavedSetlist) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      userId: currentCloudUserId(),
+      userId,
       setlist: setlistPayload
     })
   });
@@ -860,6 +860,7 @@ export default function App() {
   if (isReceiverRoute()) return <RemoteReceiverApp />;
   if (isDisplayRoute()) return <RemoteDisplayApp />;
 
+  const cloud = useCloud();
   const sharedImportId = getSharedImportIdFromPath();
   const pendingImportShareId = getPendingImportShareIdFromSearch();
   const [songs, setSongs] = useState<Song[]>([]);
@@ -2253,7 +2254,11 @@ export default function App() {
     await loadData();
   }
 
-  async function backupLibraryToCloud(retryFailuresOnly = false) {
+  async function backupLibraryToCloud(userId: string, retryFailuresOnly = false) {
+    if (!userId) {
+      throw new Error('Sign in to enable cloud backup.');
+    }
+
     const startedAt = performance.now();
     const retryItems = retryFailuresOnly ? cloudBackupProgress.failed : [];
     const songsToBackup = retryFailuresOnly
@@ -2277,7 +2282,7 @@ export default function App() {
     for (let index = 0; index < songsToBackup.length; index += 1) {
       const song = songsToBackup[index];
       try {
-        await backupSongToOpenStageApi(song);
+        await backupSongToOpenStageApi(song, userId);
       } catch (error) {
         failed.push({ type: 'song', id: song.id, title: song.title || 'Untitled Song', item: song });
         reportError('Cloud song backup failed', error);
@@ -2301,7 +2306,7 @@ export default function App() {
     for (let index = 0; index < setlistsToBackup.length; index += 1) {
       const setlist = setlistsToBackup[index];
       try {
-        await backupSetlistToOpenStageApi(setlist);
+        await backupSetlistToOpenStageApi(setlist, userId);
       } catch (error) {
         failed.push({ type: 'setlist', id: setlist.id, title: setlist.name || 'Untitled Setlist', item: setlist });
         reportError('Cloud setlist backup failed', error);
@@ -2817,8 +2822,8 @@ export default function App() {
           onExportBackup={exportBackup}
           onRestoreBackup={restoreBackup}
           onSyncNow={syncNow}
-          onBackupLibrary={() => backupLibraryToCloud(false)}
-          onRetryFailedBackup={() => backupLibraryToCloud(true)}
+          onBackupLibrary={() => backupLibraryToCloud(cloud.user?.id ?? '', false)}
+          onRetryFailedBackup={() => backupLibraryToCloud(cloud.user?.id ?? '', true)}
           cloudBackupProgress={cloudBackupProgress}
           onPedals={() => setActiveMode('pedals')}
           onImport={() => setActiveMode('import')}
@@ -5510,8 +5515,7 @@ function SettingsView({
         <SettingsCard title="Install App">
           <p className="text-sm text-slate-600">On iPhone Safari, use Share, then Add to Home Screen. OpenStage will launch as a standalone PWA with phone-safe Stage spacing.</p>
         </SettingsCard>
-        <OpenStageCloudSettingsCard />
-        <CloudBackupSettingsCard
+        <OpenStageCloudSettingsCard
           state={state}
           progress={cloudBackupProgress}
           onBackupLibrary={onBackupLibrary}
@@ -5573,26 +5577,79 @@ function formatLastBackupTime(value?: string) {
   return `${dayLabel} ${timeLabel}`;
 }
 
-function OpenStageCloudSettingsCard() {
+function cloudAuthErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/invalid login credentials|invalid password|password/i.test(message)) return 'Invalid password';
+  if (/already registered|already exists|user already/i.test(message)) return 'Email already exists';
+  if (/network|failed to fetch|load failed|offline/i.test(message)) return 'Network unavailable';
+  return message || 'OpenStage Cloud authentication failed.';
+}
+
+function OpenStageCloudSettingsCard({
+  state,
+  progress,
+  onBackupLibrary,
+  onRetryFailedBackup
+}: {
+  state: PerformanceState;
+  progress: CloudBackupProgress;
+  onBackupLibrary: () => void;
+  onRetryFailedBackup: () => void;
+}) {
   const cloud = useCloud();
   const [message, setMessage] = useState('');
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [emailSubmitting, setEmailSubmitting] = useState(false);
+  const isRunning = progress.phase === 'songs' || progress.phase === 'setlists';
+  const failedSongs = progress.failed.filter((failure) => failure.type === 'song').length;
+  const failedSetlists = progress.failed.filter((failure) => failure.type === 'setlist').length;
+  const backedUpSongs = Math.max(0, progress.songDone - failedSongs);
+  const backedUpSetlists = Math.max(0, progress.setlistDone - failedSetlists);
+  const backedUpItems = backedUpSongs + backedUpSetlists;
+  const totalFailed = progress.failed.length;
+  const completed = progress.phase === 'complete' || progress.phase === 'failed';
+  const activeProgressLabel = progress.phase === 'setlists'
+    ? `Backing up setlists... ${progress.setlistDone} / ${progress.setlistTotal}`
+    : `Backing up songs... ${progress.songDone} / ${progress.songTotal}`;
 
-  async function handleCloudSignIn(method: 'google' | 'apple' | 'email') {
+  async function handleCloudSignIn(method: 'google' | 'apple') {
     setMessage('');
     try {
-      if (method === 'email') {
-        const email = window.prompt('Email address for OpenStage Cloud');
-        if (!email) return;
-        await cloud.signIn('email', email.trim());
-        setMessage('Check your email for the OpenStage Cloud sign-in link.');
-        return;
-      }
-
       await cloud.signIn(method);
       setMessage(`Starting ${method === 'google' ? 'Google' : 'Apple'} sign-in...`);
     } catch (error) {
       reportError('OpenStage Cloud sign-in failed', error);
-      setMessage(error instanceof Error ? error.message : 'OpenStage Cloud sign-in failed.');
+      setMessage(cloudAuthErrorMessage(error));
+    }
+  }
+
+  async function submitEmailAuth(action: 'sign-in' | 'create') {
+    setEmailError('');
+    setMessage('');
+    if (!email.trim() || !password) {
+      setEmailError('Email and password are required.');
+      return;
+    }
+
+    setEmailSubmitting(true);
+    try {
+      if (action === 'create') {
+        await cloud.createAccount(email.trim(), password);
+        setMessage('Account created. If Supabase requires confirmation, check your email before signing in.');
+      } else {
+        await cloud.signIn('email', email.trim(), password);
+        setMessage('Signed in to OpenStage Cloud.');
+      }
+      setEmailModalOpen(false);
+      setPassword('');
+    } catch (error) {
+      reportError('OpenStage Cloud email authentication failed', error);
+      setEmailError(cloudAuthErrorMessage(error));
+    } finally {
+      setEmailSubmitting(false);
     }
   }
 
@@ -5608,96 +5665,104 @@ function OpenStageCloudSettingsCard() {
           <div className="mt-1 text-base font-semibold text-slate-900">
             Status: {cloud.loading ? 'Checking...' : cloud.user ? 'Signed In' : 'Not Signed In'}
           </div>
-          {cloud.user && <div className="mt-1 text-sm text-slate-600">{cloud.user.email || cloud.user.user_metadata?.name || cloud.user.id}</div>}
+          {cloud.user && <div className="mt-1 text-sm text-slate-600">Email: {cloud.user.email || cloud.user.user_metadata?.name || cloud.user.id}</div>}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button className="primary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => void handleCloudSignIn('apple')}>
-            Sign in with Apple
-          </button>
-          <button className="secondary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => void handleCloudSignIn('google')}>
-            Sign in with Google
-          </button>
-          <button className="secondary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => void handleCloudSignIn('email')}>
-            Sign in with Email
-          </button>
-          {cloud.user && (
+        {cloud.user ? (
+          <div className="flex flex-wrap gap-2">
             <button className="secondary-button" type="button" onClick={() => void cloud.signOut()}>
-              Sign out
+              Sign Out
             </button>
-          )}
-        </div>
+            <button className="primary-button" type="button" disabled={isRunning} onClick={onBackupLibrary}>
+              <Cloud size={18} />
+              Backup My Library
+            </button>
+            <button className="secondary-button" type="button" disabled>
+              Restore Library
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2">
+              <button className="primary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => void handleCloudSignIn('apple')}>
+                Sign in with Apple
+              </button>
+              <button className="secondary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => void handleCloudSignIn('google')}>
+                Sign in with Google
+              </button>
+              <button className="secondary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => setEmailModalOpen(true)}>
+                Sign in with Email
+              </button>
+            </div>
+            <p className="text-xs text-amber-700">Sign in to enable cloud backup.</p>
+          </>
+        )}
+        {cloud.user && (
+          <>
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-semibold uppercase text-slate-500">Last Backup</div>
+              <div className="mt-1 text-base font-semibold text-slate-900">{formatLastBackupTime(state.lastBackupTime)}</div>
+            </div>
+            {isRunning && (
+              <div className="rounded-md border border-teal-200 bg-teal-50 p-3 text-teal-900">
+                <div className="font-semibold">{activeProgressLabel}</div>
+                {totalFailed > 0 && <div className="mt-1 text-xs">{totalFailed} item(s) have failed so far. Backup will continue.</div>}
+              </div>
+            )}
+            {completed && (
+              <div className={`rounded-md border p-3 ${totalFailed > 0 ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-teal-300 bg-teal-50 text-teal-950'}`}>
+                <div className="font-semibold">{totalFailed > 0 ? 'Backup Finished With Errors' : 'Backup Complete'}</div>
+                <div className="mt-2 grid gap-1">
+                  <div>{backedUpSongs} Songs</div>
+                  <div>{backedUpSetlists} Setlists</div>
+                  {typeof progress.completedSeconds === 'number' && <div>Completed in {progress.completedSeconds.toFixed(1)} seconds</div>}
+                </div>
+                {totalFailed > 0 && (
+                  <div className="mt-3 grid gap-2">
+                    <div className="font-semibold">{backedUpItems} items backed up</div>
+                    <div>{totalFailed} Failed</div>
+                    <div className="text-xs">Failed songs: {failedSongs} | Failed setlists: {failedSetlists}</div>
+                    <button className="secondary-button w-fit" type="button" onClick={onRetryFailedBackup}>
+                      Retry Failed
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
         {!cloud.configured && <p className="text-xs text-amber-700">OpenStage Cloud is not configured in this build.</p>}
         {message && <p className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">{message}</p>}
       </div>
-    </SettingsCard>
-  );
-}
-
-function CloudBackupSettingsCard({
-  state,
-  progress,
-  onBackupLibrary,
-  onRetryFailedBackup
-}: {
-  state: PerformanceState;
-  progress: CloudBackupProgress;
-  onBackupLibrary: () => void;
-  onRetryFailedBackup: () => void;
-}) {
-  const isRunning = progress.phase === 'songs' || progress.phase === 'setlists';
-  const failedSongs = progress.failed.filter((failure) => failure.type === 'song').length;
-  const failedSetlists = progress.failed.filter((failure) => failure.type === 'setlist').length;
-  const backedUpSongs = Math.max(0, progress.songDone - failedSongs);
-  const backedUpSetlists = Math.max(0, progress.setlistDone - failedSetlists);
-  const backedUpItems = backedUpSongs + backedUpSetlists;
-  const totalFailed = progress.failed.length;
-  const completed = progress.phase === 'complete' || progress.phase === 'failed';
-  const activeProgressLabel = progress.phase === 'setlists'
-    ? `Backing up setlists... ${progress.setlistDone} / ${progress.setlistTotal}`
-    : `Backing up songs... ${progress.songDone} / ${progress.songTotal}`;
-
-  return (
-    <SettingsCard title="Cloud Backup">
-      <div className="grid gap-3 text-sm text-slate-700">
-        <p>Back up your songs, setlists and settings to your OpenStage cloud account.</p>
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-          <div className="text-xs font-semibold uppercase text-slate-500">Last Backup</div>
-          <div className="mt-1 text-base font-semibold text-slate-900">{formatLastBackupTime(state.lastBackupTime)}</div>
-        </div>
-        <p className="text-xs text-slate-500">
-          Temporary cloud user id: <span className="font-mono">{currentCloudUserId()}</span>
-        </p>
-        <button className="primary-button w-fit" type="button" disabled={isRunning} onClick={onBackupLibrary}>
-          <Cloud size={18} />
-          Backup My Library
-        </button>
-        {isRunning && (
-          <div className="rounded-md border border-teal-200 bg-teal-50 p-3 text-teal-900">
-            <div className="font-semibold">{activeProgressLabel}</div>
-            {totalFailed > 0 && <div className="mt-1 text-xs">{totalFailed} item(s) have failed so far. Backup will continue.</div>}
-          </div>
-        )}
-        {completed && (
-          <div className={`rounded-md border p-3 ${totalFailed > 0 ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-teal-300 bg-teal-50 text-teal-950'}`}>
-            <div className="font-semibold">{totalFailed > 0 ? 'Backup Finished With Errors' : 'Backup Complete'}</div>
-            <div className="mt-2 grid gap-1">
-              <div>{backedUpSongs} Songs</div>
-              <div>{backedUpSetlists} Setlists</div>
-              {typeof progress.completedSeconds === 'number' && <div>Completed in {progress.completedSeconds.toFixed(1)} seconds</div>}
+      {emailModalOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4">
+          <form className="grid w-full max-w-md gap-4 rounded-md border border-slate-300 bg-white p-5 text-slate-900 shadow-2xl" onSubmit={(event) => event.preventDefault()}>
+            <div>
+              <h3 className="text-xl font-semibold">OpenStage Cloud</h3>
+              <p className="mt-1 text-sm text-slate-600">Sign in or create an account with email and password.</p>
             </div>
-            {totalFailed > 0 && (
-              <div className="mt-3 grid gap-2">
-                <div className="font-semibold">{backedUpItems} items backed up</div>
-                <div>{totalFailed} Failed</div>
-                <div className="text-xs">Failed songs: {failedSongs} | Failed setlists: {failedSetlists}</div>
-                <button className="secondary-button w-fit" type="button" onClick={onRetryFailedBackup}>
-                  Retry Failed
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+            <label className="grid gap-1 text-sm">
+              <span className="font-semibold">Email</span>
+              <input className="input" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+            </label>
+            <label className="grid gap-1 text-sm">
+              <span className="font-semibold">Password</span>
+              <input className="input" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
+            </label>
+            {emailError && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{emailError}</div>}
+            <div className="flex flex-wrap justify-end gap-2">
+              <button className="secondary-button" type="button" disabled={emailSubmitting} onClick={() => void submitEmailAuth('sign-in')}>
+                Sign In
+              </button>
+              <button className="primary-button" type="button" disabled={emailSubmitting} onClick={() => void submitEmailAuth('create')}>
+                Create Account
+              </button>
+              <button className="secondary-button" type="button" disabled={emailSubmitting} onClick={() => setEmailModalOpen(false)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </SettingsCard>
   );
 }

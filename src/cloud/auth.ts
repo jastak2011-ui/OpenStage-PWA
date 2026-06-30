@@ -1,12 +1,6 @@
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import { supabase } from './config';
 
-const temporaryCloudUserId = '00000000-0000-0000-0000-000000000001';
-
-export function currentCloudUserId() {
-  return temporaryCloudUserId;
-}
-
 function requireSupabase() {
   if (!supabase) throw new Error('Supabase is not configured.');
   return supabase;
@@ -34,13 +28,20 @@ export async function signInWithApple() {
   if (error) throw error;
 }
 
-export async function signInWithEmail(email: string) {
+export async function signInWithEmail(email: string, password: string) {
   const client = requireSupabase();
-  const { error } = await client.auth.signInWithOtp({
+  const { error } = await client.auth.signInWithPassword({
     email,
-    options: {
-      emailRedirectTo: window.location.origin
-    }
+    password
+  });
+  if (error) throw error;
+}
+
+export async function createAccountWithEmail(email: string, password: string) {
+  const client = requireSupabase();
+  const { error } = await client.auth.signUp({
+    email,
+    password
   });
   if (error) throw error;
 }
@@ -53,9 +54,9 @@ export async function signOut() {
 
 export async function getCurrentUser(): Promise<User | null> {
   if (!supabase) return null;
-  const { data, error } = await supabase.auth.getUser();
+  const { data, error } = await supabase.auth.getSession();
   if (error) throw error;
-  return data.user;
+  return data.session?.user ?? null;
 }
 
 export function onAuthStateChanged(callback: (user: User | null, event: AuthChangeEvent, session: Session | null) => void) {
