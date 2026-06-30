@@ -868,6 +868,114 @@ function withSongDefaults(song: Song): Song {
   };
 }
 
+type RestoreSongCandidate = {
+  song: Song;
+  sourceIndex: number;
+  sourceUpdatedAt: string;
+};
+
+function normalizeCloudRestoreSong(item: { song?: unknown; revision?: unknown; updatedAt?: unknown }, index: number): RestoreSongCandidate {
+  const raw = item?.song;
+  if (!raw || typeof raw !== 'object') {
+    const details = {
+      songUuid: '',
+      title: '',
+      artist: '',
+      error: 'Cloud song row does not contain a song object.',
+      validationReason: 'missing-song-object',
+      sourceIndex: index + 1
+    };
+    console.error('RESTORE_SONG_INSERT_FAILED', details);
+    throw new Error(`Cloud song ${index + 1} is invalid.`);
+  }
+
+  const rawSong = raw as Partial<Song> & { body?: unknown; content?: unknown; revision?: unknown };
+  const chart = typeof rawSong.chart === 'string'
+    ? rawSong.chart
+    : typeof rawSong.rawChordPro === 'string'
+      ? rawSong.rawChordPro
+      : typeof rawSong.content === 'string'
+        ? rawSong.content
+        : typeof rawSong.body === 'string'
+          ? rawSong.body
+          : '';
+  const title = typeof rawSong.title === 'string' && rawSong.title.trim() ? rawSong.title.trim() : 'Untitled Song';
+  const artist = typeof rawSong.artist === 'string' ? rawSong.artist.trim() : '';
+  const songUuid = typeof rawSong.songUuid === 'string' && rawSong.songUuid.trim() ? rawSong.songUuid.trim() : createSongUuid();
+  const id = typeof rawSong.id === 'string' && rawSong.id.trim() ? rawSong.id.trim() : songUuid || createId('restore-song');
+  const version = normalizeSongVersion(rawSong.version ?? rawSong.revision ?? item.revision);
+
+  const song: Song = {
+    ...emptySong(),
+    ...rawSong,
+    id,
+    songUuid,
+    version,
+    title,
+    artist,
+    key: typeof rawSong.key === 'string' ? rawSong.key : '',
+    capo: Number.isFinite(Number(rawSong.capo)) ? Math.max(0, Math.round(Number(rawSong.capo))) : 0,
+    bpm: Number.isFinite(Number(rawSong.bpm)) ? Math.max(0, Math.round(Number(rawSong.bpm))) : 0,
+    timeSignature: typeof rawSong.timeSignature === 'string' && rawSong.timeSignature.trim() ? rawSong.timeSignature : '4/4',
+    tags: Array.isArray(rawSong.tags) ? rawSong.tags : [],
+    notes: typeof rawSong.notes === 'string' ? rawSong.notes : '',
+    chart,
+    favorite: Boolean(rawSong.favorite),
+    referenceAudioUrl: typeof rawSong.referenceAudioUrl === 'string' ? rawSong.referenceAudioUrl : '',
+    rawChordPro: typeof rawSong.rawChordPro === 'string' ? rawSong.rawChordPro : chart,
+    parsedChordPro: rawSong.parsedChordPro ?? parseChordPro(chart),
+    updatedAt: typeof rawSong.updatedAt === 'string' && rawSong.updatedAt ? rawSong.updatedAt : typeof item.updatedAt === 'string' ? item.updatedAt : new Date().toISOString()
+  };
+
+  return {
+    song,
+    sourceIndex: index,
+    sourceUpdatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : song.updatedAt
+  };
+}
+
+function isNewerRestoreCandidate(next: RestoreSongCandidate, current: RestoreSongCandidate) {
+  const nextVersion = normalizeSongVersion(next.song.version);
+  const currentVersion = normalizeSongVersion(current.song.version);
+  if (nextVersion !== currentVersion) return nextVersion > currentVersion;
+  return Date.parse(next.sourceUpdatedAt || next.song.updatedAt || '') > Date.parse(current.sourceUpdatedAt || current.song.updatedAt || '');
+}
+
+function makeUniqueRestoreSongIds(candidates: RestoreSongCandidate[]) {
+  const usedIds = new Set<string>();
+
+  return candidates.map((candidate) => {
+    const originalId = candidate.song.id;
+    if (originalId && !usedIds.has(originalId)) {
+      usedIds.add(originalId);
+      return candidate.song;
+    }
+
+    let nextId = candidate.song.songUuid && !usedIds.has(candidate.song.songUuid)
+      ? candidate.song.songUuid
+      : createId('restore-song');
+    while (usedIds.has(nextId)) {
+      nextId = createId('restore-song');
+    }
+    usedIds.add(nextId);
+
+    console.warn('RESTORE_DUPLICATE_SONG_ID', {
+      originalId,
+      reassignedId: nextId,
+      songUuid: candidate.song.songUuid,
+      title: candidate.song.title,
+      artist: candidate.song.artist,
+      revision: normalizeSongVersion(candidate.song.version),
+      updatedAt: candidate.sourceUpdatedAt
+    });
+
+    return {
+      ...candidate.song,
+      id: nextId
+    };
+  });
+}
+
 export default function App() {
   if (isExternalPrompterRoute()) return <ExternalPrompterApp />;
   if (isReceiverRoute()) return <RemoteReceiverApp />;
@@ -2374,13 +2482,30 @@ export default function App() {
 
       const downloadedSongCount = body.songs.length;
       const downloadedSetlistCount = body.setlists.length;
-      const cloudSongs = body.songs.map((item: { song?: unknown }, index: number) => {
-        const song = item?.song;
-        if (!song || typeof song !== 'object' || typeof (song as Song).id !== 'string') {
-          throw new Error(`Cloud song ${index + 1} is invalid.`);
+      const candidatesByUuid = new Map<string, RestoreSongCandidate>();
+      body.songs.forEach((item: { song?: unknown; revision?: unknown; updatedAt?: unknown }, index: number) => {
+        const candidate = normalizeCloudRestoreSong(item, index);
+        const existing = candidatesByUuid.get(candidate.song.songUuid || candidate.song.id);
+        if (existing) {
+          console.warn('RESTORE_DUPLICATE_SONG_UUID', {
+            songUuid: candidate.song.songUuid,
+            keptTitle: existing.song.title,
+            duplicateTitle: candidate.song.title,
+            keptRevision: normalizeSongVersion(existing.song.version),
+            duplicateRevision: normalizeSongVersion(candidate.song.version),
+            keptUpdatedAt: existing.sourceUpdatedAt,
+            duplicateUpdatedAt: candidate.sourceUpdatedAt
+          });
+          if (isNewerRestoreCandidate(candidate, existing)) {
+            candidatesByUuid.set(candidate.song.songUuid || candidate.song.id, candidate);
+          }
+          return;
         }
-        return withSongDefaults(song as Song);
+        candidatesByUuid.set(candidate.song.songUuid || candidate.song.id, candidate);
       });
+
+      const cloudSongs = makeUniqueRestoreSongIds(Array.from(candidatesByUuid.values()));
+      console.log('RESTORE_NORMALIZED_SONG_COUNT', cloudSongs.length);
       const cloudSetlists = body.setlists.map((item: { setlist?: unknown }, index: number) => {
         const setlist = item?.setlist;
         if (!setlist || typeof setlist !== 'object' || typeof (setlist as SavedSetlist).id !== 'string' || !Array.isArray((setlist as SavedSetlist).songIds)) {
@@ -2389,7 +2514,7 @@ export default function App() {
         return setlist as SavedSetlist;
       });
 
-      if (cloudSongs.length !== downloadedSongCount || cloudSetlists.length !== downloadedSetlistCount) {
+      if (cloudSetlists.length !== downloadedSetlistCount) {
         throw new Error('Cloud library restore count validation failed before import.');
       }
 
@@ -2399,7 +2524,24 @@ export default function App() {
         await db.setlist.clear();
         await db.setlists.clear();
         console.log('RESTORE_PHASE: restoring songs');
-        await db.songs.bulkPut(cloudSongs);
+        const songInsertFailures: Array<{ song: Song; error: unknown; validationReason: string }> = [];
+        for (const song of cloudSongs) {
+          try {
+            await db.songs.put(song);
+          } catch (error) {
+            songInsertFailures.push({ song, error, validationReason: 'indexeddb-put-failed' });
+            console.error('RESTORE_SONG_INSERT_FAILED', {
+              songUuid: song.songUuid || '',
+              title: song.title || '',
+              artist: song.artist || '',
+              error: error instanceof Error ? error.message : String(error),
+              validationReason: 'indexeddb-put-failed'
+            });
+          }
+        }
+        if (songInsertFailures.length > 0) {
+          throw new Error(`${songInsertFailures.length} cloud song(s) failed to insert.`);
+        }
         console.log('RESTORE_PHASE: restoring setlists');
         await db.setlists.bulkPut(cloudSetlists);
       });
@@ -2414,11 +2556,12 @@ export default function App() {
       console.log('Inserted Songs:', insertedSongCount);
       console.log('Cloud Setlists:', downloadedSetlistCount);
       console.log('Inserted Setlists:', insertedSetlistCount);
+      console.log('RESTORE_INSERTED_SONG_COUNT', insertedSongCount);
 
-      if (insertedSongCount !== downloadedSongCount || insertedSetlistCount !== downloadedSetlistCount) {
+      if (insertedSongCount !== cloudSongs.length || insertedSetlistCount !== downloadedSetlistCount) {
         console.error('Verification FAILED', {
           songs: {
-            expected: downloadedSongCount,
+            expected: cloudSongs.length,
             actual: insertedSongCount
           },
           setlists: {
@@ -2426,7 +2569,7 @@ export default function App() {
             actual: insertedSetlistCount
           }
         });
-        throw new Error(`Restore count mismatch. Downloaded ${downloadedSongCount} songs and ${downloadedSetlistCount} setlists, inserted ${insertedSongCount} songs and ${insertedSetlistCount} setlists.`);
+        throw new Error(`Restore count mismatch. Expected ${cloudSongs.length} normalized unique songs and ${downloadedSetlistCount} setlists, inserted ${insertedSongCount} songs and ${insertedSetlistCount} setlists.`);
       }
 
       console.log('Verification PASSED');
