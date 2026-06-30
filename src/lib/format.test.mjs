@@ -459,6 +459,24 @@ const harmonyChordOver = chordOverTextToAnchoredLine('G        C', 'Take it [HAR
 assert.equal(harmonyChordOver.lyricLine, 'Take it easy');
 assert.deepEqual(harmonyChordOver.harmonyRanges, [{ start: 8, end: 12 }]);
 
+const longWrappingLyric = 'This is a very long lyric line that should wrap instead of disappearing off the right edge of the screen';
+const longHarmonyLine = chordTokensToAnchoredLine([
+  { type: 'text', value: `[HARMONY]${longWrappingLyric}[/HARMONY]`, display: `[HARMONY]${longWrappingLyric}[/HARMONY]` }
+]);
+assert.equal(longHarmonyLine.lyricLine, longWrappingLyric);
+assert.deepEqual(longHarmonyLine.harmonyRanges, [{ start: 0, end: longWrappingLyric.length }]);
+const longInlineLine = chordTokensToAnchoredLine([
+  { type: 'chord', value: 'G', display: 'G' },
+  { type: 'text', value: longWrappingLyric.slice(0, 36), display: longWrappingLyric.slice(0, 36) },
+  { type: 'chord', value: 'Cadd9', display: 'Cadd9' },
+  { type: 'text', value: longWrappingLyric.slice(36), display: longWrappingLyric.slice(36) }
+]);
+assert.equal(longInlineLine.lyricLine, longWrappingLyric);
+assert.deepEqual(longInlineLine.anchors, [{ chord: 'G', index: 0 }, { chord: 'Cadd9', index: 36 }]);
+const longChordOverLine = chordOverTextToAnchoredLine('G                                   Cadd9', longWrappingLyric);
+assert.equal(longChordOverLine.lyricLine, longWrappingLyric);
+assert.equal(longChordOverLine.anchors.length, 2);
+
 const displayState = {
   activeProfile: 'desktop',
   chordFontSize: 18,

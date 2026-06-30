@@ -4584,7 +4584,7 @@ function RemoteDisplaySong({ song, state, diagnostics }: { song: Song; state: Pe
     >
       {diagnostics}
       <article
-        className="h-full w-full overflow-hidden whitespace-pre-wrap px-[8vw] py-[6vh]"
+        className="stage-chart h-full w-full overflow-hidden whitespace-pre-wrap px-[8vw] py-[6vh]"
         style={{
           fontSize: `${lyricFontSize}px`,
           lineHeight: 1.52,
@@ -9018,7 +9018,7 @@ function PerformanceView({
       >
         <article
           className={`stage-chart mx-auto font-chart transition-opacity duration-200 ${state.portraitMode ? 'max-w-3xl' : 'max-w-5xl'} ${state.mirroredMode ? 'mirror-stage' : ''} ${state.splitScreen ? 'tablet-columns' : ''} ${isTransitioningSong ? 'opacity-35' : 'opacity-100'}`}
-          style={{ fontSize: `${lyricFontSize}px`, lineHeight: state.portraitMode ? 1.62 : 1.52, color: documentTheme.text, fontFamily: stageFontFamily }}
+          style={{ fontSize: `${lyricFontSize}px`, lineHeight: state.portraitMode ? 1.62 : 1.52, color: documentTheme.text, fontFamily: stageFontFamily, maxWidth: state.portraitMode ? '48rem' : '64rem' }}
         >
           {state.showHarmonyDebug && <RawCurrentSongDebugPanel title="Show Raw Current Song" song={song} />}
           {visibleStageNotes && <p className="mb-8 text-[0.55em] italic opacity-80">{visibleStageNotes}</p>}
@@ -11025,7 +11025,7 @@ function ExternalPrompterApp() {
               <ExternalFillScreenTest settings={settings} layout={layout} />
             ) : (
               <article
-                className="font-chart whitespace-pre-wrap"
+                className="stage-chart font-chart whitespace-pre-wrap"
                 style={{
                   fontSize: `${lyricFontSize}px`,
                   lineHeight: 1.52,
@@ -11578,8 +11578,8 @@ function ChordProDisplayLine({
         );
       }
       return (
-        <div data-line-index={lineIndex} className="whitespace-pre font-mono" style={{ minHeight: `${chordRowHeight}px`, lineHeight: `${chordRowHeight}px`, ...rowSpacingStyle }}>
-          {line.chordLine && <div>{renderStandaloneChordRow(line.chordLine, chordClassName, chordStyle)}</div>}
+        <div data-line-index={lineIndex} className="stage-standalone-chord-row font-mono" style={{ minHeight: `${chordRowHeight}px`, lineHeight: `${chordRowHeight}px`, ...rowSpacingStyle }}>
+          {line.chordLine && renderStandaloneChordRow(line.chordLine, chordClassName, chordStyle)}
         </div>
       );
     }
@@ -11726,7 +11726,7 @@ function ChordProDisplayLine({
   }
 
   return (
-    <div data-line-index={lineIndex} className="relative whitespace-pre-wrap" style={lyricLineStyle}>
+    <div data-line-index={lineIndex} className="stage-plain-lyric-line relative" style={lyricLineStyle}>
       {showHarmonyCues && harmonyIconVisible && plainLineState.hasHarmony && <HarmonyCueIcon color={resolvedHarmonyIconColor} />}
       {renderSelectableLyricTextWithHarmony(rawLineText, {
         sourceRanges: buildLyricSourceRangesFromRenderedTokens(line.tokens),
@@ -11848,9 +11848,8 @@ function mergeAdjacentLyricSourceRanges(ranges: LyricSourceRange[]) {
 }
 
 function renderStandaloneChordRow(line: string, chordClassName: string, chordStyle: React.CSSProperties) {
-  return line.split(/(\s+)/).map((part, index) => {
+  return line.trim().split(/\s+/).filter(Boolean).map((part, index) => {
     if (!part) return null;
-    if (/^\s+$/.test(part)) return <span key={`space-${index}`}>{part}</span>;
     if (!isStageChordToken(part)) return <span key={`${part}-${index}`}>{part}</span>;
     return (
       <span key={`${part}-${index}`} className={chordClassName} style={chordStyle}>
@@ -12061,6 +12060,7 @@ function AnchoredChordDisplayLine({
   const lineBoxRef = useRef<HTMLDivElement | null>(null);
   const lyricRef = useRef<HTMLDivElement | null>(null);
   const [anchorPositions, setAnchorPositions] = useState<Record<number, { left: number; top: number }>>({});
+  const [measuredLineHeight, setMeasuredLineHeight] = useState(totalLineHeight);
   const anchorKey = anchoredLine.anchors.map((anchor) => `${anchor.index}:${anchor.chord}`).join('|');
   const anchorIndexes = useMemo(
     () => Array.from(new Set(anchoredLine.anchors.map((anchor) => anchor.index))).sort((a, b) => a - b),
@@ -12071,14 +12071,22 @@ function AnchoredChordDisplayLine({
     const nextPositions: Record<number, { left: number; top: number }> = {};
     anchorIndexes.forEach((index) => {
       const marker = markerRefs.current.get(index);
+      const lineBox = lineBoxRef.current;
       if (!marker) return;
+      const markerRect = marker.getClientRects()[0] ?? marker.getBoundingClientRect();
+      const lineRect = lineBox?.getBoundingClientRect();
+      const left = lineRect ? markerRect.left - lineRect.left : marker.offsetLeft;
+      const wrappedLyricTop = lineRect ? markerRect.top - lineRect.top - lyricTop : marker.offsetTop;
       nextPositions[index] = {
-        left: marker.offsetLeft,
-        top: Math.max(0, marker.offsetTop - lyricTop + chordVerticalOffset)
+        left: Math.max(0, left),
+        top: Math.max(0, wrappedLyricTop + chordVerticalOffset)
       };
     });
     setAnchorPositions((current) => (sameAnchorPositions(current, nextPositions) ? current : nextPositions));
-  }, [anchorIndexes, lyricTop, chordVerticalOffset]);
+    const lyricHeight = lyricRef.current?.scrollHeight ?? lyricLineHeight;
+    const nextHeight = Math.max(totalLineHeight, lyricTop + lyricHeight);
+    setMeasuredLineHeight((current) => (Math.abs(current - nextHeight) < 1 ? current : nextHeight));
+  }, [anchorIndexes, lyricTop, chordVerticalOffset, lyricLineHeight, totalLineHeight]);
 
   useLayoutEffect(() => {
     measureAnchors();
@@ -12117,9 +12125,10 @@ function AnchoredChordDisplayLine({
     <div data-line-index={lineIndex} className="overflow-visible font-mono" style={{ marginBottom: `${rowSpacing}px` }}>
       <div
         ref={lineBoxRef}
-        className="relative min-w-0 whitespace-pre"
+        className="relative min-w-0 max-w-full overflow-hidden"
         style={{
-          height: `${totalLineHeight}px`,
+          height: `${measuredLineHeight}px`,
+          minHeight: `${measuredLineHeight}px`,
           lineHeight: `${lyricLineHeight}px`
         }}
       >
@@ -12143,7 +12152,7 @@ function AnchoredChordDisplayLine({
             ))}
           </div>
         )}
-        <div ref={lyricRef} className="absolute left-0 whitespace-pre" style={{ top: `${lyricTop}px`, lineHeight: `${lyricLineHeight}px` }}>
+        <div ref={lyricRef} className="absolute left-0 stage-anchored-lyric-text" style={{ top: `${lyricTop}px`, lineHeight: `${lyricLineHeight}px` }}>
           {showHarmonyCues && harmonyIconVisible && anchoredLine.harmonyRanges.length > 0 && <HarmonyCueIcon color={harmonyIconColor} inline={false} />}
           {renderLyricWithAnchorMarkers(anchoredLine.lyricLine, anchorIndexes, markerRefs, anchoredLine.harmonyRanges, sourceRanges, showHarmonyCues, harmonyStyle, showHarmonyDebug)}
         </div>
@@ -12184,24 +12193,36 @@ function renderLyricWithAnchorMarkers(
 
   for (let index = 0; index < boundaries.length; index += 1) {
     const boundary = boundaries[index];
-    if (safeAnchors.includes(boundary)) {
-      nodes.push(
-        <span
-          key={`anchor-${boundary}-${index}`}
-          ref={(element) => {
-            if (element) markerRefs.current.set(boundary, element);
-            else markerRefs.current.delete(boundary);
-          }}
-          className="inline-block w-0"
-          data-chord-anchor-index={boundary}
-        />
-      );
-    }
-
     const nextBoundary = boundaries[index + 1];
-    if (nextBoundary === undefined || boundary >= nextBoundary) continue;
+    const isAnchorBoundary = safeAnchors.includes(boundary);
+    if (nextBoundary === undefined || boundary >= nextBoundary) {
+      if (isAnchorBoundary) {
+        nodes.push(
+          <span
+            key={`anchor-${boundary}-${index}`}
+            ref={(element) => {
+              if (element) markerRefs.current.set(boundary, element);
+              else markerRefs.current.delete(boundary);
+            }}
+            className="stage-chord-anchor-marker"
+            data-chord-anchor-index={boundary}
+          />
+        );
+      }
+      continue;
+    }
     nodes.push(
-      <span key={`text-${boundary}-${nextBoundary}`}>
+      <span
+        key={`text-${boundary}-${nextBoundary}`}
+        ref={isAnchorBoundary
+          ? (element) => {
+              if (element) markerRefs.current.set(boundary, element);
+              else markerRefs.current.delete(boundary);
+            }
+          : undefined}
+        data-chord-anchor-index={isAnchorBoundary ? boundary : undefined}
+        className={isAnchorBoundary ? 'stage-lyric-anchor-segment' : undefined}
+      >
         {renderSelectableLyricTextWithHarmony(lyricLine.slice(boundary, nextBoundary), {
           harmonyRanges: sliceHarmonyRanges(lyricState.ranges, boundary, nextBoundary),
           sourceRanges: sliceLyricSourceRanges(sourceRanges, boundary, nextBoundary),

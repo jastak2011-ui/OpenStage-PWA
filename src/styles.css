@@ -178,6 +178,9 @@ label,
   scrollbar-color: #d6a11f #111827;
   overscroll-behavior: contain;
   scroll-behavior: auto;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .stage-scroll::-webkit-scrollbar {
@@ -217,6 +220,64 @@ label,
   text-wrap: pretty;
   user-select: text;
   -webkit-user-select: text;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.stage-chart * {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.stage-plain-lyric-line,
+.stage-anchored-lyric-text,
+.stage-mobile-reflow-line,
+.stage-mobile-lyric-row,
+.stage-section,
+[data-song-document-role="title"],
+[data-song-document-role="artist"] {
+  max-width: 100%;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.stage-anchored-lyric-text {
+  width: 100%;
+}
+
+.stage-lyric-anchor-segment {
+  display: inline;
+}
+
+.stage-chord-anchor-marker {
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  vertical-align: baseline;
+}
+
+.stage-standalone-chord-row {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.08em 0.55em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.stage-mobile-compact-chord-row,
+.stage-mobile-chord-row {
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .stage-harmony-selection-popover {
