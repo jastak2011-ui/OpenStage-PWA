@@ -11125,7 +11125,6 @@ function MobileReflowChordLine({
 
   return (
     <div data-line-index={lineIndex} className="stage-mobile-reflow-line relative min-w-0 max-w-full break-words" style={{ ...lyricLineStyle, ...rowSpacingStyle }}>
-      {showHarmonyCues && harmonyIconVisible && lyricState.hasHarmony && <HarmonyCueIcon color={harmonyIconColor} />}
       {showChords && anchoredLine.anchors.length > 0 && (
         <div className="stage-mobile-compact-chord-row font-mono">
           {anchoredLine.anchors.map((anchor, index) => (
@@ -11135,7 +11134,10 @@ function MobileReflowChordLine({
           ))}
         </div>
       )}
-      <div className="stage-mobile-lyric-row">{nodes}</div>
+      <div className="stage-mobile-lyric-row">
+        {showHarmonyCues && harmonyIconVisible && lyricState.hasHarmony && <HarmonyCueIcon color={harmonyIconColor} />}
+        {nodes}
+      </div>
     </div>
   );
 }
@@ -11148,15 +11150,29 @@ function renderStageSectionLabel(label: string, lineIndex: number, style: React.
   );
 }
 
-function HarmonyCueIcon({ color, top }: { color: string; top?: number | string }) {
+function HarmonyCueIcon({ color, top, inline = true }: { color: string; top?: number | string; inline?: boolean }) {
+  if (inline) {
+    return (
+      <Music2
+        className="pointer-events-none mr-[0.28em] inline-block h-[0.78em] w-[0.78em] align-[-0.08em]"
+        style={{
+          color,
+          filter: 'drop-shadow(0 0 0.28em rgba(99,102,241,0.24))'
+        }}
+        aria-hidden="true"
+      />
+    );
+  }
+
   return (
     <Music2
-      className="pointer-events-none absolute -ml-[1.45em] h-[0.85em] w-[0.85em]"
+      className="pointer-events-none absolute h-[0.78em] w-[0.78em]"
       style={{
         color,
         top: top ?? '50%',
+        right: 'calc(100% + 0.28em)',
         transform: 'translateY(-50%)',
-        filter: 'drop-shadow(0 0 0.35em rgba(99,102,241,0.28))'
+        filter: 'drop-shadow(0 0 0.28em rgba(99,102,241,0.24))'
       }}
       aria-hidden="true"
     />
@@ -11317,8 +11333,8 @@ function AnchoredChordDisplayLine({
             ))}
           </div>
         )}
-        {showHarmonyCues && harmonyIconVisible && anchoredLine.harmonyRanges.length > 0 && <HarmonyCueIcon color={harmonyIconColor} top={lyricTop + lyricLineHeight / 2} />}
         <div ref={lyricRef} className="absolute left-0 whitespace-pre" style={{ top: `${lyricTop}px`, lineHeight: `${lyricLineHeight}px` }}>
+          {showHarmonyCues && harmonyIconVisible && anchoredLine.harmonyRanges.length > 0 && <HarmonyCueIcon color={harmonyIconColor} inline={false} />}
           {renderLyricWithAnchorMarkers(anchoredLine.lyricLine, anchorIndexes, markerRefs, anchoredLine.harmonyRanges, sourceRanges, showHarmonyCues, harmonyStyle, showHarmonyDebug)}
         </div>
       </div>
