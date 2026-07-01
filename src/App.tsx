@@ -302,6 +302,11 @@ type WrappedAnchoredLine = {
   sourceRanges?: LyricSourceRange[];
   sourceStart: number;
   sourceEnd: number;
+  visualLineIndex?: number;
+  renderedLyricWidth?: number;
+  availableStageWidth?: number;
+  wrapPoint?: number | null;
+  lineBreakCharacterIndex?: number | null;
 };
 
 type SetlistSortMode = 'manual' | 'title' | 'artist' | 'key' | 'bpm' | 'duration';
@@ -11660,15 +11665,15 @@ function ChordProDisplayLine({
       const chordRowHeight = Math.ceil(chordFontSize * 1.25);
       if (mobileReflowMode) {
         return (
-          <div data-line-index={lineIndex} className="stage-mobile-chord-row font-mono" style={{ minHeight: `${chordRowHeight}px`, lineHeight: `${chordRowHeight}px`, ...rowSpacingStyle }}>
-            {line.chordLine && <div>{renderMobileStandaloneChordRow(line.chordLine, chordClassName, chordStyle)}</div>}
-          </div>
+          line.chordLine
+            ? <StageStandaloneChordRow line={line.chordLine} lineIndex={lineIndex} chordClassName={chordClassName} chordStyle={chordStyle} className="stage-mobile-chord-row font-mono" style={{ minHeight: `${chordRowHeight}px`, lineHeight: `${chordRowHeight}px`, ...rowSpacingStyle }} mobile />
+            : <div data-line-index={lineIndex} className="stage-mobile-chord-row font-mono" style={{ minHeight: `${chordRowHeight}px`, lineHeight: `${chordRowHeight}px`, ...rowSpacingStyle }} />
         );
       }
       return (
-        <div data-line-index={lineIndex} className="stage-standalone-chord-row font-mono" style={{ minHeight: `${chordRowHeight}px`, lineHeight: `${chordRowHeight}px`, ...rowSpacingStyle }}>
-          {line.chordLine && renderStandaloneChordRow(line.chordLine, chordClassName, chordStyle)}
-        </div>
+        line.chordLine
+          ? <StageStandaloneChordRow line={line.chordLine} lineIndex={lineIndex} chordClassName={chordClassName} chordStyle={chordStyle} className="stage-standalone-chord-row font-mono" style={{ minHeight: `${chordRowHeight}px`, lineHeight: `${chordRowHeight}px`, ...rowSpacingStyle }} />
+          : <div data-line-index={lineIndex} className="stage-standalone-chord-row font-mono" style={{ minHeight: `${chordRowHeight}px`, lineHeight: `${chordRowHeight}px`, ...rowSpacingStyle }} />
       );
     }
     const anchoredLine = chordOverTextToAnchoredLine(line.chordLine, line.lyricLine);
@@ -11935,27 +11940,107 @@ function mergeAdjacentLyricSourceRanges(ranges: LyricSourceRange[]) {
   return merged;
 }
 
-function renderStandaloneChordRow(line: string, chordClassName: string, chordStyle: React.CSSProperties) {
-  return line.trim().split(/\s+/).filter(Boolean).map((part, index) => {
-    if (!part) return null;
-    if (!isStageChordToken(part)) return <span key={`${part}-${index}`}>{part}</span>;
-    return (
-      <span key={`${part}-${index}`} className={chordClassName} style={chordStyle}>
-        {part}
-      </span>
-    );
+function tokenizeStandaloneChordLine(line: string) {
+  const tokens: Array<{ text: string; start: number; isChord: boolean }> = [];
+  let searchFrom = 0;
+  line.trim().split(/\s+/).filter(Boolean).forEach((part) => {
+    const start = line.indexOf(part, searchFrom);
+    const safeStart = start >= 0 ? start : searchFrom;
+    tokens.push({ text: part, start: safeStart, isChord: isStageChordToken(part) });
+    searchFrom = safeStart + part.length;
   });
+  return tokens;
 }
 
-function renderMobileStandaloneChordRow(line: string, chordClassName: string, chordStyle: React.CSSProperties) {
-  return line.trim().split(/\s+/).filter(Boolean).map((part, index) => {
-    if (!isStageChordToken(part)) return <span key={`${part}-${index}`}>{part}</span>;
-    return (
-      <span key={`${part}-${index}`} className={chordClassName} style={chordStyle}>
-        {part}
-      </span>
-    );
-  });
+function StageStandaloneChordRow({
+  line,
+  lineIndex,
+  chordClassName,
+  chordStyle,
+  className,
+  style,
+  mobile = false
+}: {
+  line: string;
+  lineIndex: number;
+  chordClassName: string;
+  chordStyle: React.CSSProperties;
+  className: string;
+  style: React.CSSProperties;
+  mobile?: boolean;
+}) {
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const tokenRefs = useRef(new Map<number, HTMLSpanElement>());
+  const diagnosticSignatureRef = useRef('');
+  const tokens = useMemo(() => tokenizeStandaloneChordLine(line), [line]);
+  const rowId = `stage-chord-only-${lineIndex}-${mobile ? 'mobile' : 'desktop'}`;
+
+  useLayoutEffect(() => {
+    const rowRect = rowRef.current?.getBoundingClientRect();
+    const diagnostics = tokens
+      .map((token, tokenIndex) => {
+        if (!token.isChord) return null;
+        const tokenElement = tokenRefs.current.get(tokenIndex);
+        const tokenRect = tokenElement?.getBoundingClientRect();
+        const x = rowRect && tokenRect ? tokenRect.left - rowRect.left : 0;
+        const y = rowRect && tokenRect ? tokenRect.top - rowRect.top : 0;
+        return {
+          chordText: token.text,
+          originalLyricCharacterIndex: token.start,
+          localLyricCharacterIndex: token.start,
+          wrappedVisualLineIndex: 0,
+          calculatedX: Number(x.toFixed(2)),
+          calculatedY: Number(y.toFixed(2)),
+          renderedRowId: rowId,
+          renderedRowIndex: lineIndex,
+          anchorRenderIndex: tokenIndex,
+          lyricLine: '',
+          chordOnlyLine: line,
+          renderedLyricWidth: 0,
+          domRenderedLyricWidth: 0,
+          availableStageWidth: Number((rowRef.current?.clientWidth ?? 0).toFixed(2)),
+          domAvailableStageWidth: Number((rowRef.current?.clientWidth ?? 0).toFixed(2)),
+          wrapPoint: null,
+          lineBreakCharacterIndex: null,
+          sourceStart: token.start,
+          sourceEnd: token.start + token.text.length,
+          mobile
+        };
+      })
+      .filter(Boolean);
+    const signature = JSON.stringify(diagnostics);
+    if (signature !== diagnosticSignatureRef.current) {
+      diagnosticSignatureRef.current = signature;
+      diagnostics.forEach((diagnostic) => {
+        if (!diagnostic) return;
+        const label = shouldHighlightStageChordDiagnostic(diagnostic.chordText, line)
+          ? 'STAGE_CHORD_PLACEMENT_TARGET'
+          : 'STAGE_CHORD_PLACEMENT';
+        console.debug(label, diagnostic);
+      });
+    }
+  }, [line, lineIndex, mobile, rowId, tokens]);
+
+  return (
+    <div ref={rowRef} data-line-index={lineIndex} className={className} style={style}>
+      {tokens.map((token, index) => {
+        if (!token.isChord) return <span key={`${token.text}-${index}`}>{token.text}</span>;
+        return (
+          <span
+            key={`${token.text}-${index}`}
+            ref={(element) => {
+              if (element) tokenRefs.current.set(index, element);
+              else tokenRefs.current.delete(index);
+            }}
+            className={chordClassName}
+            style={chordStyle}
+          >
+            {token.text}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 function MobileReflowChordLine({
@@ -12108,10 +12193,29 @@ function isStageChordToken(value: string) {
   return /^[|:({\[]*[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*?(?:\/[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*)?[|:)}\]]*$/i.test(value);
 }
 
+const STAGE_CHORD_DIAGNOSTIC_TARGETS = new Set(['F#m', 'Bm', 'G', 'Em']);
+const STAGE_CHORD_DIAGNOSTIC_PHRASES = [
+  "can't get no connection",
+  "so you'll come to know"
+];
+
+function shouldHighlightStageChordDiagnostic(chord: string, lyricLine: string) {
+  return STAGE_CHORD_DIAGNOSTIC_TARGETS.has(chord)
+    || STAGE_CHORD_DIAGNOSTIC_PHRASES.some((phrase) => lyricLine.toLowerCase().includes(phrase));
+}
+
 function AnchoredChordDisplayLine({
   anchoredLine,
   sourceRanges,
   lineIndex,
+  renderedRowId,
+  wrappedVisualLineIndex = 0,
+  sourceStart = 0,
+  sourceEnd,
+  renderedLyricWidth,
+  availableStageWidth,
+  wrapPoint,
+  lineBreakCharacterIndex,
   chordClassName,
   chordStyle,
   chordFontSize,
@@ -12129,6 +12233,14 @@ function AnchoredChordDisplayLine({
   anchoredLine: AnchoredChordLine;
   sourceRanges?: LyricSourceRange[];
   lineIndex: number;
+  renderedRowId?: string;
+  wrappedVisualLineIndex?: number;
+  sourceStart?: number;
+  sourceEnd?: number;
+  renderedLyricWidth?: number;
+  availableStageWidth?: number;
+  wrapPoint?: number | null;
+  lineBreakCharacterIndex?: number | null;
   chordClassName: string;
   chordStyle: React.CSSProperties;
   chordFontSize: number;
@@ -12155,9 +12267,11 @@ function AnchoredChordDisplayLine({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const lineBoxRef = useRef<HTMLDivElement | null>(null);
   const lyricRef = useRef<HTMLDivElement | null>(null);
+  const diagnosticSignatureRef = useRef('');
   const [anchorPositions, setAnchorPositions] = useState<Record<number, { left: number; top: number }>>({});
   const [measuredLineHeight, setMeasuredLineHeight] = useState(totalLineHeight);
   const [availableWidth, setAvailableWidth] = useState(0);
+  const rowId = renderedRowId ?? `stage-line-${lineIndex}-${sourceStart}-${sourceEnd ?? anchoredLine.lyricLine.length}-${wrappedVisualLineIndex}`;
   const anchorKey = anchoredLine.anchors.map((anchor) => `${anchor.index}:${anchor.chord}`).join('|');
   const anchorIndexes = useMemo(
     () => Array.from(new Set(anchoredLine.anchors.map((anchor) => anchor.index))).sort((a, b) => a - b),
@@ -12172,6 +12286,12 @@ function AnchoredChordDisplayLine({
     ),
     [anchoredLine, sourceRanges, availableWidth, lyricFontSize]
   );
+  const singleLineDiagnostics = wrappedLines.length === 1 ? wrappedLines[0] : undefined;
+  const diagnosticRenderedLyricWidth = renderedLyricWidth ?? singleLineDiagnostics?.renderedLyricWidth;
+  const diagnosticAvailableStageWidth = availableStageWidth ?? singleLineDiagnostics?.availableStageWidth;
+  const diagnosticWrapPoint = wrapPoint ?? singleLineDiagnostics?.wrapPoint ?? null;
+  const diagnosticLineBreakCharacterIndex = lineBreakCharacterIndex ?? singleLineDiagnostics?.lineBreakCharacterIndex ?? null;
+  const diagnosticSourceEnd = sourceEnd ?? singleLineDiagnostics?.sourceEnd ?? sourceStart + anchoredLine.lyricLine.length;
 
   useLayoutEffect(() => {
     const updateWidth = () => {
@@ -12218,11 +12338,87 @@ function AnchoredChordDisplayLine({
         top: chordTop
       };
     });
+    if (anchoredLine.anchors.length > 0) {
+      const lyricRect = lyricRef.current?.getBoundingClientRect();
+      const lineRect = lineBoxRef.current?.getBoundingClientRect();
+      const domRenderedLyricWidth = lyricRef.current?.scrollWidth ?? lyricRect?.width ?? renderedLyricWidth ?? 0;
+      const domAvailableWidth = lineBoxRef.current?.clientWidth ?? availableStageWidth ?? 0;
+      const diagnostics = anchoredLine.anchors.map((anchor, anchorRenderIndex) => {
+        const position = nextPositions[anchor.index] ?? { left: 0, top: 0 };
+        const originalLyricCharacterIndex = sourceStart + anchor.index;
+        return {
+          chordText: anchor.chord,
+          originalLyricCharacterIndex,
+          localLyricCharacterIndex: anchor.index,
+          wrappedVisualLineIndex,
+          calculatedX: Number(position.left.toFixed(2)),
+          calculatedY: Number(position.top.toFixed(2)),
+          renderedRowId: rowId,
+          renderedRowIndex: lineIndex,
+          anchorRenderIndex,
+          lyricLine: anchoredLine.lyricLine,
+          renderedLyricWidth: Number((diagnosticRenderedLyricWidth ?? domRenderedLyricWidth).toFixed(2)),
+          domRenderedLyricWidth: Number(domRenderedLyricWidth.toFixed(2)),
+          availableStageWidth: Number((diagnosticAvailableStageWidth ?? domAvailableWidth).toFixed(2)),
+          domAvailableStageWidth: Number(domAvailableWidth.toFixed(2)),
+          wrapPoint: diagnosticWrapPoint,
+          lineBreakCharacterIndex: diagnosticLineBreakCharacterIndex,
+          sourceStart,
+          sourceEnd: diagnosticSourceEnd,
+          measuredLineHeight: Number(measuredLineHeight.toFixed(2)),
+          chordAreaHeight,
+          gap,
+          lyricTop,
+          lyricLineHeight,
+          chordFontSize,
+          lyricFontSize,
+          lineSpacing,
+          chordVerticalOffset,
+          lineBoxHeight: lineRect ? Number(lineRect.height.toFixed(2)) : null,
+          lyricTopInDom: lyricRect && lineRect ? Number((lyricRect.top - lineRect.top).toFixed(2)) : null
+        };
+      });
+      const signature = JSON.stringify(diagnostics);
+      if (signature !== diagnosticSignatureRef.current) {
+        diagnosticSignatureRef.current = signature;
+        diagnostics.forEach((diagnostic) => {
+          const label = shouldHighlightStageChordDiagnostic(diagnostic.chordText, diagnostic.lyricLine)
+            ? 'STAGE_CHORD_PLACEMENT_TARGET'
+            : 'STAGE_CHORD_PLACEMENT';
+          console.debug(label, diagnostic);
+        });
+      }
+    }
     setAnchorPositions((current) => (sameAnchorPositions(current, nextPositions) ? current : nextPositions));
     const lyricHeight = lyricRef.current?.scrollHeight ?? lyricLineHeight;
     const nextHeight = Math.max(totalLineHeight, lyricTop + lyricHeight);
     setMeasuredLineHeight((current) => (Math.abs(current - nextHeight) < 1 ? current : nextHeight));
-  }, [anchorIndexes, lyricTop, safeChordVerticalOffset, chordLaneMaxTop, lyricLineHeight, totalLineHeight]);
+  }, [
+    anchorIndexes,
+    anchoredLine.anchors,
+    anchoredLine.lyricLine,
+    chordAreaHeight,
+    chordFontSize,
+    chordVerticalOffset,
+    diagnosticAvailableStageWidth,
+    diagnosticLineBreakCharacterIndex,
+    diagnosticRenderedLyricWidth,
+    diagnosticSourceEnd,
+    diagnosticWrapPoint,
+    gap,
+    lineIndex,
+    lineSpacing,
+    lyricFontSize,
+    lyricLineHeight,
+    lyricTop,
+    measuredLineHeight,
+    rowId,
+    safeChordVerticalOffset,
+    sourceStart,
+    totalLineHeight,
+    wrappedVisualLineIndex,
+    chordLaneMaxTop
+  ]);
 
   useLayoutEffect(() => {
     measureAnchors();
@@ -12266,6 +12462,14 @@ function AnchoredChordDisplayLine({
             anchoredLine={wrappedLine}
             sourceRanges={wrappedLine.sourceRanges}
             lineIndex={lineIndex}
+            renderedRowId={`stage-line-${lineIndex}-${wrappedLine.sourceStart}-${wrappedLine.sourceEnd}-${wrappedIndex}`}
+            wrappedVisualLineIndex={wrappedIndex}
+            sourceStart={wrappedLine.sourceStart}
+            sourceEnd={wrappedLine.sourceEnd}
+            renderedLyricWidth={wrappedLine.renderedLyricWidth}
+            availableStageWidth={wrappedLine.availableStageWidth}
+            wrapPoint={wrappedLine.wrapPoint}
+            lineBreakCharacterIndex={wrappedLine.lineBreakCharacterIndex}
             chordClassName={chordClassName}
             chordStyle={chordStyle}
             chordFontSize={chordFontSize}
@@ -12347,17 +12551,28 @@ function wrapAnchoredLineForStage(
       ...anchoredLine,
       sourceRanges,
       sourceStart: 0,
-      sourceEnd: lyricLine.length
+      sourceEnd: lyricLine.length,
+      visualLineIndex: 0,
+      renderedLyricWidth: measureStageLyricText(lyricLine, font),
+      availableStageWidth: availableWidth,
+      wrapPoint: null,
+      lineBreakCharacterIndex: null
     }];
   }
 
   const usableWidth = Math.max(40, availableWidth - 4);
-  if (measureStageLyricText(lyricLine, font) <= usableWidth) {
+  const fullLyricWidth = measureStageLyricText(lyricLine, font);
+  if (fullLyricWidth <= usableWidth) {
     return [{
       ...anchoredLine,
       sourceRanges,
       sourceStart: 0,
-      sourceEnd: lyricLine.length
+      sourceEnd: lyricLine.length,
+      visualLineIndex: 0,
+      renderedLyricWidth: fullLyricWidth,
+      availableStageWidth: usableWidth,
+      wrapPoint: null,
+      lineBreakCharacterIndex: null
     }];
   }
 
@@ -12387,7 +12602,12 @@ function wrapAnchoredLineForStage(
       harmonyRanges: sliceHarmonyRanges(anchoredLine.harmonyRanges, segment.start, segment.end),
       sourceRanges: sliceLyricSourceRanges(sourceRanges, segment.start, segment.end),
       sourceStart: segment.start,
-      sourceEnd: segment.end
+      sourceEnd: segment.end,
+      visualLineIndex: segmentIndex,
+      renderedLyricWidth: measureStageLyricText(segmentText, font),
+      availableStageWidth: usableWidth,
+      wrapPoint: isLastSegment ? null : segment.end,
+      lineBreakCharacterIndex: isLastSegment ? null : segment.end
     };
   });
 }
