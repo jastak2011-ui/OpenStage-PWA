@@ -12199,9 +12199,8 @@ function AnchoredChordDisplayLine({
     <div ref={wrapperRef} data-line-index={lineIndex} className="overflow-visible font-mono" style={{ marginBottom: `${rowSpacing}px` }}>
       <div
         ref={lineBoxRef}
-        className="relative min-w-0 max-w-full overflow-hidden"
+        className="relative min-w-0 max-w-full overflow-visible"
         style={{
-          height: `${measuredLineHeight}px`,
           minHeight: `${measuredLineHeight}px`,
           lineHeight: `${lyricLineHeight}px`
         }}

@@ -225,6 +225,7 @@ label,
   min-width: 0;
   box-sizing: border-box;
   overflow-x: hidden;
+  overflow-y: visible;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -233,6 +234,7 @@ label,
 .stage-chart * {
   box-sizing: border-box;
   max-width: 100%;
+  overflow-y: visible;
 }
 
 .stage-plain-lyric-line,
@@ -359,6 +361,7 @@ label,
 .stage-wrapped-chord-line {
   max-width: 100%;
   overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .stage-section {
