@@ -8347,6 +8347,55 @@ function PerformanceView({
   useEffect(() => {
     useAppStore.getState().updateDiagnostics({ ...rendered.diagnostics, renderCacheSize: getRenderCacheSize() });
   }, [rendered.diagnostics.lastRenderMs, rendered.diagnostics.parsedLineCount]);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const scrollElement = stageRef.current;
+    const shell = scrollElement?.closest('.stage-shell') as HTMLElement | null;
+    if (!scrollElement || !shell) return;
+
+    shell.setAttribute('data-stage-scroll-debug', 'true');
+    scrollElement.setAttribute('data-stage-main-scroll-container', 'true');
+
+    const scanStageScrollContainers = () => {
+      const elements = Array.from(shell.querySelectorAll<HTMLElement>('*'));
+      elements.forEach((element) => {
+        element.removeAttribute('data-stage-nested-scroller');
+      });
+
+      const overflowElements = elements
+        .map((element) => {
+          const style = window.getComputedStyle(element);
+          const overflowY = style.overflowY;
+          if (!['auto', 'scroll', 'hidden'].includes(overflowY)) return null;
+          const isMainStageScroll = element === scrollElement;
+          const isNestedScroll = ['auto', 'scroll'].includes(overflowY) && !isMainStageScroll;
+          if (isNestedScroll) element.setAttribute('data-stage-nested-scroller', 'true');
+          return {
+            tagName: element.tagName,
+            className: typeof element.className === 'string' ? element.className : String(element.className),
+            overflowY,
+            isMainStageScroll,
+            clientHeight: element.clientHeight,
+            scrollHeight: element.scrollHeight
+          };
+        })
+        .filter(Boolean);
+
+      console.debug('STAGE_SCROLL_CONTAINERS', overflowElements);
+    };
+
+    const frame = window.requestAnimationFrame(scanStageScrollContainers);
+    const timer = window.setTimeout(scanStageScrollContainers, 500);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+      shell.removeAttribute('data-stage-scroll-debug');
+      scrollElement.removeAttribute('data-stage-main-scroll-container');
+      shell.querySelectorAll('[data-stage-nested-scroller="true"]').forEach((element) => {
+        element.removeAttribute('data-stage-nested-scroller');
+      });
+    };
+  }, [stageRef, song.id, chartLines.length, state.activeProfile, state.portraitMode, state.splitScreen, mobileReflowMode]);
   const [activePopover, setActivePopover] = useState<StagePopoverName | null>(null);
   const [formatTab, setFormatTab] = useState<StageFormatTab>('format');
   const [toolbarVisible, setToolbarVisible] = useState(true);
