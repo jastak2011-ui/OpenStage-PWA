@@ -11575,7 +11575,7 @@ function ChordProDisplayLine({
   const chordStyle: React.CSSProperties = {
     fontSize: `${chordFontSize}px`,
     fontFamily: chordFontFamily,
-    lineHeight: 1.15,
+    lineHeight: `${Math.ceil(chordFontSize * 1.15)}px`,
     color: resolvedChordColor,
     backgroundColor: hasHighlight ? resolvedHighlightColor : undefined,
     borderRadius: hasHighlight ? '0.18em' : undefined,
@@ -12143,7 +12143,14 @@ function AnchoredChordDisplayLine({
   harmonyIconVisible: boolean;
   showHarmonyDebug: boolean;
 }) {
-  const { lyricLineHeight, lyricTop, rowSpacing, totalLineHeight } = anchoredChordLineLayout(lyricFontSize, chordFontSize, lineSpacing);
+  const { chordAreaHeight, gap, lyricLineHeight, lyricTop, rowSpacing, totalLineHeight } = anchoredChordLineLayout(lyricFontSize, chordFontSize, lineSpacing);
+  const chordLabelHeight = Math.ceil(chordFontSize * 1.15);
+  const chordLaneMaxTop = Math.max(0, chordAreaHeight - chordLabelHeight);
+  const safeRowSpacing = Math.max(0, rowSpacing);
+  const safeChordVerticalOffset = Math.max(
+    -Math.floor(gap / 2),
+    Math.min(chordVerticalOffset, chordLaneMaxTop)
+  );
   const markerRefs = useRef(new Map<number, HTMLSpanElement>());
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const lineBoxRef = useRef<HTMLDivElement | null>(null);
@@ -12202,16 +12209,20 @@ function AnchoredChordDisplayLine({
       const lineRect = lineBox?.getBoundingClientRect();
       const left = lineRect ? markerRect.left - lineRect.left : marker.offsetLeft;
       const wrappedLyricTop = lineRect ? markerRect.top - lineRect.top - lyricTop : marker.offsetTop;
+      const chordTop = Math.min(
+        chordLaneMaxTop,
+        Math.max(0, wrappedLyricTop + safeChordVerticalOffset)
+      );
       nextPositions[index] = {
         left: Math.max(0, left),
-        top: Math.max(0, wrappedLyricTop + chordVerticalOffset)
+        top: chordTop
       };
     });
     setAnchorPositions((current) => (sameAnchorPositions(current, nextPositions) ? current : nextPositions));
     const lyricHeight = lyricRef.current?.scrollHeight ?? lyricLineHeight;
     const nextHeight = Math.max(totalLineHeight, lyricTop + lyricHeight);
     setMeasuredLineHeight((current) => (Math.abs(current - nextHeight) < 1 ? current : nextHeight));
-  }, [anchorIndexes, lyricTop, chordVerticalOffset, lyricLineHeight, totalLineHeight]);
+  }, [anchorIndexes, lyricTop, safeChordVerticalOffset, chordLaneMaxTop, lyricLineHeight, totalLineHeight]);
 
   useLayoutEffect(() => {
     measureAnchors();
@@ -12248,7 +12259,7 @@ function AnchoredChordDisplayLine({
 
   if (wrappedLines.length > 1) {
     return (
-      <div ref={wrapperRef} data-line-index={lineIndex} className="stage-wrapped-chord-line font-mono" style={{ marginBottom: `${rowSpacing}px` }}>
+      <div ref={wrapperRef} data-line-index={lineIndex} className="stage-wrapped-chord-line font-mono" style={{ marginBottom: `${safeRowSpacing}px` }}>
         {wrappedLines.map((wrappedLine, wrappedIndex) => (
           <AnchoredChordDisplayLine
             key={`${wrappedLine.sourceStart}-${wrappedLine.sourceEnd}-${wrappedIndex}`}
@@ -12275,7 +12286,7 @@ function AnchoredChordDisplayLine({
   }
 
   return (
-    <div ref={wrapperRef} data-line-index={lineIndex} className="overflow-visible font-mono" style={{ marginBottom: `${rowSpacing}px` }}>
+    <div ref={wrapperRef} data-line-index={lineIndex} className="overflow-visible font-mono" style={{ marginBottom: `${safeRowSpacing}px` }}>
       <div
         ref={lineBoxRef}
         className="relative min-w-0 max-w-full overflow-visible"
@@ -12285,7 +12296,10 @@ function AnchoredChordDisplayLine({
         }}
       >
         {showChords && anchoredLine.anchors.length > 0 && (
-          <div className="pointer-events-none absolute left-0 top-0 h-full">
+          <div
+            className="stage-anchored-chord-layer pointer-events-none absolute left-0 top-0 w-full overflow-visible"
+            style={{ height: `${chordAreaHeight}px` }}
+          >
             {anchoredLine.anchors.map((anchor, index) => (
               <span
                 key={`${anchor.chord}-${anchor.index}-${index}`}
@@ -12304,7 +12318,15 @@ function AnchoredChordDisplayLine({
             ))}
           </div>
         )}
-        <div ref={lyricRef} className="absolute left-0 stage-anchored-lyric-text" style={{ top: `${lyricTop}px`, lineHeight: `${lyricLineHeight}px` }}>
+        <div
+          ref={lyricRef}
+          className="absolute left-0 stage-anchored-lyric-text"
+          style={{
+            top: `${lyricTop}px`,
+            minHeight: `${lyricLineHeight}px`,
+            lineHeight: `${lyricLineHeight}px`
+          }}
+        >
           {showHarmonyCues && harmonyIconVisible && anchoredLine.harmonyRanges.length > 0 && <HarmonyCueIcon color={harmonyIconColor} inline={false} />}
           {renderLyricWithAnchorMarkers(anchoredLine.lyricLine, anchorIndexes, markerRefs, anchoredLine.harmonyRanges, sourceRanges, showHarmonyCues, harmonyStyle, showHarmonyDebug)}
         </div>

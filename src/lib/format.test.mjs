@@ -489,6 +489,16 @@ assert.deepEqual(twilightAnchored.anchors, [
 assert.equal(nearestLyricAnchorIndex(twilightLyric, twilightLyric.indexOf('when') - 2), twilightLyric.indexOf('when'));
 assert.equal(nearestLyricAnchorIndex(twilightLyric, twilightLyric.length + 8), twilightLyric.indexOf('bone'));
 
+const collisionLyric = "So you'll come to know when the bullet hits the bone";
+const collisionChordLine = `Bm${' '.repeat(Math.max(1, collisionLyric.indexOf('come') - 2))}G${' '.repeat(Math.max(1, collisionLyric.indexOf('when') - collisionLyric.indexOf('come') - 1))}Em${' '.repeat(Math.max(1, collisionLyric.indexOf('bone') - collisionLyric.indexOf('when') - 2))}Bm`;
+const collisionAnchored = chordOverTextToAnchoredLine(collisionChordLine, collisionLyric);
+assert.deepEqual(collisionAnchored.anchors, [
+  { chord: 'Bm', index: 0 },
+  { chord: 'G', index: collisionLyric.indexOf('come') },
+  { chord: 'Em', index: collisionLyric.indexOf('when') },
+  { chord: 'Bm', index: collisionLyric.indexOf('bone') }
+]);
+
 const displayState = {
   activeProfile: 'desktop',
   chordFontSize: 18,
@@ -635,6 +645,19 @@ lyricSizeLayouts.forEach((layout, index) => {
 });
 assert.equal(lyricSizeLayouts[0].totalLineHeight < lyricSizeLayouts[1].totalLineHeight, true);
 assert.equal(lyricSizeLayouts[1].totalLineHeight < lyricSizeLayouts[2].totalLineHeight, true);
+
+const collisionLayouts = [
+  anchoredChordLineLayout(34, 30, 0.8),
+  anchoredChordLineLayout(44, 42, 0.75),
+  anchoredChordLineLayout(52, 48, 1.5)
+];
+collisionLayouts.forEach((layout) => {
+  assert.equal(layout.gap >= 4, true);
+  assert.equal(layout.lyricTop >= layout.chordAreaHeight + layout.gap, true);
+  assert.equal(layout.totalLineHeight >= layout.lyricTop + layout.lyricLineHeight, true);
+  assert.equal(layout.chordAreaHeight > 0, true);
+  assert.equal(layout.lyricLineHeight > 0, true);
+});
 
 assert.equal(isOnSongArchiveFileName('All Songs(1).archive'), true);
 assert.equal(isOnSongArchiveFileName('song.chopro'), false);

@@ -253,6 +253,7 @@ label,
 
 .stage-anchored-lyric-text {
   width: 100%;
+  overflow: visible;
 }
 
 .stage-lyric-anchor-segment {
@@ -356,12 +357,17 @@ label,
   white-space: nowrap;
   overflow-wrap: normal;
   word-break: normal;
+  overflow: visible;
 }
 
 .stage-wrapped-chord-line {
   max-width: 100%;
   overflow-x: hidden;
   overflow-y: visible;
+}
+
+.stage-anchored-chord-layer {
+  overflow: visible;
 }
 
 .stage-section {
