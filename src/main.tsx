@@ -5,6 +5,7 @@ import App from './App';
 import './styles.css';
 import { CloudProvider } from './cloud/cloud';
 import { installGlobalErrorHandlers } from './services/errors/errorService';
+import { configurePwaUpdateService, notifyPwaUpdateFound, notifyPwaUpdateWaiting, refreshPwaUpdateStatus } from './services/pwaUpdate';
 import { getStartupDiagnostics, markStartupError, shouldShowStartupDebug } from './services/startupDiagnostics';
 import { fallbackCastState, fetchStaticCastState, loadLocalCastState, normalizeCastState } from './services/castState';
 
@@ -37,7 +38,21 @@ if (import.meta.env.DEV && 'serviceWorker' in navigator) {
 }
 
 if (!import.meta.env.DEV && 'serviceWorker' in navigator) {
-  registerSW({ immediate: true });
+  const updateSW = registerSW({
+    immediate: true,
+    onRegisteredSW(_swUrl, registration) {
+      if (registration) {
+        void refreshPwaUpdateStatus();
+        registration.addEventListener('updatefound', () => notifyPwaUpdateFound(registration));
+        if (registration.waiting) notifyPwaUpdateWaiting(registration);
+      }
+    },
+    onNeedRefresh() {
+      notifyPwaUpdateWaiting();
+    }
+  });
+  configurePwaUpdateService(updateSW);
+  void refreshPwaUpdateStatus();
 }
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {

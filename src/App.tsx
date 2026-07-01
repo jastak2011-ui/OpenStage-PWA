@@ -217,6 +217,7 @@ import {
   saveLocalCheckpoint
 } from './services/backup/backupService';
 import { reportError } from './services/errors/errorService';
+import { applyPwaUpdate, checkForPwaUpdate, dismissPwaUpdate, usePwaUpdateSnapshot, type PwaUpdateSnapshot } from './services/pwaUpdate';
 import {
   applyEnrichment,
   enrichSongMetadata,
@@ -1009,6 +1010,7 @@ export default function App() {
   const [newSongMenuOpen, setNewSongMenuOpen] = useState(false);
   const [aiImportOpen, setAiImportOpen] = useState(false);
   const [receiveSongOpen, setReceiveSongOpen] = useState(false);
+  const [editorHasUnsavedChanges, setEditorHasUnsavedChanges] = useState(false);
   const [query, setQuery] = useState('');
   const [smartFilter, setSmartFilter] = useState('all');
   const [quickEdit, setQuickEdit] = useState(false);
@@ -1024,6 +1026,7 @@ export default function App() {
     setlistTotal: 0,
     failed: []
   });
+  const pwaUpdate = usePwaUpdateSnapshot();
   const [storageError, setStorageError] = useState('');
   const [isTransitioningSong, setIsTransitioningSong] = useState(false);
   const [autoscrollDebug, setAutoscrollDebug] = useState<AutoscrollDebugInfo>({
@@ -1175,8 +1178,15 @@ export default function App() {
       ? setlistName
       : '';
   const isStageSurface = activeMode === 'perform' || activeMode === 'stage';
+  const isCloudBackupRunning = cloudBackupProgress.phase === 'songs' || cloudBackupProgress.phase === 'setlists';
+  const isPwaUpdateBusy = isCloudBackupRunning || activeMode === 'settings' || activeMode === 'import' || aiImportOpen || receiveSongOpen || Boolean(pendingImportShareId || sharedImportId) || (activeMode === 'editor' && editorHasUnsavedChanges);
+  const shouldShowPwaUpdateBanner = pwaUpdate.updateWaiting && !pwaUpdate.dismissed && !pwaUpdate.applying && !isPwaUpdateBusy;
   const selectedEffectiveCapo = selectedSong ? getEffectiveCapo(selectedSong, performanceState) : 0;
   const receiverSettings = normalizeReceiverDisplaySettings(performanceState.receiverDisplay);
+
+  useEffect(() => {
+    void checkForPwaUpdate();
+  }, []);
 
   useEffect(() => {
     clearRenderCache();
@@ -2963,6 +2973,14 @@ export default function App() {
         )}
       </header>
 
+      {shouldShowPwaUpdateBanner && (
+        <PwaUpdateBanner
+          stageSurface={isStageSurface}
+          onUpdate={() => void applyPwaUpdate()}
+          onLater={dismissPwaUpdate}
+        />
+      )}
+
       {activeMode === 'library' && (
         storageError ? (
           <StorageErrorView message={storageError} />
@@ -3006,6 +3024,7 @@ export default function App() {
           onAddToSetlist={addToSetlist}
           performanceState={performanceState}
           setPerformanceState={updatePerformanceState}
+          onDirtyChange={setEditorHasUnsavedChanges}
         />
       )}
 
@@ -3115,6 +3134,8 @@ export default function App() {
           syncStatus={syncStatus}
           conflicts={conflicts}
           onClearLogs={clearLogs}
+          pwaUpdate={pwaUpdate}
+          onCheckPwaUpdate={() => void checkForPwaUpdate()}
         />
       )}
 
@@ -6525,18 +6546,53 @@ function SettingsCard({ title, children }: { title: string; children: React.Reac
   );
 }
 
+function PwaUpdateBanner({
+  stageSurface,
+  onUpdate,
+  onLater
+}: {
+  stageSurface: boolean;
+  onUpdate: () => void;
+  onLater: () => void;
+}) {
+  return (
+    <section
+      className={`${stageSurface ? 'fixed left-1/2 top-4 z-[90] w-[min(32rem,calc(100vw-1.5rem))] -translate-x-1/2' : 'sticky top-0 z-40'} border border-teal-300 bg-teal-50 px-4 py-3 text-teal-950 shadow-lg`}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold">OpenStage update available</div>
+          <div className="text-xs text-teal-800">Reload when you are ready to use the newest version.</div>
+        </div>
+        <button className="primary-button h-9 bg-teal-700 px-3 text-xs" type="button" onClick={onUpdate}>
+          Update Now
+        </button>
+        <button className="secondary-button h-9 px-3 text-xs" type="button" onClick={onLater}>
+          Later
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function DiagnosticsView({
   diagnostics,
   logs,
   syncStatus,
   conflicts,
-  onClearLogs
+  onClearLogs,
+  pwaUpdate,
+  onCheckPwaUpdate
 }: {
   diagnostics: RenderDiagnostics;
   logs: AppLogEntry[];
   syncStatus: string;
   conflicts: SyncConflict[];
   onClearLogs: () => void;
+  pwaUpdate: PwaUpdateSnapshot;
+  onCheckPwaUpdate: () => void;
 }) {
   const memory = getMemoryUsage();
 
@@ -6555,6 +6611,22 @@ function DiagnosticsView({
         <SettingsCard title="Sync Diagnostics">
           <p className="text-sm">Status: {syncStatus}</p>
           <p className="mt-2 text-sm">Conflicts: {conflicts.length}</p>
+        </SettingsCard>
+        <SettingsCard title="PWA Update Diagnostics">
+          <div className="grid gap-2 text-sm">
+            <Metric label="Service worker" value={pwaUpdate.supported ? pwaUpdate.registrationState : 'Service worker not active'} />
+            <Metric label="Active worker" value={pwaUpdate.activeState} />
+            <Metric label="Waiting worker" value={pwaUpdate.waitingState} />
+            <Metric label="Installing worker" value={pwaUpdate.installingState} />
+            <Metric label="Update waiting" value={pwaUpdate.updateWaiting ? 'yes' : 'no'} />
+            <Metric label="App version" value={pwaUpdate.appVersion} />
+            <Metric label="Build time" value={pwaUpdate.buildTime} />
+            <Metric label="Last update check" value={pwaUpdate.lastCheckedAt ? new Date(pwaUpdate.lastCheckedAt).toLocaleString() : '-'} />
+            {pwaUpdate.lastError && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{pwaUpdate.lastError}</div>}
+            <button className="secondary-button w-fit" type="button" onClick={onCheckPwaUpdate}>
+              Check for App Update
+            </button>
+          </div>
         </SettingsCard>
         <section className="rounded-md border border-slate-300 bg-white p-4 md:col-span-2">
           <div className="mb-3 flex items-center gap-3">
@@ -6959,7 +7031,8 @@ function SongEditorView({
   onDelete,
   onAddToSetlist,
   performanceState,
-  setPerformanceState
+  setPerformanceState,
+  onDirtyChange
 }: {
   song: Song;
   songs: Song[];
@@ -6969,6 +7042,7 @@ function SongEditorView({
   onAddToSetlist: (id: string) => void;
   performanceState: PerformanceState;
   setPerformanceState: (next: Partial<PerformanceState>) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [draft, setDraft] = useState<Song>(song);
   const [durationDraft, setDurationDraft] = useState('');
@@ -7000,6 +7074,11 @@ function SongEditorView({
     const parsedDuration = parseDurationInput(durationDraft);
     return JSON.stringify({ ...draft, durationSeconds: parsedDuration ?? draft.durationSeconds }) !== JSON.stringify(song);
   }, [draft, durationDraft, song]);
+
+  useEffect(() => {
+    onDirtyChange?.(hasUnsavedChanges);
+    return () => onDirtyChange?.(false);
+  }, [hasUnsavedChanges, onDirtyChange]);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
