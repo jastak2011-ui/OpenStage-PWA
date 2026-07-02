@@ -1120,6 +1120,10 @@ export default function App() {
   const autoscrollStartTimeRef = useRef(0);
   const lastProgrammaticScrollTopRef = useRef<number | null>(null);
   const userScrollResumeTimerRef = useRef<number | null>(null);
+  const stageUserInteractingRef = useRef(false);
+  const stageUserInteractionEndTimerRef = useRef<number | null>(null);
+  const stageScrollSettleUntilRef = useRef(0);
+  const stageUserTouchedSinceSongLoadRef = useRef(false);
 
   const songMap = useMemo(() => new Map(songs.map((song) => [song.id, song])), [songs]);
   const selectedSong = songMap.get(selectedSongId) ?? songs[0];
@@ -1350,12 +1354,65 @@ export default function App() {
     updateStorePerformance
   ]);
 
+  function markStageUserScrollStart(source: 'touch' | 'pointer' | 'wheel' | 'keyboard' = 'pointer') {
+    if (stageUserInteractionEndTimerRef.current !== null) {
+      window.clearTimeout(stageUserInteractionEndTimerRef.current);
+      stageUserInteractionEndTimerRef.current = null;
+    }
+    stageUserInteractingRef.current = true;
+    if (autoscrollControllerRef.current.active) {
+      isUserScrollingRef.current = true;
+      clearUserScrollResumeTimer();
+    }
+    if (Date.now() <= stageScrollSettleUntilRef.current) {
+      stageUserTouchedSinceSongLoadRef.current = true;
+    }
+    if (import.meta.env.DEV) console.debug('STAGE_USER_SCROLL_START', { source, songId: selectedSong?.id ?? null, scrollTop: stageRef.current?.scrollTop ?? null });
+  }
+
+  function markStageUserScrollEnd(source: 'touch' | 'pointer' | 'wheel' | 'keyboard' = 'pointer') {
+    if (stageUserInteractionEndTimerRef.current !== null) window.clearTimeout(stageUserInteractionEndTimerRef.current);
+    stageUserInteractionEndTimerRef.current = window.setTimeout(() => {
+      stageUserInteractingRef.current = false;
+      stageUserInteractionEndTimerRef.current = null;
+      if (autoscrollControllerRef.current.active) {
+        resumeAutoscrollFromCurrentPosition();
+      }
+      if (import.meta.env.DEV) console.debug('STAGE_USER_SCROLL_END', { source, songId: selectedSong?.id ?? null, scrollTop: stageRef.current?.scrollTop ?? null });
+    }, 400);
+  }
+
   useEffect(() => {
+    if (!selectedSong?.id) return;
+    stageScrollSettleUntilRef.current = Date.now() + 750;
+    stageUserTouchedSinceSongLoadRef.current = false;
+  }, [selectedSong?.id]);
+
+  useLayoutEffect(() => {
     const element = stageRef.current;
     if (!element || !selectedSong?.id) return;
     if (restoredScrollSongRef.current === selectedSong.id) return;
     restoredScrollSongRef.current = selectedSong.id;
-    element.scrollTop = performanceState.scrollPositions[selectedSong.id] ?? 0;
+    const nextScrollTop = performanceState.scrollPositions[selectedSong.id] ?? 0;
+    if (stageUserInteractingRef.current || stageUserTouchedSinceSongLoadRef.current) {
+      if (import.meta.env.DEV) {
+        console.debug('STAGE_SCROLL_PROGRAMMATIC_SKIPPED_USER_INTERACTING', {
+          reason: stageUserInteractingRef.current ? 'user-interacting' : 'user-touched-during-settle',
+          songId: selectedSong.id,
+          requestedScrollTop: nextScrollTop,
+          currentScrollTop: element.scrollTop
+        });
+      }
+      return;
+    }
+    if (import.meta.env.DEV) {
+      console.debug('STAGE_SCROLL_PROGRAMMATIC_SET', {
+        reason: 'song-load-restore',
+        songId: selectedSong.id,
+        scrollTop: nextScrollTop
+      });
+    }
+    element.scrollTop = nextScrollTop;
   }, [performanceState.scrollPositions, selectedSong?.id]);
 
   useEffect(() => {
@@ -1429,6 +1486,10 @@ export default function App() {
   useEffect(() => {
     return () => {
       clearUserScrollResumeTimer();
+      if (stageUserInteractionEndTimerRef.current !== null) {
+        window.clearTimeout(stageUserInteractionEndTimerRef.current);
+        stageUserInteractionEndTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -3201,6 +3262,8 @@ export default function App() {
           onLiveHarmonyEdit={(operation, start, end) => updateStageHarmony(selectedSong.id, start, end, operation)}
           onSongShared={markSongShared}
           onScroll={(scrollTop) => saveStageScroll(selectedSong.id, scrollTop)}
+          onUserScrollInteractionStart={markStageUserScrollStart}
+          onUserScrollInteractionEnd={markStageUserScrollEnd}
           onSendReceiver={sendReceiverNow}
           onSendReceiverTestPattern={() => publishRemoteReceiverTestPattern(receiverSettings)}
           countdownRemaining={countdownRemaining}
@@ -3287,6 +3350,8 @@ export default function App() {
           onLiveHarmonyEdit={(operation, start, end) => updateStageHarmony(selectedSong.id, start, end, operation)}
           onSongShared={markSongShared}
           onScroll={(scrollTop) => saveStageScroll(selectedSong.id, scrollTop)}
+          onUserScrollInteractionStart={markStageUserScrollStart}
+          onUserScrollInteractionEnd={markStageUserScrollEnd}
           onSendReceiver={sendReceiverNow}
           onSendReceiverTestPattern={() => publishRemoteReceiverTestPattern(receiverSettings)}
           countdownRemaining={countdownRemaining}
@@ -8257,6 +8322,8 @@ function PerformanceView({
   onLiveHarmonyEdit,
   onSongShared,
   onScroll,
+  onUserScrollInteractionStart,
+  onUserScrollInteractionEnd,
   onSendReceiver,
   onSendReceiverTestPattern,
   countdownRemaining,
@@ -8303,6 +8370,8 @@ function PerformanceView({
   onLiveHarmonyEdit: (operation: StageHarmonyEditOperation, start: number, end: number) => void | Promise<void>;
   onSongShared: (songId: string) => void | Promise<void>;
   onScroll: (scrollTop: number) => void;
+  onUserScrollInteractionStart: (source: 'touch' | 'pointer' | 'wheel' | 'keyboard') => void;
+  onUserScrollInteractionEnd: (source: 'touch' | 'pointer' | 'wheel' | 'keyboard') => void;
   onSendReceiver: () => boolean;
   onSendReceiverTestPattern: () => boolean;
   countdownRemaining: number;
@@ -8691,14 +8760,16 @@ function PerformanceView({
     leave();
   }, [publishCurrentSong, song]);
   const handleStageTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    onUserScrollInteractionStart('touch');
     if (activePopover || selectionAction || isInteractiveSwipeTarget(event.target)) {
       swipeStartRef.current = null;
       return;
     }
     const touch = event.touches[0];
     swipeStartRef.current = touch ? { x: touch.clientX, y: touch.clientY, target: event.target } : null;
-  }, [activePopover, selectionAction]);
+  }, [activePopover, onUserScrollInteractionStart, selectionAction]);
   const handleStageTouchEnd = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    onUserScrollInteractionEnd('touch');
     window.setTimeout(() => updateStageSelectionFromBrowser(stageRef.current, song, setSelectionAction, { preserveExisting: useBottomHarmonyActionBar }), 0);
     const start = swipeStartRef.current;
     swipeStartRef.current = null;
@@ -8714,7 +8785,20 @@ function PerformanceView({
     });
     if (direction === 1) onNext();
     if (direction === -1) onPrevious();
-  }, [activePopover, onNext, onPrevious, selectionAction, song, stageRef, useBottomHarmonyActionBar]);
+  }, [activePopover, onNext, onPrevious, onUserScrollInteractionEnd, selectionAction, song, stageRef, useBottomHarmonyActionBar]);
+
+  const handleStagePointerDown = useCallback(() => {
+    onUserScrollInteractionStart('pointer');
+  }, [onUserScrollInteractionStart]);
+
+  const handleStagePointerEnd = useCallback(() => {
+    onUserScrollInteractionEnd('pointer');
+  }, [onUserScrollInteractionEnd]);
+
+  const handleStageWheel = useCallback(() => {
+    onUserScrollInteractionStart('wheel');
+    onUserScrollInteractionEnd('wheel');
+  }, [onUserScrollInteractionEnd, onUserScrollInteractionStart]);
 
   const handleStageSelectionCommit = useCallback(() => {
     window.setTimeout(() => updateStageSelectionFromBrowser(stageRef.current, song, setSelectionAction), 0);
@@ -9150,8 +9234,12 @@ function PerformanceView({
         ref={stageRef}
         className={`stage-scroll h-full overflow-y-auto overflow-x-hidden px-5 pb-36 pt-28 sm:px-10 lg:px-16 ${state.portraitMode ? 'portrait-prompter' : ''}`}
         onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
+        onPointerDown={handleStagePointerDown}
+        onPointerUp={handleStagePointerEnd}
+        onPointerCancel={handleStagePointerEnd}
         onTouchStart={handleStageTouchStart}
         onTouchEnd={handleStageTouchEnd}
+        onWheel={handleStageWheel}
       >
         <article
           className={`stage-chart mx-auto font-chart transition-opacity duration-200 ${state.portraitMode ? 'max-w-3xl' : 'max-w-5xl'} ${state.mirroredMode ? 'mirror-stage' : ''} ${state.splitScreen ? 'tablet-columns' : ''} ${isTransitioningSong ? 'opacity-35' : 'opacity-100'}`}
