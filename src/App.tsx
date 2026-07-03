@@ -359,22 +359,6 @@ type ReceiverScrollMetrics = {
   progress: number;
 };
 
-type ReceiverRendererDiagnostics = {
-  route: string;
-  renderer: 'StageShared' | 'LegacyReceiver';
-  component: string;
-  usesChordProDisplayLine: boolean;
-  receiverModeActive: boolean;
-  chartContainerWidth: number;
-  chartContainerScrollWidth: number;
-  viewportWidth: number;
-  viewportHeight: number;
-  displayMode: string;
-  firstRowTypes: string[];
-  rowSummary: Array<{ index: number; type: string; chordLine?: string; lyricLine?: string }>;
-  twilightRows: Array<{ index: number; type: string; chordLine?: string; lyricLine?: string; raw: string }>;
-};
-
 const receiverDisplayModeOptions: Array<{ value: ReceiverDisplayMode; label: string }> = [
   { value: 'landscape-lyrics', label: 'Landscape Lyrics' },
   { value: 'fit-portrait', label: 'Portrait Fit' },
@@ -4090,79 +4074,6 @@ function ReceiverBuildBadge({ renderer, route }: { renderer: 'StageShared' | 'Le
   );
 }
 
-function buildReceiverRendererDiagnostics({
-  renderedLines,
-  receiver,
-  viewport,
-  chartContainerWidth,
-  chartContainerScrollWidth
-}: {
-  renderedLines: RenderedLine[];
-  receiver: ReceiverDisplaySettings;
-  viewport: { width: number; height: number };
-  chartContainerWidth: number;
-  chartContainerScrollWidth: number;
-}): ReceiverRendererDiagnostics {
-  const rowSummary = renderedLines.slice(0, 5).map((line, index) => receiverRenderedLineSummary(line, index));
-  const twilightRows = renderedLines
-    .map((line, index) => receiverRenderedLineSummary(line, index, true))
-    .filter((line) => receiverLineLooksLikeTwilightZone(line));
-
-  return {
-    route: window.location.pathname || '/receiver',
-    renderer: 'StageShared',
-    component: 'ReceiverSong',
-    usesChordProDisplayLine: true,
-    receiverModeActive: true,
-    chartContainerWidth,
-    chartContainerScrollWidth,
-    viewportWidth: viewport.width,
-    viewportHeight: viewport.height,
-    displayMode: receiver.displayMode,
-    firstRowTypes: rowSummary.map((line) => line.type),
-    rowSummary,
-    twilightRows
-  };
-}
-
-function receiverRenderedLineSummary(line: RenderedLine, index: number, includeRaw = false) {
-  const raw = 'raw' in line ? line.raw : '';
-  if (line.type === 'chord-over') {
-    return {
-      index,
-      type: line.lyricLine ? 'chord-over-lyrics' : 'chord-only',
-      chordLine: line.chordLine,
-      lyricLine: line.lyricLine,
-      raw: includeRaw ? raw : ''
-    };
-  }
-  if (line.type === 'lyrics') {
-    return {
-      index,
-      type: line.tokens.some((token) => token.type === 'chord') ? 'inline-chords' : 'lyric-only',
-      lyricLine: line.tokens.map((token) => token.display).join(''),
-      raw: includeRaw ? raw : ''
-    };
-  }
-  if (line.type === 'section') return { index, type: 'section', lyricLine: line.section, raw: includeRaw ? raw : '' };
-  if (line.type === 'song-title') return { index, type: 'song-title', lyricLine: line.value, raw: includeRaw ? raw : '' };
-  if (line.type === 'song-artist') return { index, type: 'song-artist', lyricLine: line.value, raw: includeRaw ? raw : '' };
-  if (line.type === 'directive') return { index, type: 'directive', lyricLine: `${line.name}: ${line.value}`, raw: includeRaw ? raw : '' };
-  if (line.type === 'comment') return { index, type: 'comment', lyricLine: line.text, raw: includeRaw ? raw : '' };
-  return { index, type: line.type, raw: includeRaw ? raw : '' };
-}
-
-function receiverLineLooksLikeTwilightZone(line: ReturnType<typeof receiverRenderedLineSummary>) {
-  const haystack = `${line.chordLine ?? ''} ${line.lyricLine ?? ''} ${line.raw ?? ''}`.toLowerCase();
-  return (
-    /\b(?:bm|em|f#m)\b/.test(haystack) ||
-    haystack.includes("it's two a.m.") ||
-    haystack.includes("i'm sitting here waiting") ||
-    haystack.includes('connection is tired') ||
-    haystack.includes('taking chances')
-  );
-}
-
 function safeAppVersion() {
   try {
     return typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'unknown';
@@ -4188,7 +4099,6 @@ function RemoteReceiverApp() {
   const [lastMessageAt, setLastMessageAt] = useState('');
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const [scrollMetrics, setScrollMetrics] = useState<ReceiverScrollMetrics>({ scrollHeight: 0, clientHeight: 0, scrollTop: 0, progress: 0 });
-  const [rendererDiagnostics, setRendererDiagnostics] = useState<ReceiverRendererDiagnostics | null>(null);
   const [hostedRoomCode, setHostedRoomCode] = useState(() => {
     const storedCode = getHostedReceiverRoomCode();
     return /^[A-Z0-9]{8}$/.test(storedCode) ? storedCode : '';
@@ -4204,9 +4114,6 @@ function RemoteReceiverApp() {
   const diagnosticsForcedByUrl = new URLSearchParams(window.location.search).get('diagnostics') === '1';
   const useLocalRelay = shouldUseLocalReceiverRelay();
   const showDiagnostics = diagnosticsForcedByUrl || receiver.showDiagnostics || receiverDiagnosticsVisible;
-  const handleRendererDiagnosticsChange = useCallback((next: ReceiverRendererDiagnostics) => {
-    setRendererDiagnostics((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
-  }, []);
 
   useEffect(() => {
     const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -4505,7 +4412,7 @@ function RemoteReceiverApp() {
         {testPattern ? (
           <ReceiverTestPattern settings={receiver} viewport={viewport} status={status} lastMessageAt={lastMessageAt} />
         ) : payload ? (
-          <ReceiverSong payload={payload} viewport={viewport} onMetricsChange={setScrollMetrics} onRendererDiagnosticsChange={handleRendererDiagnosticsChange} />
+          <ReceiverSong payload={payload} viewport={viewport} onMetricsChange={setScrollMetrics} />
         ) : null}
       </ReceiverCanvas>
       {showDiagnostics && payload && (
@@ -4516,7 +4423,6 @@ function RemoteReceiverApp() {
           status={status}
           relayUrl={useLocalRelay ? (relayUrl || getRemoteDisplayUrl()) : `supabase:${hostedRoomCode || '-'}`}
           metrics={scrollMetrics}
-          rendererDiagnostics={rendererDiagnostics}
           forcedByUrl={diagnosticsForcedByUrl}
           wakeLockStatus={wakeLockStatus}
         />
@@ -4901,13 +4807,11 @@ function ReceiverCanvas({
 function ReceiverSong({
   payload,
   viewport,
-  onMetricsChange,
-  onRendererDiagnosticsChange
+  onMetricsChange
 }: {
   payload: RemoteReceiverPayload;
   viewport: { width: number; height: number };
   onMetricsChange: (metrics: ReceiverScrollMetrics) => void;
-  onRendererDiagnosticsChange?: (diagnostics: ReceiverRendererDiagnostics) => void;
 }) {
   const receiver = normalizeReceiverDisplaySettings(payload.receiver);
   const state = scaleReceiverPerformanceState(payload.performance, receiver, payload.typography);
@@ -4965,8 +4869,6 @@ function ReceiverSong({
     const measureAndScroll = () => {
       const clientHeight = viewportElement.clientHeight;
       const scrollHeight = contentElement.scrollHeight;
-      const chartContainerWidth = contentElement.clientWidth;
-      const chartContainerScrollWidth = contentElement.scrollWidth;
       const maxScroll = Math.max(0, scrollHeight - clientHeight);
       const fallbackProgress = maxScroll > 0 ? clampNumber(payload.scrollTop / maxScroll, 0, 1) : 0;
       const progress = Number.isFinite(payload.scrollProgress) ? desiredProgress : fallbackProgress;
@@ -4974,15 +4876,6 @@ function ReceiverSong({
       const nextMetrics = { scrollHeight, clientHeight, scrollTop, progress };
       setScrollMetrics(nextMetrics);
       onMetricsChange(nextMetrics);
-      const rendererDiagnostics = buildReceiverRendererDiagnostics({
-        renderedLines: rendered.lines,
-        receiver,
-        viewport,
-        chartContainerWidth,
-        chartContainerScrollWidth
-      });
-      onRendererDiagnosticsChange?.(rendererDiagnostics);
-      console.info('RECEIVER_RENDERER_DIAGNOSTICS', rendererDiagnostics);
     };
     measureAndScroll();
     const frameId = window.requestAnimationFrame(measureAndScroll);
@@ -5000,11 +4893,7 @@ function ReceiverSong({
     lyricFontSize,
     chordFontSize,
     lineSpacing,
-    onMetricsChange,
-    onRendererDiagnosticsChange,
-    rendered.lines,
-    receiver,
-    viewport
+    onMetricsChange
   ]);
 
   return (
@@ -5104,7 +4993,6 @@ function ReceiverDiagnosticsOverlay({
   status,
   relayUrl,
   metrics,
-  rendererDiagnostics,
   forcedByUrl,
   wakeLockStatus
 }: {
@@ -5114,7 +5002,6 @@ function ReceiverDiagnosticsOverlay({
   status: RemoteDisplayStatus;
   relayUrl: string;
   metrics: ReceiverScrollMetrics;
-  rendererDiagnostics: ReceiverRendererDiagnostics | null;
   forcedByUrl: boolean;
   wakeLockStatus: 'active' | 'unsupported' | 'error' | 'released';
 }) {
@@ -5132,34 +5019,14 @@ function ReceiverDiagnosticsOverlay({
     <div className="pointer-events-none fixed right-3 top-3 z-[9999] grid max-w-[min(28rem,calc(100vw-1.5rem))] gap-1 rounded-md border border-white/20 bg-black/80 px-4 py-3 text-left text-[clamp(0.8rem,1.55vw,1.05rem)] leading-tight text-white shadow-2xl">
       <div className="mb-1 text-[1.05em] font-semibold">Receiver Diagnostics{forcedByUrl ? ' (URL)' : ''}</div>
       <div>Build: {safeAppVersion()} / {safeBuildTime()}</div>
-      <div>Route: {rendererDiagnostics?.route ?? window.location.pathname}</div>
-      <div>Renderer: {rendererDiagnostics?.renderer ?? 'unknown'}</div>
-      <div>Component: {rendererDiagnostics?.component ?? 'unknown'}</div>
-      <div>ChordProDisplayLine: {rendererDiagnostics?.usesChordProDisplayLine ? 'yes' : 'unknown'}</div>
-      <div>Receiver Mode Active: {rendererDiagnostics?.receiverModeActive ? 'yes' : 'unknown'}</div>
+      <div>Route: {window.location.pathname || '/receiver'}</div>
+      <div>Renderer: StageShared</div>
       <div>Receiver: {remoteDisplayStatusLabel(status)}</div>
       <div>Song: {payload.song.title || '-'}</div>
       <div>Artist: {payload.song.artist || '-'}</div>
       <div>Display Mode: {receiverDisplayModeLabel(settings.displayMode)}</div>
       <div>FORMAT: {themeLabel}</div>
       <div>Viewport: {viewport.width} x {viewport.height}</div>
-      <div>Chart Width: {rendererDiagnostics?.chartContainerWidth ?? '-'} / scroll {rendererDiagnostics?.chartContainerScrollWidth ?? '-'}</div>
-      <div>First Rows: {rendererDiagnostics?.firstRowTypes.join(', ') || '-'}</div>
-      {rendererDiagnostics?.rowSummary.map((line) => (
-        <div key={`receiver-row-${line.index}`} className="font-mono text-[0.85em] text-white/85">
-          Row {line.index}: {line.type}{line.chordLine ? ` | ${line.chordLine}` : ''}{line.lyricLine ? ` / ${line.lyricLine.slice(0, 42)}` : ''}
-        </div>
-      ))}
-      <div className="mt-1 font-semibold">Twilight rows</div>
-      {rendererDiagnostics?.twilightRows.length ? (
-        rendererDiagnostics.twilightRows.slice(0, 8).map((line) => (
-          <div key={`receiver-twilight-${line.index}`} className="font-mono text-[0.85em] text-amber-100">
-            Row {line.index}: {line.type}{line.chordLine ? ` | ${line.chordLine}` : ''}{line.lyricLine ? ` / ${line.lyricLine.slice(0, 48)}` : ''}
-          </div>
-        ))
-      ) : (
-        <div className="font-mono text-[0.85em] text-amber-100">No Bm / Em / F#m Twilight rows detected.</div>
-      )}
       <div>Scroll Height: {metrics.scrollHeight}</div>
       <div>Client Height: {metrics.clientHeight}</div>
       <div>Progress: {metrics.progress.toFixed(3)}</div>
