@@ -103,6 +103,7 @@ import {
   publishRemoteDisplaySong,
   publishRemoteReceiverState,
   publishRemoteReceiverTestPattern,
+  refreshReceiverLastSeen,
   removeReceiverRegistration,
   resetHostedReceiverRoomCode,
   saveReceiverDisplayName,
@@ -111,6 +112,7 @@ import {
   shouldUseLocalReceiverRelay,
   subscribeHostedReceiverRoom,
   updateReceiverRegistration,
+  receiverHeartbeatMs,
   subscribeRemoteDisplayControllerSnapshot,
   subscribeRemoteDisplayControllerStatus,
   type RemoteDisplayControllerSnapshot,
@@ -4159,10 +4161,10 @@ function RemoteReceiverApp() {
         if (cancelled) return;
         setHostedRoomCode(room.roomCode);
         setHostedError('');
-        void updateReceiverRegistration(room.roomCode, receiverName, true);
+        void refreshReceiverLastSeen(room.roomCode, receiverName);
         heartbeatId = window.setInterval(() => {
-          void updateReceiverRegistration(room.roomCode, receiverName, true);
-        }, 30000);
+          void refreshReceiverLastSeen(room.roomCode, receiverName);
+        }, receiverHeartbeatMs);
         const state = await fetchHostedReceiverRoomState(room.roomCode);
         if (cancelled) return;
         applyMessage(state.message, state.lastUpdatedAt);
@@ -4196,6 +4198,7 @@ function RemoteReceiverApp() {
     if (useLocalRelay) return;
     const reconnect = () => {
       if (document.visibilityState === 'visible' && navigator.onLine !== false) {
+        if (hostedRoomCode) void refreshReceiverLastSeen(hostedRoomCode, receiverName || 'FireTV Receiver');
         setConnectionKey((key) => key + 1);
       }
     };
@@ -4205,7 +4208,7 @@ function RemoteReceiverApp() {
       window.removeEventListener('online', reconnect);
       document.removeEventListener('visibilitychange', reconnect);
     };
-  }, [useLocalRelay]);
+  }, [hostedRoomCode, receiverName, useLocalRelay]);
 
   useEffect(() => {
     if (useLocalRelay) return;

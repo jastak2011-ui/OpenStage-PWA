@@ -21,7 +21,9 @@ create table if not exists public.receiver_state (
   last_seen_at timestamptz,
   online_status boolean not null default false,
   updated_at timestamptz not null default now(),
-  expires_at timestamptz not null default (now() + interval '12 hours')
+  -- Deprecated: retained only for older deployments. Receiver discovery and
+  -- RLS policies must not use this value.
+  expires_at timestamptz not null default '9999-12-31 23:59:59+00'
 );
 
 alter table public.receiver_state
@@ -40,7 +42,7 @@ create policy "receiver_state_select_mvp"
   on public.receiver_state
   for select
   to anon, authenticated
-  using (expires_at > now());
+  using (pairing_code ~ '^[A-Z0-9]{8}$');
 
 create policy "receiver_state_insert_mvp"
   on public.receiver_state
@@ -48,7 +50,6 @@ create policy "receiver_state_insert_mvp"
   to anon, authenticated
   with check (
     pairing_code ~ '^[A-Z0-9]{8}$'
-    and expires_at <= now() + interval '12 hours'
   );
 
 create policy "receiver_state_update_mvp"
@@ -58,7 +59,6 @@ create policy "receiver_state_update_mvp"
   using (pairing_code ~ '^[A-Z0-9]{8}$')
   with check (
     pairing_code ~ '^[A-Z0-9]{8}$'
-    and expires_at <= now() + interval '12 hours'
   );
 
 create policy "receiver_state_delete_mvp"
@@ -67,10 +67,13 @@ create policy "receiver_state_delete_mvp"
   to anon, authenticated
   using (pairing_code ~ '^[A-Z0-9]{8}$');
 
-create index if not exists receiver_state_expires_at_idx
-  on public.receiver_state (expires_at);
+create index if not exists receiver_state_last_seen_at_idx
+  on public.receiver_state (last_seen_at desc);
 ```
 
 For a stricter production version, replace the anonymous write policies with a
 short-lived pairing token or authenticated owner check. The MVP policy keeps the
 FireTV and tablet flow account-free.
+
+OpenStage treats a receiver as online when `last_seen_at` is within the last 60
+seconds. Receiver rows persist until the user manually removes/resets them.

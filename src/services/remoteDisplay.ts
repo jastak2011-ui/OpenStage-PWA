@@ -82,6 +82,8 @@ const controllerReceiverSelectionStorageKey = 'openstage-controller-receiver-sel
 const reconnectDelayMs = 1200;
 const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const receiverRoomAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const receiverOnlineWindowMs = 60 * 1000;
+export const receiverHeartbeatMs = 30 * 1000;
 
 let controllerConnection: ReturnType<typeof connectRemoteDisplay> | null = null;
 let pendingControllerSongId = '';
@@ -262,16 +264,16 @@ export async function updateReceiverRegistration(roomCode: string, name: string,
   if (!isReceiverRoomCode(normalized)) throw new Error('Receiver room code is required.');
   const receiverName = normalizeReceiverName(name);
   const lastSeenAt = new Date().toISOString();
+  const row: Record<string, unknown> = {
+    pairing_code: normalized,
+    receiver_name: receiverName,
+    online_status: online,
+    updated_at: lastSeenAt
+  };
+  if (online) row.last_seen_at = lastSeenAt;
   const { error } = await supabase
     .from('receiver_state')
-    .upsert({
-      pairing_code: normalized,
-      receiver_name: receiverName,
-      last_seen_at: lastSeenAt,
-      online_status: online,
-      updated_at: lastSeenAt,
-      expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString()
-    }, { onConflict: 'pairing_code' });
+    .upsert(row, { onConflict: 'pairing_code' });
   if (error) throw error;
   return {
     pairingCode: normalized,
@@ -279,6 +281,10 @@ export async function updateReceiverRegistration(roomCode: string, name: string,
     lastSeenAt,
     online
   };
+}
+
+export async function refreshReceiverLastSeen(roomCode: string, name = 'FireTV Receiver') {
+  return updateReceiverRegistration(roomCode, name, true);
 }
 
 export async function createHostedReceiverRoom(receiverName = 'FireTV Receiver') {
@@ -674,12 +680,12 @@ function receiverRegistrationFromRow(row: any): ReceiverRegistration | null {
       ? row.updated_at
       : '';
   const lastSeenMs = lastSeenAt ? Date.parse(lastSeenAt) : 0;
-  const recentlySeen = Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs < 90 * 1000;
+  const recentlySeen = Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs <= receiverOnlineWindowMs;
   return {
     pairingCode,
     name: normalizeReceiverName(row?.receiver_name),
     lastSeenAt,
-    online: Boolean(row?.online_status) && recentlySeen,
+    online: recentlySeen,
     currentSongTitle: typeof row?.latest_message?.payload?.song?.title === 'string' ? row.latest_message.payload.song.title : undefined,
     displayMode: typeof row?.latest_message?.payload?.receiver?.displayMode === 'string' ? row.latest_message.payload.receiver.displayMode : undefined,
     theme: typeof row?.latest_message?.payload?.visualTheme?.stageTheme === 'string'
@@ -693,15 +699,13 @@ function receiverRegistrationFromRow(row: any): ReceiverRegistration | null {
 
 async function ensureHostedReceiverRoom(roomCode: string, createNew: boolean, receiverName: string) {
   if (!supabase) throw new Error('Supabase is not configured.');
-  const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
   const row = {
     pairing_code: roomCode,
     receiver_name: normalizeReceiverName(receiverName),
     last_seen_at: now,
     online_status: true,
-    updated_at: now,
-    expires_at: expiresAt
+    updated_at: now
   };
   const { error } = createNew
     ? await supabase
@@ -715,7 +719,7 @@ async function ensureHostedReceiverRoom(roomCode: string, createNew: boolean, re
       .from('receiver_state')
       .upsert(row, { onConflict: 'pairing_code' });
   if (error) throw error;
-  return { roomCode, expiresAt };
+  return { roomCode };
 }
 
 function createReceiverRoomCode() {
@@ -790,8 +794,7 @@ async function maybePersistDurableReceiverMessage(roomCode: string, message: Rem
       pairing_code: roomCode,
       latest_message: message,
       durable_payload: durableReceiverPayload(message),
-      updated_at: now,
-      expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString()
+      updated_at: now
     }, { onConflict: 'pairing_code' });
   if (error) throw error;
 }
