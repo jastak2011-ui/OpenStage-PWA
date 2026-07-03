@@ -4802,7 +4802,7 @@ function ReceiverSong({
     sectionFontSize: getEffectiveSectionFontSize(state),
     sectionSpacingBefore: getEffectiveSectionSpacingBefore(state),
     sectionSpacingAfter: getEffectiveSectionSpacingAfter(state),
-    viewportWidth: window.innerWidth,
+    viewportWidth: viewport.width,
     displayMode: receiver.displayMode
   });
   const songTitleStyle = buildSongDocumentTextStyle({
@@ -4861,7 +4861,7 @@ function ReceiverSong({
     <div ref={viewportRef} className="relative h-full w-full overflow-hidden">
       <article
         ref={contentRef}
-        className="font-chart w-full whitespace-pre-wrap"
+        className="stage-chart font-chart w-full"
         style={{
           transform: `translateY(-${Math.max(0, scrollMetrics.scrollTop)}px)`,
           transition: payload.autoscrollActive ? 'transform 140ms linear' : 'transform 90ms ease-out',

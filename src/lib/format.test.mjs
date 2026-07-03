@@ -992,6 +992,47 @@ assert.equal(renderSong(chordOverSong, { transpose: 2, capo: 2, showNashvilleNum
 assert.equal(renderSong(chordOverSong, { transpose: 0, capo: 3, showNashvilleNumbers: true, songKey: 'F' }).lines[0].chordLine, '6   3   7m   2');
 assert.equal(getRenderCacheSize() >= 7, true);
 
+const twilightReceiverExcerpt = {
+  ...chordOverSong,
+  id: 'twilight-zone-receiver-excerpt',
+  displayPreference: 'chords-over',
+  chart: `Bm
+It's two A.M. the fear has gone
+
+Em
+I'm sitting here waiting the gun's still warm
+
+F#m                                      Bm
+Maybe my connection is tired of taking chances`,
+  updatedAt: '2026-07-03T00:00:00.000Z'
+};
+const twilightReceiverRendered = renderSong(twilightReceiverExcerpt, {
+  transpose: 0,
+  capo: 0,
+  showNashvilleNumbers: false,
+  songKey: 'Bm',
+  viewportWidth: 1920,
+  displayMode: 'receiver'
+});
+const twilightReceiverChordRows = twilightReceiverRendered.lines.filter((line) => line.type === 'chord-over');
+assert.equal(twilightReceiverChordRows.length, 3);
+assert.equal(twilightReceiverChordRows[0].chordLine, 'Bm');
+assert.equal(twilightReceiverChordRows[0].lyricLine, "It's two A.M. the fear has gone");
+assert.equal(twilightReceiverChordRows[1].chordLine, 'Em');
+assert.equal(twilightReceiverChordRows[1].lyricLine, "I'm sitting here waiting the gun's still warm");
+assert.equal(twilightReceiverChordRows[2].chordLine, 'F#m                                      Bm');
+assert.equal(twilightReceiverChordRows[2].lyricLine, 'Maybe my connection is tired of taking chances');
+const twilightReceiverAnchored = chordOverTextToAnchoredLine(twilightReceiverChordRows[2].chordLine, twilightReceiverChordRows[2].lyricLine);
+assert.equal(twilightReceiverAnchored.anchors[0].chord, 'F#m');
+assert.equal(twilightReceiverAnchored.anchors[0].index, twilightReceiverChordRows[2].lyricLine.indexOf('Maybe'));
+assert.equal(twilightReceiverAnchored.anchors[1].chord, 'Bm');
+const twilightReceiverChanceIndex = twilightReceiverChordRows[2].lyricLine.indexOf('chances');
+assert.equal(
+  twilightReceiverAnchored.anchors[1].index >= twilightReceiverChanceIndex &&
+    twilightReceiverAnchored.anchors[1].index < twilightReceiverChanceIndex + 'chances'.length,
+  true
+);
+
 const standaloneChordRow = {
   ...chordOverSong,
   id: 'standalone-chord-row',
