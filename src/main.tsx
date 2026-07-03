@@ -9,6 +9,9 @@ import { configurePwaUpdateService, notifyPwaUpdateFound, notifyPwaUpdateWaiting
 import { getStartupDiagnostics, markStartupError, shouldShowStartupDebug } from './services/startupDiagnostics';
 import { fallbackCastState, fetchStaticCastState, loadLocalCastState, normalizeCastState } from './services/castState';
 
+declare const __APP_VERSION__: string;
+declare const __APP_BUILD_TIME__: string;
+
 declare global {
   interface Window {
     OpenStageStartup?: {
@@ -19,6 +22,47 @@ declare global {
     };
     OpenStageReactMounted?: boolean;
   }
+}
+
+function receiverDebugBuildTime() {
+  try {
+    return typeof __APP_BUILD_TIME__ === 'string' ? __APP_BUILD_TIME__ : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function receiverDebugAppVersion() {
+  try {
+    return typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function ReceiverDebugBadge({ route, renderer }: { route: string; renderer: string }) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        zIndex: 999999,
+        background: '#dc0000',
+        color: '#ffffff',
+        fontSize: 18,
+        padding: 8,
+        fontFamily: 'monospace',
+        fontWeight: 800,
+        lineHeight: 1.15,
+        textAlign: 'left',
+        pointerEvents: 'none'
+      }}
+    >
+      <div>RECEIVER DEBUG ACTIVE - {route} - {renderer} - {receiverDebugBuildTime()}</div>
+      <div>Receiver build {receiverDebugAppVersion()}</div>
+    </div>
+  );
 }
 
 window.OpenStageStartup?.checkpoint('main script loaded');
@@ -175,6 +219,7 @@ function CastReceiverTestPage() {
 
   return (
     <main className="flex min-h-screen w-screen items-center justify-center bg-white p-8 text-center text-black">
+      <ReceiverDebugBadge route="/cast-receiver" renderer="CastReceiverReact" />
       <section className="grid max-w-4xl gap-10">
         <div>
           <h1 className="text-6xl font-bold leading-tight">OpenStage Cast Receiver</h1>
@@ -205,9 +250,11 @@ function CastReceiverTestPage() {
 
 window.OpenStageStartup?.checkpoint('React render started');
 const isCastReceiverRoute = window.location.pathname.replace(/\/+$/, '') === '/cast-receiver';
+const forceReceiverDebug = new URLSearchParams(window.location.search).get('debugReceiver') === '1';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
+      {forceReceiverDebug && <ReceiverDebugBadge route={window.location.pathname || '/'} renderer={isCastReceiverRoute ? 'CastReceiverReact' : 'ReactApp'} />}
       {isCastReceiverRoute ? (
         <CastReceiverTestPage />
       ) : (

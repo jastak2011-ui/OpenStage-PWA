@@ -4080,10 +4080,12 @@ function HelpView() {
 
 function ReceiverBuildBadge({ renderer, route }: { renderer: 'StageShared' | 'LegacyReceiver'; route: string }) {
   return (
-    <div className="pointer-events-none fixed bottom-2 left-2 z-[9998] rounded bg-black/55 px-2 py-1 text-left font-mono text-[10px] leading-tight text-white/70">
-      <div>Receiver build: {safeAppVersion()} / {safeBuildTime()}</div>
-      <div>Route: {route}</div>
-      <div>Renderer: {renderer}</div>
+    <div
+      className="pointer-events-none fixed left-0 top-0 z-[999999] font-mono font-bold leading-tight text-white shadow-2xl"
+      style={{ background: '#dc0000', color: '#ffffff', fontSize: 18, padding: 8 }}
+    >
+      <div>RECEIVER DEBUG ACTIVE - {route} - {renderer} - {safeBuildTime()}</div>
+      <div>Receiver build {safeAppVersion()}</div>
     </div>
   );
 }
@@ -4407,6 +4409,7 @@ function RemoteReceiverApp() {
         <section className="grid w-full max-w-xl gap-5 rounded-md border border-slate-700 bg-slate-900/85 p-6 text-left">
           <div>
             <div className="text-5xl font-bold leading-tight">Name this display</div>
+            <div className="mt-2 text-lg font-semibold text-red-200">Receiver build {safeBuildTime()}</div>
             <div className="mt-3 text-xl text-slate-300">This name will appear on the iPad when choosing a receiver.</div>
           </div>
           <label className="grid gap-2 text-lg font-semibold">
@@ -4434,6 +4437,7 @@ function RemoteReceiverApp() {
         <section className="grid max-w-2xl gap-5">
           <div>
             <div className="text-6xl font-bold leading-tight">OpenStage Receiver</div>
+            <div className="mt-2 text-xl font-semibold text-red-200">Receiver build {safeBuildTime()}</div>
             <div className="mt-4 text-3xl text-slate-300">Waiting for iPad controller</div>
           </div>
           <div className="grid gap-3 rounded-md border border-slate-700 bg-slate-900/80 p-4 text-left text-xl text-slate-200">

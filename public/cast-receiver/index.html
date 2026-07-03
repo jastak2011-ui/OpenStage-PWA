@@ -74,9 +74,28 @@
         font-size: clamp(18px, 2vw, 28px);
         font-weight: 700;
       }
+
+      .receiver-debug-badge {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 999999;
+        background: #dc0000;
+        color: #ffffff;
+        font-family: monospace;
+        font-size: 18px;
+        font-weight: 800;
+        line-height: 1.15;
+        padding: 8px;
+        text-align: left;
+      }
     </style>
   </head>
   <body>
+    <div class="receiver-debug-badge">
+      <div>RECEIVER DEBUG ACTIVE - /cast-receiver - CastReceiverStatic - 2026-07-03T10:52:59.9491159-04:00</div>
+      <div>Receiver build static</div>
+    </div>
     <main>
       <section aria-label="OpenStage Cast Receiver status">
         <div>
