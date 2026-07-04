@@ -367,7 +367,9 @@ export const defaultPerformanceState: PerformanceState = {
     fontScale: 1,
     showTestPattern: false,
     showDiagnostics: false,
-    safeMargin: 4
+    safeMargin: 4,
+    prompterCapoMode: 'follow-ipad',
+    prompterCapoValue: 0
   }
 };
 

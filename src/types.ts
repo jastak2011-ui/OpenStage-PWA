@@ -184,6 +184,8 @@ export type ReceiverDisplaySettings = {
   showTestPattern: boolean;
   showDiagnostics: boolean;
   safeMargin: number;
+  prompterCapoMode: 'follow-ipad' | 'no-capo' | 'custom';
+  prompterCapoValue: number;
 };
 
 export type PerformanceState = {

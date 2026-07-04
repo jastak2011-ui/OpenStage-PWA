@@ -117,6 +117,14 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/lib/prompterCapo.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/prompterCapo-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/services/externalDisplay.ts')],
   bundle: true,
   platform: 'node',

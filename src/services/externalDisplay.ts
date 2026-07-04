@@ -1,8 +1,14 @@
-import type { ExternalDisplaySettings, PerformanceState, Song } from '../types';
+import type { ExternalDisplaySettings, PerformanceState, ReceiverDisplaySettings, Song } from '../types';
 
 export type ExternalDisplayPayload = {
   song: Song;
   performance: PerformanceState;
+  concertKey?: string;
+  sourceCapo?: number;
+  prompterCapoMode?: ReceiverDisplaySettings['prompterCapoMode'];
+  prompterCapoValue?: number;
+  effectivePrompterCapo?: number;
+  receiverTransposeOffset?: number;
   effectiveCapo: number;
   updatedAt: string;
 };

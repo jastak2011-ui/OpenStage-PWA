@@ -84,6 +84,7 @@ import { getStageSwipeDirection } from './lib/stageGestures';
 import { findSharedSongDuplicate, sharedDuplicateHasSameSongUuid, type SharedSongDuplicate } from './lib/sharedSongImport';
 import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/stageHarmonyEdit';
 import { clampTempoBpm, maxTempoBpm, minTempoBpm, nextTempoBeat, nextTempoCountdownSeconds, normalizeTempoBpm, parseTempoBpmInput, shouldShowTempoMeter, shouldToggleTempoOnPointerEnd, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './lib/tempo';
+import { getEffectivePrompterCapo, getPrompterCapoTransposeOffset, normalizePrompterCapoMode, normalizePrompterCapoValue } from './lib/prompterCapo';
 import { createId, createSongUuid } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
@@ -373,7 +374,9 @@ const defaultReceiverDisplaySettings: ReceiverDisplaySettings = {
   fontScale: 1,
   showTestPattern: false,
   showDiagnostics: false,
-  safeMargin: 4
+  safeMargin: 4,
+  prompterCapoMode: 'follow-ipad',
+  prompterCapoValue: 0
 };
 
 type AutoscrollDebugInfo = {
@@ -2019,6 +2022,10 @@ export default function App() {
     const scrollProgress = maxScroll > 0 ? clampNumber(scrollTop / maxScroll, 0, 1) : 0;
     const performance = performanceOverride ?? performanceStateRef.current;
     const activeReceiverSettings = normalizeReceiverDisplaySettings(performance.receiverDisplay);
+    const sourceCapo = getEffectiveCapo(selectedSong, performance);
+    const effectivePrompterCapo = getEffectivePrompterCapo(sourceCapo, activeReceiverSettings);
+    const receiverTransposeOffset = getPrompterCapoTransposeOffset(sourceCapo, effectivePrompterCapo);
+    const concertKey = selectedSong.performanceKey || selectedSong.key || '';
     const typography = {
       lyricFontSize: getEffectiveLyricFontSize(performance),
       chordFontSize: getEffectiveChordFontSize(performance),
@@ -2038,7 +2045,13 @@ export default function App() {
     return {
       song: selectedSong,
       performance: receiverPerformance,
-      effectiveCapo: getEffectiveCapo(selectedSong, performance),
+      concertKey,
+      sourceCapo,
+      prompterCapoMode: activeReceiverSettings.prompterCapoMode,
+      prompterCapoValue: activeReceiverSettings.prompterCapoValue,
+      effectivePrompterCapo,
+      receiverTransposeOffset,
+      effectiveCapo: effectivePrompterCapo,
       scrollTop,
       scrollProgress,
       autoscrollActive: autoscrollControllerRef.current.active || isAutoscrolling,
@@ -4096,9 +4109,17 @@ function receiverPayloadStableKey(payload: RemoteReceiverPayload | null) {
     payload.song.updatedAt ?? '',
     payload.song.version ?? '',
     payload.song.chart?.length ?? 0,
+    payload.concertKey ?? '',
+    payload.sourceCapo ?? '',
+    payload.prompterCapoMode ?? '',
+    payload.prompterCapoValue ?? '',
+    payload.effectivePrompterCapo ?? payload.effectiveCapo ?? '',
+    payload.receiverTransposeOffset ?? '',
     payload.receiver.displayMode,
     payload.receiver.fontScale,
     payload.receiver.safeMargin,
+    payload.receiver.prompterCapoMode,
+    payload.receiver.prompterCapoValue,
     payload.receiver.showTestPattern ? 'test' : 'song',
     payload.scrollTop ?? 0,
     payload.scrollProgress ?? 0,
@@ -4741,10 +4762,17 @@ function RemoteDisplaySong({ song, state, diagnostics }: { song: Song; state: Pe
 
   return (
     <main
-      className={`${getStageTheme(state.stageTheme).className} h-screen w-screen overflow-hidden`}
+      className={`${getStageTheme(state.stageTheme).className} relative h-screen w-screen overflow-hidden`}
       style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
     >
       {diagnostics}
+      <div
+        className="pointer-events-none fixed right-4 top-4 z-30 grid gap-1 rounded-md border border-white/15 bg-black/45 px-3 py-2 text-right font-semibold leading-tight text-white shadow-lg backdrop-blur-sm"
+        style={{ fontSize: `${Math.max(14, Math.round(headerFontSize * 0.72))}px`, fontFamily: stageFontFamily }}
+      >
+        <div>Key: {song.performanceKey || song.key || '-'}</div>
+        <div>Capo: {effectiveCapo}</div>
+      </div>
       <article
         className="stage-chart h-full w-full overflow-hidden whitespace-pre-wrap px-[8vw] py-[6vh]"
         style={{
@@ -4860,11 +4888,13 @@ function ReceiverSong({
   const documentTheme = { background: receiverVisual.background, text: receiverVisual.text, muted: receiverVisual.muted };
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
   const chordFontFamily = getEffectiveUseMonospaceChords(state) ? 'Consolas, "Courier New", monospace' : stageFontFamily;
+  const receiverCapo = normalizePrompterCapoValue(payload.effectivePrompterCapo ?? payload.effectiveCapo);
+  const concertKey = payload.concertKey || payload.song.performanceKey || payload.song.key || '-';
   const rendered = renderSong(payload.song, {
     transpose: state.transpose,
-    capo: payload.effectiveCapo,
+    capo: receiverCapo,
     showNashvilleNumbers: state.showNashvilleNumbers,
-    songKey: payload.song.performanceKey || payload.song.key,
+    songKey: concertKey,
     activeProfile: state.activeProfile,
     lyricFontSize,
     lineSpacing,
@@ -4922,6 +4952,8 @@ function ReceiverSong({
     receiver.displayMode,
     receiver.fontScale,
     receiver.safeMargin,
+    receiver.prompterCapoMode,
+    receiver.prompterCapoValue,
     viewport.width,
     viewport.height,
     lyricFontSize,
@@ -4932,6 +4964,13 @@ function ReceiverSong({
 
   return (
     <div ref={viewportRef} className="relative h-full w-full overflow-hidden">
+      <div
+        className="pointer-events-none fixed right-4 top-4 z-30 grid gap-1 rounded-md border border-white/15 bg-black/45 px-3 py-2 text-right font-semibold leading-tight text-white shadow-lg backdrop-blur-sm"
+        style={{ fontSize: `${Math.max(14, Math.round(headerFontSize * 0.72))}px`, fontFamily: stageFontFamily }}
+      >
+        <div>Key: {concertKey}</div>
+        <div>Capo: {receiverCapo}</div>
+      </div>
       <article
         ref={contentRef}
         className="stage-chart font-chart w-full"
@@ -4953,7 +4992,7 @@ function ReceiverSong({
             line={line}
             transpose={state.transpose}
             showNashville={state.showNashvilleNumbers}
-            songKey={payload.song.performanceKey || payload.song.key}
+            songKey={concertKey}
             boldChords={getEffectiveBoldChords(state)}
             italicChords={getEffectiveItalicChords(state)}
             showChords={getEffectiveShowChords(state)}
@@ -6502,7 +6541,9 @@ function normalizeReceiverDisplaySettings(settings: Partial<ReceiverDisplaySetti
     fontScale: clampNumber(settings?.fontScale ?? defaultReceiverDisplaySettings.fontScale, 0.65, 1.8),
     showTestPattern: Boolean(settings?.showTestPattern),
     showDiagnostics: Boolean(settings?.showDiagnostics),
-    safeMargin: clampNumber(settings?.safeMargin ?? defaultReceiverDisplaySettings.safeMargin, 0, 14)
+    safeMargin: clampNumber(settings?.safeMargin ?? defaultReceiverDisplaySettings.safeMargin, 0, 14),
+    prompterCapoMode: normalizePrompterCapoMode(settings?.prompterCapoMode),
+    prompterCapoValue: normalizePrompterCapoValue(settings?.prompterCapoValue)
   };
 }
 
@@ -8487,10 +8528,18 @@ function PerformanceView({
   const chartLines = rendered.lines;
   useEffect(() => {
     if (!externalDisplaySettings.enabled) return;
+    const receiver = normalizeReceiverDisplaySettings(state.receiverDisplay);
+    const effectivePrompterCapo = getEffectivePrompterCapo(effectiveCapo, receiver);
     saveExternalDisplayPayload({
       song,
       performance: { ...state, externalDisplay: externalDisplaySettings },
-      effectiveCapo,
+      concertKey: song.performanceKey || song.key || '',
+      sourceCapo: effectiveCapo,
+      prompterCapoMode: receiver.prompterCapoMode,
+      prompterCapoValue: receiver.prompterCapoValue,
+      effectivePrompterCapo,
+      receiverTransposeOffset: getPrompterCapoTransposeOffset(effectiveCapo, effectivePrompterCapo),
+      effectiveCapo: effectivePrompterCapo,
       updatedAt: new Date().toISOString()
     });
   }, [effectiveCapo, externalDisplaySettings, song, state]);
@@ -9041,11 +9090,11 @@ function PerformanceView({
       </header>
 
       <div
-        className={`stage-keycapo-badge pointer-events-none fixed right-4 top-24 z-20 grid gap-1 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-right font-semibold leading-tight backdrop-blur-sm transition-opacity duration-300 sm:right-6 ${toolbarVisible || activePopover ? 'opacity-100' : 'opacity-0'} ${headerText}`}
+        className={`stage-keycapo-badge pointer-events-none fixed right-4 top-24 z-40 grid gap-1 rounded-md border border-white/10 bg-black/35 px-3 py-2 text-right font-semibold leading-tight opacity-100 shadow-lg backdrop-blur-sm sm:right-6 ${headerText}`}
         style={{ fontSize: `${headerFontSize}px`, color: documentTheme.text, fontFamily: stageFontFamily }}
       >
-        <div style={{ fontSize: '0.78em' }}>Key {song.key || '-'}</div>
-        <div style={{ fontSize: '0.78em' }}>Capo {effectiveCapo}</div>
+        <div style={{ fontSize: '0.78em' }}>Key: {song.performanceKey || song.key || '-'}</div>
+        <div style={{ fontSize: '0.78em' }}>Capo: {effectiveCapo}</div>
       </div>
 
       <TempoBeatIndicator
@@ -9550,6 +9599,28 @@ function DisplaysManagerView({
                 </select>
               </label>
               <label className="grid gap-1 text-sm font-semibold">
+                Prompter Capo Mode
+                <select className="input" value={receiver.prompterCapoMode} onChange={(event) => updateReceiverSettings({ prompterCapoMode: normalizePrompterCapoMode(event.target.value) })}>
+                  <option value="follow-ipad">Follow iPad</option>
+                  <option value="no-capo">No Capo</option>
+                  <option value="custom">Custom Capo</option>
+                </select>
+              </label>
+              {receiver.prompterCapoMode === 'custom' && (
+                <label className="grid gap-1 text-sm font-semibold">
+                  Custom Prompter Capo
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={12}
+                    step={1}
+                    value={receiver.prompterCapoValue}
+                    onChange={(event) => updateReceiverSettings({ prompterCapoValue: normalizePrompterCapoValue(event.target.value) })}
+                  />
+                </label>
+              )}
+              <label className="grid gap-1 text-sm font-semibold">
                 Font Scale {receiver.fontScale.toFixed(2)}x
                 <input type="range" min={0.65} max={1.8} step={0.05} value={receiver.fontScale} onChange={(event) => updateReceiverSettings({ fontScale: Number(event.target.value) })} />
               </label>
@@ -9635,7 +9706,15 @@ function ExternalDisplayControls({
       onSendReceiver();
     }, 50);
     return () => window.clearTimeout(timer);
-  }, [receiver.displayMode, receiver.blackBackground, receiver.fontScale, receiver.safeMargin, receiver.showDiagnostics]);
+  }, [
+    receiver.displayMode,
+    receiver.blackBackground,
+    receiver.fontScale,
+    receiver.safeMargin,
+    receiver.showDiagnostics,
+    receiver.prompterCapoMode,
+    receiver.prompterCapoValue
+  ]);
 
   function flashReceiverMessage(message: string) {
     setReceiverMessage(message);
@@ -9718,6 +9797,38 @@ function ExternalDisplayControls({
             <Monitor size={18} /> Open Display Manager
           </button>
         </div>
+      </div>
+      <div className="grid gap-2 rounded-md border border-sky-300/30 bg-sky-300/10 p-3 text-sky-50">
+        <div>
+          <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-300">Prompter Capo</div>
+          <div className="text-slate-300">Controls chord shapes on the external display only. Concert key stays unchanged.</div>
+        </div>
+        <label className="grid gap-1">
+          Prompter Capo Mode
+          <select
+            className="input bg-slate-900 text-white"
+            value={receiver.prompterCapoMode}
+            onChange={(event) => updateReceiver({ prompterCapoMode: normalizePrompterCapoMode(event.target.value) })}
+          >
+            <option value="follow-ipad">Follow iPad</option>
+            <option value="no-capo">No Capo</option>
+            <option value="custom">Custom Capo</option>
+          </select>
+        </label>
+        {receiver.prompterCapoMode === 'custom' && (
+          <label className="grid gap-1">
+            Custom Capo
+            <input
+              className="input bg-slate-900 text-white"
+              type="number"
+              min={0}
+              max={12}
+              step={1}
+              value={receiver.prompterCapoValue}
+              onChange={(event) => updateReceiver({ prompterCapoValue: normalizePrompterCapoValue(event.target.value) })}
+            />
+          </label>
+        )}
       </div>
       <div className="hidden">
       <div className="grid gap-3 rounded-md border border-sky-300/30 bg-sky-300/10 p-3 text-sky-50">
@@ -11282,11 +11393,13 @@ function ExternalPrompterApp() {
   const harmonyItalic = getEffectiveHarmonyItalic(payload.performance);
   const harmonyUnderline = getEffectiveHarmonyUnderline(payload.performance);
   const harmonyIconVisible = getEffectiveHarmonyIconVisible(payload.performance);
+  const prompterCapo = normalizePrompterCapoValue(payload.effectivePrompterCapo ?? payload.effectiveCapo);
+  const concertKey = payload.concertKey || payload.song.performanceKey || payload.song.key || '-';
   const rendered = renderSong(payload.song, {
     transpose: payload.performance.transpose,
-    capo: payload.effectiveCapo,
+    capo: prompterCapo,
     showNashvilleNumbers: payload.performance.showNashvilleNumbers,
-    songKey: payload.song.performanceKey || payload.song.key,
+    songKey: concertKey,
     activeProfile: payload.performance.activeProfile,
     lyricFontSize,
     lineSpacing,
@@ -11308,6 +11421,13 @@ function ExternalPrompterApp() {
       style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
     >
       {settings.showCalibration && <ExternalCalibrationOverlay settings={settings} layout={layout} />}
+      <div
+        className="pointer-events-none fixed right-4 top-4 z-30 grid gap-1 rounded-md border border-white/15 bg-black/45 px-3 py-2 text-right font-semibold leading-tight text-white shadow-lg backdrop-blur-sm"
+        style={{ fontSize: `${Math.max(14, Math.round(getEffectiveHeaderFontSize(payload.performance) * 0.72))}px`, fontFamily: stageFontFamily }}
+      >
+        <div>Key: {concertKey}</div>
+        <div>Capo: {prompterCapo}</div>
+      </div>
       <div className="external-prompter-viewport absolute inset-0 flex items-center justify-center overflow-hidden">
         <div
           className="absolute left-1/2 top-1/2 flex items-center justify-center"
@@ -11349,7 +11469,7 @@ function ExternalPrompterApp() {
                     line={line}
                     transpose={payload.performance.transpose}
                     showNashville={payload.performance.showNashvilleNumbers}
-                    songKey={payload.song.performanceKey || payload.song.key}
+                    songKey={concertKey}
                     boldChords={boldChords}
                     italicChords={italicChords}
                     showChords={showChords}

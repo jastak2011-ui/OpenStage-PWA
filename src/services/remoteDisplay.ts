@@ -4,6 +4,12 @@ import { supabase } from '../data/supabase';
 export type RemoteReceiverPayload = {
   song: Song;
   performance: PerformanceState;
+  concertKey: string;
+  sourceCapo: number;
+  prompterCapoMode: ReceiverDisplaySettings['prompterCapoMode'];
+  prompterCapoValue: number;
+  effectivePrompterCapo: number;
+  receiverTransposeOffset: number;
   effectiveCapo: number;
   scrollTop: number;
   scrollProgress: number;

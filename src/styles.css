@@ -663,11 +663,7 @@ label,
     right: 0.5rem !important;
     padding: 0.25rem 0.4rem !important;
     font-size: 0.62rem !important;
-    opacity: 0.72;
-  }
-
-  .stage-shell[data-controls-visible="true"] .stage-keycapo-badge {
-    opacity: 0;
+    opacity: 0.88 !important;
   }
 
   .stage-scroll {

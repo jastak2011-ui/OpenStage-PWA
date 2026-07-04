@@ -29,6 +29,7 @@ import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
 import { findSharedSongDuplicate } from './sharedSongImport-test-target.mjs';
 import { applyStageHarmonyEdit } from './stageHarmonyEdit-test-target.mjs';
 import { clampTempoBpm, nextTempoBeat, nextTempoCountdownSeconds, normalizeTempoBpm, parseTempoBpmInput, shouldOpenTempoAdjustmentPanel, shouldShowTempoMeter, shouldToggleTempoOnPointerEnd, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './tempo-test-target.mjs';
+import { getEffectivePrompterCapo, getPrompterCapoTransposeOffset, normalizePrompterCapoMode, normalizePrompterCapoValue } from './prompterCapo-test-target.mjs';
 import { appleTvPortraitPrompterSettings, calculateExternalPrompterLayout, normalizeExternalDisplaySettings } from '../services/externalDisplay-test-target.mjs';
 import {
   anchoredChordLineLayout,
@@ -990,6 +991,30 @@ const chordOverSlash = {
 assert.equal(renderSong(chordOverSlash, { transpose: 0, capo: 2, showNashvilleNumbers: false, songKey: 'D' }).lines[0].chordLine, 'C/E');
 assert.equal(renderSong(chordOverSong, { transpose: 2, capo: 2, showNashvilleNumbers: false, songKey: 'F' }).lines[0].chordLine, 'F   C   Gm   A#');
 assert.equal(renderSong(chordOverSong, { transpose: 0, capo: 3, showNashvilleNumbers: true, songKey: 'F' }).lines[0].chordLine, '6   3   7m   2');
+assert.equal(normalizePrompterCapoMode('custom'), 'custom');
+assert.equal(normalizePrompterCapoMode('bad-mode'), 'follow-ipad');
+assert.equal(normalizePrompterCapoValue(14), 12);
+assert.equal(getEffectivePrompterCapo(2, { prompterCapoMode: 'follow-ipad', prompterCapoValue: 0 }), 2);
+assert.equal(getEffectivePrompterCapo(2, { prompterCapoMode: 'no-capo', prompterCapoValue: 0 }), 0);
+assert.equal(getEffectivePrompterCapo(2, { prompterCapoMode: 'custom', prompterCapoValue: 4 }), 4);
+assert.equal(getPrompterCapoTransposeOffset(2, 0), 2);
+assert.equal(getPrompterCapoTransposeOffset(2, 4), -2);
+const prompterCapoSong = {
+  ...chordOverSong,
+  id: 'prompter-capo-song',
+  key: 'Bm',
+  chart: 'Bm\nConcert key stays fixed',
+  updatedAt: '2026-07-04T00:00:00.000Z'
+};
+const ipadCapoTwo = renderSong(prompterCapoSong, { transpose: 0, capo: 2, showNashvilleNumbers: false, songKey: 'Bm' });
+assert.equal(ipadCapoTwo.lines[0].type, 'chord-over');
+assert.equal(ipadCapoTwo.lines[0].chordLine, 'Am');
+const prompterNoCapo = renderSong(prompterCapoSong, { transpose: 0, capo: getEffectivePrompterCapo(2, { prompterCapoMode: 'no-capo', prompterCapoValue: 0 }), showNashvilleNumbers: false, songKey: 'Bm' });
+assert.equal(prompterNoCapo.lines[0].type, 'chord-over');
+assert.equal(prompterNoCapo.lines[0].chordLine, 'Bm');
+const prompterCustomFour = renderSong(prompterCapoSong, { transpose: 0, capo: getEffectivePrompterCapo(2, { prompterCapoMode: 'custom', prompterCapoValue: 4 }), showNashvilleNumbers: false, songKey: 'Bm' });
+assert.equal(prompterCustomFour.lines[0].type, 'chord-over');
+assert.equal(prompterCustomFour.lines[0].chordLine, 'Gm');
 assert.equal(getRenderCacheSize() >= 7, true);
 
 const twilightReceiverExcerpt = {
