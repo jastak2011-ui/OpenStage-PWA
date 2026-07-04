@@ -5017,6 +5017,7 @@ function ReceiverSong({
             lineSpacing={lineSpacing}
             chordVerticalOffset={getEffectiveChordVerticalOffset(state)}
             mobileReflowMode={false}
+            chordCoordinateMode="local-offset"
             showReceiverCoordinateDebug={showReceiverCoordinateDebug}
             showAnchorDebug={false}
             showHarmonyDebug={false}
