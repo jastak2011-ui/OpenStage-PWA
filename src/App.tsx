@@ -12485,7 +12485,11 @@ function AnchoredChordDisplayLine({
       const localOffset = chordCoordinateMode === 'local-offset' && lineBox
         ? localOffsetWithin(marker, lineBox)
         : null;
-      const left = localOffset ? localOffset.left : lineRect ? markerRect.left - lineRect.left : marker.offsetLeft;
+      const markerLeft = localOffset ? localOffset.left : lineRect ? markerRect.left - lineRect.left : marker.offsetLeft;
+      const fallbackLeft = shouldUseMeasuredAnchorFallback(markerLeft, index)
+        ? measuredLyricAnchorLeft(anchoredLine.lyricLine, index, lyricRef.current, lyricFontSize)
+        : null;
+      const left = fallbackLeft ?? markerLeft;
       const wrappedLyricTop = localOffset ? localOffset.top - lyricTop : lineRect ? markerRect.top - lineRect.top - lyricTop : marker.offsetTop;
       const chordTop = Math.min(
         chordLaneMaxTop,
@@ -12809,6 +12813,28 @@ function localOffsetWithin(element: HTMLElement, ancestor: HTMLElement) {
 
   if (current === ancestor) return { left, top };
   return null;
+}
+
+function shouldUseMeasuredAnchorFallback(markerLeft: number, anchorIndex: number) {
+  return anchorIndex > 0 && Math.abs(markerLeft) < 1;
+}
+
+function measuredLyricAnchorLeft(
+  lyricLine: string,
+  anchorIndex: number,
+  lyricElement: HTMLElement | null,
+  lyricFontSize: number
+) {
+  const safeIndex = Math.max(0, Math.min(anchorIndex, lyricLine.length));
+  if (safeIndex === 0) return 0;
+  const prefix = lyricLine.slice(0, safeIndex);
+  const computed = lyricElement && typeof window !== 'undefined'
+    ? window.getComputedStyle(lyricElement)
+    : null;
+  const font = computed?.font && computed.font !== ''
+    ? computed.font
+    : `${lyricFontSize}px ${stageChartMeasureFontFamily()}`;
+  return measureStageLyricText(prefix, font);
 }
 
 function shouldLogReceiverCoordinateLine(lyricLine: string) {
