@@ -4090,6 +4090,34 @@ function safeBuildTime() {
   }
 }
 
+function sameReceiverScrollMetrics(left: ReceiverScrollMetrics, right: ReceiverScrollMetrics) {
+  return (
+    left.scrollHeight === right.scrollHeight &&
+    left.clientHeight === right.clientHeight &&
+    left.scrollTop === right.scrollTop &&
+    left.progress === right.progress
+  );
+}
+
+function receiverPayloadStableKey(payload: RemoteReceiverPayload | null) {
+  if (!payload) return '';
+  return [
+    payload.updatedAt,
+    payload.song.id,
+    payload.song.songUuid ?? '',
+    payload.song.updatedAt ?? '',
+    payload.song.version ?? '',
+    payload.song.chart?.length ?? 0,
+    payload.receiver.displayMode,
+    payload.receiver.fontScale,
+    payload.receiver.safeMargin,
+    payload.receiver.showTestPattern ? 'test' : 'song',
+    payload.scrollTop ?? 0,
+    payload.scrollProgress ?? 0,
+    payload.autoscrollActive ? 'scrolling' : 'still'
+  ].join('|');
+}
+
 function RemoteReceiverApp() {
   const [payload, setPayload] = useState<RemoteReceiverPayload | null>(null);
   const [testPattern, setTestPattern] = useState<RemoteReceiverTestPatternPayload | null>(null);
@@ -4114,9 +4142,24 @@ function RemoteReceiverApp() {
   const diagnosticsForcedByUrl = new URLSearchParams(window.location.search).get('diagnostics') === '1';
   const useLocalRelay = shouldUseLocalReceiverRelay();
   const showDiagnostics = diagnosticsForcedByUrl || receiver.showDiagnostics || receiverDiagnosticsVisible;
+  const handleReceiverMetricsChange = useCallback((nextMetrics: ReceiverScrollMetrics) => {
+    setScrollMetrics((current) => (sameReceiverScrollMetrics(current, nextMetrics) ? current : nextMetrics));
+  }, []);
+  const applyReceiverPayload = useCallback((nextPayload: RemoteReceiverPayload) => {
+    setPayload((current) => (receiverPayloadStableKey(current) === receiverPayloadStableKey(nextPayload) ? current : nextPayload));
+    const nextTestPattern = nextPayload.receiver.showTestPattern ? { receiver: nextPayload.receiver, updatedAt: nextPayload.updatedAt } : null;
+    setTestPattern((current) => {
+      const currentKey = current ? `${current.updatedAt}|${current.receiver.displayMode}|${current.receiver.fontScale}|${current.receiver.safeMargin}` : '';
+      const nextKey = nextTestPattern ? `${nextTestPattern.updatedAt}|${nextTestPattern.receiver.displayMode}|${nextTestPattern.receiver.fontScale}|${nextTestPattern.receiver.safeMargin}` : '';
+      return currentKey === nextKey ? current : nextTestPattern;
+    });
+  }, []);
 
   useEffect(() => {
-    const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    const resize = () => {
+      const nextViewport = { width: window.innerWidth, height: window.innerHeight };
+      setViewport((current) => (current.width === nextViewport.width && current.height === nextViewport.height ? current : nextViewport));
+    };
     resize();
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', resize);
@@ -4133,8 +4176,7 @@ function RemoteReceiverApp() {
       onStatus: setStatus,
       onMessage: (message) => {
         if (message.type === 'receiver-state') {
-          setPayload(message.payload);
-          setTestPattern(message.payload.receiver.showTestPattern ? { receiver: message.payload.receiver, updatedAt: message.payload.updatedAt } : null);
+          applyReceiverPayload(message.payload);
           setLastMessageAt(new Date().toLocaleTimeString());
         }
         if (message.type === 'receiver-test-pattern') {
@@ -4144,7 +4186,7 @@ function RemoteReceiverApp() {
       }
     });
     return () => connection.close();
-  }, [connectionKey, useLocalRelay]);
+  }, [applyReceiverPayload, connectionKey, useLocalRelay]);
 
   useEffect(() => {
     if (useLocalRelay || hostedRoomCode) return;
@@ -4175,8 +4217,7 @@ function RemoteReceiverApp() {
     const applyMessage = (message: Awaited<ReturnType<typeof fetchHostedReceiverRoomState>>['message'], lastUpdatedAt: string) => {
       if (!message) return;
       if (message.type === 'receiver-state') {
-        setPayload(message.payload);
-        setTestPattern(message.payload.receiver.showTestPattern ? { receiver: message.payload.receiver, updatedAt: message.payload.updatedAt } : null);
+        applyReceiverPayload(message.payload);
         setLastMessageAt(lastUpdatedAt || new Date().toLocaleTimeString());
       }
       if (message.type === 'receiver-test-pattern') {
@@ -4223,7 +4264,7 @@ function RemoteReceiverApp() {
       if (heartbeatId !== null) window.clearInterval(heartbeatId);
       subscription?.close();
     };
-  }, [connectionKey, hostedRoomCode, receiverName, useLocalRelay]);
+  }, [applyReceiverPayload, connectionKey, hostedRoomCode, receiverName, useLocalRelay]);
 
   useEffect(() => {
     if (useLocalRelay) return;
@@ -4412,7 +4453,7 @@ function RemoteReceiverApp() {
         {testPattern ? (
           <ReceiverTestPattern settings={receiver} viewport={viewport} status={status} lastMessageAt={lastMessageAt} />
         ) : payload ? (
-          <ReceiverSong payload={payload} viewport={viewport} onMetricsChange={setScrollMetrics} />
+          <ReceiverSong payload={payload} viewport={viewport} onMetricsChange={handleReceiverMetricsChange} />
         ) : null}
       </ReceiverCanvas>
       {showDiagnostics && payload && (
@@ -4497,6 +4538,7 @@ function RemoteDisplayApp() {
   const [startupError, setStartupError] = useState('');
   const [relayUrl, setRelayUrl] = useState(() => getRemoteDisplayUrl());
   const [connectionKey, setConnectionKey] = useState(0);
+  const ignoreReceiverMetrics = useCallback(() => undefined, []);
   const displayState: PerformanceState = {
     ...defaultPerformanceState,
     activeProfile: 'prompter-display',
@@ -4514,7 +4556,10 @@ function RemoteDisplayApp() {
   const song = selectedSongId ? songMap.get(selectedSongId) : undefined;
 
   useEffect(() => {
-    const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    const resize = () => {
+      const nextViewport = { width: window.innerWidth, height: window.innerHeight };
+      setViewport((current) => (current.width === nextViewport.width && current.height === nextViewport.height ? current : nextViewport));
+    };
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', resize);
     return () => {
@@ -4595,7 +4640,7 @@ function RemoteDisplayApp() {
         <ReceiverBuildBadge renderer="StageShared" route="/display" />
         {diagnostics}
         <ReceiverCanvas settings={receiver} viewport={viewport} backgroundColor={receiverPayload.visualTheme?.background ?? getReceiverVisualTheme(scaleReceiverPerformanceState(receiverPayload.performance, receiver, receiverPayload.typography), receiver).background}>
-          <ReceiverSong payload={receiverPayload} viewport={viewport} onMetricsChange={() => undefined} />
+          <ReceiverSong payload={receiverPayload} viewport={viewport} onMetricsChange={ignoreReceiverMetrics} />
         </ReceiverCanvas>
       </main>
     );
@@ -4874,7 +4919,7 @@ function ReceiverSong({
       const progress = Number.isFinite(payload.scrollProgress) ? desiredProgress : fallbackProgress;
       const scrollTop = Math.round(progress * maxScroll);
       const nextMetrics = { scrollHeight, clientHeight, scrollTop, progress };
-      setScrollMetrics(nextMetrics);
+      setScrollMetrics((current) => (sameReceiverScrollMetrics(current, nextMetrics) ? current : nextMetrics));
       onMetricsChange(nextMetrics);
     };
     measureAndScroll();
