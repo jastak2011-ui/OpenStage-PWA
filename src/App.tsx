@@ -4460,6 +4460,7 @@ function RemoteReceiverApp() {
           <ReceiverSong payload={payload} viewport={viewport} onMetricsChange={handleReceiverMetricsChange} />
         ) : null}
       </ReceiverCanvas>
+      {payload && <ReceiverKeyCapoHud payload={payload} />}
       {showDiagnostics && payload && (
         <ReceiverDiagnosticsOverlay
           payload={payload}
@@ -4645,6 +4646,7 @@ function RemoteDisplayApp() {
         <ReceiverCanvas settings={receiver} viewport={viewport} backgroundColor={receiverPayload.visualTheme?.background ?? getReceiverVisualTheme(scaleReceiverPerformanceState(receiverPayload.performance, receiver, receiverPayload.typography), receiver).background}>
           <ReceiverSong payload={receiverPayload} viewport={viewport} onMetricsChange={ignoreReceiverMetrics} />
         </ReceiverCanvas>
+        <ReceiverKeyCapoHud payload={receiverPayload} />
       </main>
     );
   }
@@ -4866,6 +4868,30 @@ function ReceiverCanvas({
   );
 }
 
+function ReceiverKeyCapoHud({ payload }: { payload: RemoteReceiverPayload }) {
+  const receiver = normalizeReceiverDisplaySettings(payload.receiver);
+  const state = scaleReceiverPerformanceState(payload.performance, receiver, payload.typography);
+  const concertKey = payload.concertKey || payload.song.performanceKey || payload.song.key || '-';
+  const receiverCapo = normalizePrompterCapoValue(payload.effectivePrompterCapo ?? payload.effectiveCapo);
+  const headerFontSize = getEffectiveHeaderFontSize(state);
+  const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
+
+  return (
+    <div
+      className="pointer-events-none fixed z-[9999] grid gap-1 rounded-md border border-white/30 bg-black/70 px-3 py-2 text-right font-semibold leading-tight text-white shadow-2xl"
+      style={{
+        top: 'max(8px, env(safe-area-inset-top))',
+        right: 'max(8px, env(safe-area-inset-right))',
+        fontSize: `${Math.max(16, Math.round(headerFontSize * 0.72))}px`,
+        fontFamily: stageFontFamily
+      }}
+    >
+      <div>Key: {concertKey}</div>
+      <div>Capo: {receiverCapo}</div>
+    </div>
+  );
+}
+
 function ReceiverSong({
   payload,
   viewport,
@@ -4964,13 +4990,6 @@ function ReceiverSong({
 
   return (
     <div ref={viewportRef} className="relative h-full w-full overflow-hidden">
-      <div
-        className="pointer-events-none fixed right-4 top-4 z-30 grid gap-1 rounded-md border border-white/15 bg-black/45 px-3 py-2 text-right font-semibold leading-tight text-white shadow-lg backdrop-blur-sm"
-        style={{ fontSize: `${Math.max(14, Math.round(headerFontSize * 0.72))}px`, fontFamily: stageFontFamily }}
-      >
-        <div>Key: {concertKey}</div>
-        <div>Capo: {receiverCapo}</div>
-      </div>
       <article
         ref={contentRef}
         className="stage-chart font-chart w-full"
