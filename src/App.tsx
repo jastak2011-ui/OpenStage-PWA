@@ -4809,6 +4809,8 @@ function RemoteDisplaySong({ song, state, diagnostics }: { song: Song; state: Pe
             lineSpacing={lineSpacing}
             chordVerticalOffset={getEffectiveChordVerticalOffset(state)}
             mobileReflowMode={false}
+            chordCoordinateMode="local-offset"
+            showReceiverCoordinateDebug={new URLSearchParams(window.location.search).get('debugReceiver') === '1'}
             showAnchorDebug={false}
             showHarmonyDebug={false}
           />
@@ -11759,6 +11761,8 @@ function ChordProDisplayLine({
   lineSpacing,
   chordVerticalOffset,
   mobileReflowMode,
+  chordCoordinateMode = 'viewport-rect',
+  showReceiverCoordinateDebug = false,
   showAnchorDebug
 }: {
   line: RenderedLine;
@@ -11794,6 +11798,8 @@ function ChordProDisplayLine({
   lineSpacing: number;
   chordVerticalOffset: number;
   mobileReflowMode: boolean;
+  chordCoordinateMode?: 'viewport-rect' | 'local-offset';
+  showReceiverCoordinateDebug?: boolean;
   showAnchorDebug: boolean;
 }) {
   const resolvedChordColor = resolveRenderableColor(chordFontColor, resolveChordFontColor);
@@ -11938,6 +11944,8 @@ function ChordProDisplayLine({
         harmonyIconColor={resolvedHarmonyIconColor}
         harmonyIconVisible={harmonyIconVisible}
         showHarmonyDebug={showHarmonyDebug}
+        chordCoordinateMode={chordCoordinateMode}
+        showReceiverCoordinateDebug={showReceiverCoordinateDebug}
       />
     );
   }
@@ -11992,6 +12000,8 @@ function ChordProDisplayLine({
           harmonyIconColor={resolvedHarmonyIconColor}
           harmonyIconVisible={harmonyIconVisible}
           showHarmonyDebug={showHarmonyDebug}
+          chordCoordinateMode={chordCoordinateMode}
+          showReceiverCoordinateDebug={showReceiverCoordinateDebug}
         />
       );
     }
@@ -12037,6 +12047,8 @@ function ChordProDisplayLine({
         harmonyIconColor={resolvedHarmonyIconColor}
         harmonyIconVisible={harmonyIconVisible}
         showHarmonyDebug={showHarmonyDebug}
+        chordCoordinateMode={chordCoordinateMode}
+        showReceiverCoordinateDebug={showReceiverCoordinateDebug}
       />
     );
   }
@@ -12199,7 +12211,9 @@ function MobileReflowChordLine({
   harmonyStyle,
   harmonyIconColor,
   harmonyIconVisible,
-  showHarmonyDebug
+  showHarmonyDebug,
+  chordCoordinateMode = 'viewport-rect',
+  showReceiverCoordinateDebug = false
 }: {
   anchoredLine: AnchoredChordLine;
   sourceRanges?: LyricSourceRange[];
@@ -12214,6 +12228,8 @@ function MobileReflowChordLine({
   harmonyIconColor: string;
   harmonyIconVisible: boolean;
   showHarmonyDebug: boolean;
+  chordCoordinateMode?: 'viewport-rect' | 'local-offset';
+  showReceiverCoordinateDebug?: boolean;
 }) {
   const lyricState = lyricTextHarmonyState(anchoredLine.lyricLine, anchoredLine.harmonyRanges);
   const groupedAnchors = new Map<number, string[]>();
@@ -12352,7 +12368,9 @@ function AnchoredChordDisplayLine({
   harmonyStyle,
   harmonyIconColor,
   harmonyIconVisible,
-  showHarmonyDebug
+  showHarmonyDebug,
+  chordCoordinateMode = 'viewport-rect',
+  showReceiverCoordinateDebug = false
 }: {
   anchoredLine: AnchoredChordLine;
   sourceRanges?: LyricSourceRange[];
@@ -12370,6 +12388,8 @@ function AnchoredChordDisplayLine({
   harmonyIconColor: string;
   harmonyIconVisible: boolean;
   showHarmonyDebug: boolean;
+  chordCoordinateMode?: 'viewport-rect' | 'local-offset';
+  showReceiverCoordinateDebug?: boolean;
 }) {
   const { chordAreaHeight, gap, lyricLineHeight, lyricTop, rowSpacing, totalLineHeight } = anchoredChordLineLayout(lyricFontSize, chordFontSize, lineSpacing);
   const chordLabelHeight = Math.ceil(chordFontSize * 1.15);
@@ -12435,8 +12455,11 @@ function AnchoredChordDisplayLine({
       if (!marker) return;
       const markerRect = marker.getClientRects()[0] ?? marker.getBoundingClientRect();
       const lineRect = lineBox?.getBoundingClientRect();
-      const left = lineRect ? markerRect.left - lineRect.left : marker.offsetLeft;
-      const wrappedLyricTop = lineRect ? markerRect.top - lineRect.top - lyricTop : marker.offsetTop;
+      const localOffset = chordCoordinateMode === 'local-offset' && lineBox
+        ? localOffsetWithin(marker, lineBox)
+        : null;
+      const left = localOffset ? localOffset.left : lineRect ? markerRect.left - lineRect.left : marker.offsetLeft;
+      const wrappedLyricTop = localOffset ? localOffset.top - lyricTop : lineRect ? markerRect.top - lineRect.top - lyricTop : marker.offsetTop;
       const chordTop = Math.min(
         chordLaneMaxTop,
         Math.max(0, wrappedLyricTop + safeChordVerticalOffset)
@@ -12450,7 +12473,29 @@ function AnchoredChordDisplayLine({
     const lyricHeight = lyricRef.current?.scrollHeight ?? lyricLineHeight;
     const nextHeight = Math.max(totalLineHeight, lyricTop + lyricHeight);
     setMeasuredLineHeight((current) => (Math.abs(current - nextHeight) < 1 ? current : nextHeight));
-  }, [anchorIndexes, lyricTop, safeChordVerticalOffset, chordLaneMaxTop, lyricLineHeight, totalLineHeight]);
+    if (showReceiverCoordinateDebug) {
+      window.requestAnimationFrame(() => {
+        logReceiverChordCoordinatesOnce({
+          anchoredLine,
+          anchorPositions: nextPositions,
+          lineBox: lineBoxRef.current,
+          chart: lineBoxRef.current?.closest('.stage-chart') as HTMLElement | null,
+          lyricRow: lyricRef.current,
+          chordCoordinateMode
+        });
+      });
+    }
+  }, [
+    anchorIndexes,
+    lyricTop,
+    safeChordVerticalOffset,
+    chordLaneMaxTop,
+    lyricLineHeight,
+    totalLineHeight,
+    chordCoordinateMode,
+    showReceiverCoordinateDebug,
+    anchoredLine
+  ]);
 
   useLayoutEffect(() => {
     measureAnchors();
@@ -12507,6 +12552,8 @@ function AnchoredChordDisplayLine({
             harmonyIconColor={harmonyIconColor}
             harmonyIconVisible={harmonyIconVisible}
             showHarmonyDebug={showHarmonyDebug}
+            chordCoordinateMode={chordCoordinateMode}
+            showReceiverCoordinateDebug={showReceiverCoordinateDebug}
           />
         ))}
       </div>
@@ -12532,6 +12579,9 @@ function AnchoredChordDisplayLine({
               <span
                 key={`${anchor.chord}-${anchor.index}-${index}`}
                 className={`absolute ${chordClassName}`}
+                data-stage-chord-label="true"
+                data-stage-chord-index={anchor.index}
+                data-stage-chord-text={anchor.chord}
                 style={{
                   ...chordStyle,
                   left: `${anchorPositions[anchor.index]?.left ?? 0}px`,
@@ -12662,6 +12712,7 @@ function splitLyricByMeasuredWidth(text: string, width: number, font: string) {
 }
 
 let stageMeasureCanvas: HTMLCanvasElement | null = null;
+const loggedReceiverCoordinateLines = new Set<string>();
 
 function measureStageLyricText(text: string, font: string) {
   if (typeof document === 'undefined') return text.length * 12;
@@ -12684,6 +12735,99 @@ function sameAnchorPositions(
   const rightKeys = Object.keys(right);
   if (leftKeys.length !== rightKeys.length) return false;
   return leftKeys.every((key) => left[Number(key)]?.left === right[Number(key)]?.left && left[Number(key)]?.top === right[Number(key)]?.top);
+}
+
+function localOffsetWithin(element: HTMLElement, ancestor: HTMLElement) {
+  let left = 0;
+  let top = 0;
+  let current: HTMLElement | null = element;
+
+  while (current && current !== ancestor) {
+    left += current.offsetLeft;
+    top += current.offsetTop;
+    current = current.offsetParent as HTMLElement | null;
+  }
+
+  if (current === ancestor) return { left, top };
+  return null;
+}
+
+function shouldLogReceiverCoordinateLine(lyricLine: string) {
+  const normalized = lyricLine.toLowerCase();
+  return (
+    normalized.includes('cannot decode') &&
+      normalized.includes('whole life') &&
+      normalized.includes('frenzy')
+  ) || (
+    normalized.includes('maybe my connection') &&
+      normalized.includes('tired of taking') &&
+      normalized.includes('chances')
+  );
+}
+
+function logReceiverChordCoordinatesOnce({
+  anchoredLine,
+  anchorPositions,
+  lineBox,
+  chart,
+  lyricRow,
+  chordCoordinateMode
+}: {
+  anchoredLine: AnchoredChordLine;
+  anchorPositions: Record<number, { left: number; top: number }>;
+  lineBox: HTMLElement | null;
+  chart: HTMLElement | null;
+  lyricRow: HTMLElement | null;
+  chordCoordinateMode: 'viewport-rect' | 'local-offset';
+}) {
+  if (!shouldLogReceiverCoordinateLine(anchoredLine.lyricLine)) return;
+  const logKey = `${chordCoordinateMode}|${anchoredLine.lyricLine}`;
+  if (loggedReceiverCoordinateLines.has(logKey)) return;
+  loggedReceiverCoordinateLines.add(logKey);
+
+  const chartRect = chart?.getBoundingClientRect();
+  const lyricRowRect = lyricRow?.getBoundingClientRect();
+  const lineBoxRect = lineBox?.getBoundingClientRect();
+  const lyricTextRect = lyricRow?.getClientRects()[0] ?? lyricRowRect;
+  const chordParent = lineBox?.querySelector('.stage-anchored-chord-layer') as HTMLElement | null;
+  const chordParentRect = chordParent?.getBoundingClientRect();
+  const chordLogs = anchoredLine.anchors
+    .filter((anchor) => anchor.chord === 'F#m' || anchor.chord === 'Bm')
+    .map((anchor) => {
+      const chordElement = lineBox?.querySelector(`[data-stage-chord-index="${anchor.index}"][data-stage-chord-text="${cssEscapeSafe(anchor.chord)}"]`) as HTMLElement | null;
+      return {
+        chord: anchor.chord,
+        lyricIndex: anchor.index,
+        calculatedX: anchorPositions[anchor.index]?.left ?? null,
+        finalRenderedLeft: chordElement?.getBoundingClientRect().left ?? null
+      };
+    });
+
+  console.info('RECEIVER_CHORD_COORDINATES', {
+    line: anchoredLine.lyricLine,
+    mode: chordCoordinateMode,
+    viewportWidth: window.innerWidth,
+    chartRect: rectDebug(chartRect),
+    lyricRowRect: rectDebug(lyricRowRect),
+    lyricTextRect: rectDebug(lyricTextRect),
+    chordParentRect: rectDebug(chordParentRect),
+    lineBoxRect: rectDebug(lineBoxRect),
+    chords: chordLogs
+  });
+}
+
+function rectDebug(rect: DOMRect | undefined) {
+  return rect
+    ? {
+        left: Math.round(rect.left * 100) / 100,
+        width: Math.round(rect.width * 100) / 100
+      }
+    : null;
+}
+
+function cssEscapeSafe(value: string) {
+  if (typeof window !== 'undefined' && typeof window.CSS?.escape === 'function') return window.CSS.escape(value);
+  return value.replace(/["\\]/g, '\\$&');
 }
 
 function renderLyricWithAnchorMarkers(

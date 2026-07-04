@@ -1033,6 +1033,40 @@ assert.equal(
   true
 );
 
+const twilightReceiverFrenzyExcerpt = {
+  ...chordOverSong,
+  id: 'twilight-zone-receiver-frenzy-excerpt',
+  displayPreference: 'chords-over',
+  chart: `F#m                                      Bm
+Cannot decode, my whole life spins into a frenzy
+
+F#m                                      Bm
+Maybe my connection is tired of taking his chances`,
+  updatedAt: '2026-07-04T00:00:00.000Z'
+};
+const twilightReceiverFrenzyRendered = renderSong(twilightReceiverFrenzyExcerpt, {
+  transpose: 0,
+  capo: 0,
+  showNashvilleNumbers: false,
+  songKey: 'Bm',
+  viewportWidth: 1080,
+  displayMode: 'receiver'
+});
+const twilightReceiverFrenzyRows = twilightReceiverFrenzyRendered.lines.filter((line) => line.type === 'chord-over');
+assert.equal(twilightReceiverFrenzyRows.length, 2);
+const frenzyAnchored = chordOverTextToAnchoredLine(twilightReceiverFrenzyRows[0].chordLine, twilightReceiverFrenzyRows[0].lyricLine);
+assert.equal(frenzyAnchored.anchors[0].chord, 'F#m');
+assert.equal(frenzyAnchored.anchors[0].index <= 2, true);
+assert.equal(frenzyAnchored.anchors[1].chord, 'Bm');
+assert.equal(frenzyAnchored.anchors[1].index >= twilightReceiverFrenzyRows[0].lyricLine.indexOf('a frenzy'), true);
+assert.equal(frenzyAnchored.anchors[1].index / twilightReceiverFrenzyRows[0].lyricLine.length > 0.8, true);
+const chancesAnchored = chordOverTextToAnchoredLine(twilightReceiverFrenzyRows[1].chordLine, twilightReceiverFrenzyRows[1].lyricLine);
+assert.equal(chancesAnchored.anchors[0].chord, 'F#m');
+assert.equal(chancesAnchored.anchors[0].index <= 2, true);
+assert.equal(chancesAnchored.anchors[1].chord, 'Bm');
+assert.equal(chancesAnchored.anchors[1].index >= twilightReceiverFrenzyRows[1].lyricLine.indexOf('his chances'), true);
+assert.equal(chancesAnchored.anchors[1].index / twilightReceiverFrenzyRows[1].lyricLine.length > 0.8, true);
+
 const standaloneChordRow = {
   ...chordOverSong,
   id: 'standalone-chord-row',
