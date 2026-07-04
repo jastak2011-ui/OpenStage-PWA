@@ -5017,6 +5017,7 @@ function ReceiverSong({
             lineSpacing={lineSpacing}
             chordVerticalOffset={getEffectiveChordVerticalOffset(state)}
             mobileReflowMode={false}
+            receiverLegacyAnchors
             chordCoordinateMode="local-offset"
             showReceiverCoordinateDebug={showReceiverCoordinateDebug}
             showAnchorDebug={false}
@@ -11785,6 +11786,7 @@ function ChordProDisplayLine({
   lineSpacing,
   chordVerticalOffset,
   mobileReflowMode,
+  receiverLegacyAnchors = false,
   chordCoordinateMode = 'viewport-rect',
   showReceiverCoordinateDebug = false,
   showAnchorDebug
@@ -11822,6 +11824,7 @@ function ChordProDisplayLine({
   lineSpacing: number;
   chordVerticalOffset: number;
   mobileReflowMode: boolean;
+  receiverLegacyAnchors?: boolean;
   chordCoordinateMode?: 'viewport-rect' | 'local-offset';
   showReceiverCoordinateDebug?: boolean;
   showAnchorDebug: boolean;
@@ -11950,6 +11953,28 @@ function ChordProDisplayLine({
         />
       );
     }
+    if (receiverLegacyAnchors) {
+      return (
+        <ReceiverLegacyAnchoredChordDisplayLine
+          anchoredLine={anchoredLine}
+          sourceRanges={chordOverSourceRanges}
+          lineIndex={lineIndex}
+          chordClassName={chordClassName}
+          chordStyle={chordStyle}
+          chordFontSize={chordFontSize}
+          lyricFontSize={lyricFontSize}
+          lineSpacing={lineSpacing}
+          chordVerticalOffset={chordVerticalOffset}
+          showAnchorDebug={showAnchorDebug}
+          showChords={showChords}
+          showHarmonyCues={showHarmonyCues}
+          harmonyStyle={harmonyStyle}
+          harmonyIconColor={resolvedHarmonyIconColor}
+          harmonyIconVisible={harmonyIconVisible}
+          showHarmonyDebug={showHarmonyDebug}
+        />
+      );
+    }
     return (
       <AnchoredChordDisplayLine
         anchoredLine={anchoredLine}
@@ -12006,6 +12031,28 @@ function ChordProDisplayLine({
           />
         );
       }
+      if (receiverLegacyAnchors) {
+        return (
+          <ReceiverLegacyAnchoredChordDisplayLine
+            anchoredLine={anchoredLine}
+            sourceRanges={tokenSourceRanges}
+            lineIndex={lineIndex}
+            chordClassName={chordClassName}
+            chordStyle={chordStyle}
+            chordFontSize={chordFontSize}
+            lyricFontSize={lyricFontSize}
+            lineSpacing={lineSpacing}
+            chordVerticalOffset={chordVerticalOffset}
+            showAnchorDebug={showAnchorDebug}
+            showChords={showChords}
+            showHarmonyCues={showHarmonyCues}
+            harmonyStyle={harmonyStyle}
+            harmonyIconColor={resolvedHarmonyIconColor}
+            harmonyIconVisible={harmonyIconVisible}
+            showHarmonyDebug={showHarmonyDebug}
+          />
+        );
+      }
       return (
         <AnchoredChordDisplayLine
           anchoredLine={anchoredLine}
@@ -12044,6 +12091,28 @@ function ChordProDisplayLine({
           chordStyle={chordStyle}
           lyricLineStyle={lyricLineStyle}
           rowSpacingStyle={rowSpacingStyle}
+          showChords={showChords}
+          showHarmonyCues={showHarmonyCues}
+          harmonyStyle={harmonyStyle}
+          harmonyIconColor={resolvedHarmonyIconColor}
+          harmonyIconVisible={harmonyIconVisible}
+          showHarmonyDebug={showHarmonyDebug}
+        />
+      );
+    }
+    if (receiverLegacyAnchors) {
+      return (
+        <ReceiverLegacyAnchoredChordDisplayLine
+          anchoredLine={inlineAnchoredLine}
+          sourceRanges={inlineSourceRanges}
+          lineIndex={lineIndex}
+          chordClassName={chordClassName}
+          chordStyle={chordStyle}
+          chordFontSize={chordFontSize}
+          lyricFontSize={lyricFontSize}
+          lineSpacing={lineSpacing}
+          chordVerticalOffset={chordVerticalOffset}
+          showAnchorDebug={showAnchorDebug}
           showChords={showChords}
           showHarmonyCues={showHarmonyCues}
           harmonyStyle={harmonyStyle}
@@ -12376,6 +12445,160 @@ function isStageChordToken(value: string) {
   return /^[|:({\[]*[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*?(?:\/[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*)?[|:)}\]]*$/i.test(value);
 }
 
+type AnchoredChordDisplayProps = {
+  anchoredLine: AnchoredChordLine;
+  sourceRanges?: LyricSourceRange[];
+  lineIndex: number;
+  chordClassName: string;
+  chordStyle: React.CSSProperties;
+  chordFontSize: number;
+  lyricFontSize: number;
+  lineSpacing: number;
+  chordVerticalOffset: number;
+  showAnchorDebug: boolean;
+  showChords: boolean;
+  showHarmonyCues: boolean;
+  harmonyStyle: React.CSSProperties;
+  harmonyIconColor: string;
+  harmonyIconVisible: boolean;
+  showHarmonyDebug: boolean;
+};
+
+function ReceiverLegacyAnchoredChordDisplayLine({
+  anchoredLine,
+  sourceRanges,
+  lineIndex,
+  chordClassName,
+  chordStyle,
+  chordFontSize,
+  lyricFontSize,
+  lineSpacing,
+  chordVerticalOffset,
+  showAnchorDebug,
+  showChords,
+  showHarmonyCues,
+  harmonyStyle,
+  harmonyIconColor,
+  harmonyIconVisible,
+  showHarmonyDebug
+}: AnchoredChordDisplayProps) {
+  const { chordAreaHeight, gap, lyricLineHeight, lyricTop, rowSpacing, totalLineHeight } = anchoredChordLineLayout(lyricFontSize, chordFontSize, lineSpacing);
+  const chordLabelHeight = Math.ceil(chordFontSize * 1.15);
+  const chordLaneMaxTop = Math.max(0, chordAreaHeight - chordLabelHeight);
+  const safeRowSpacing = Math.max(0, rowSpacing);
+  const safeChordVerticalOffset = Math.max(
+    -Math.floor(gap / 2),
+    Math.min(chordVerticalOffset, chordLaneMaxTop)
+  );
+  const markerRefs = useRef(new Map<number, HTMLSpanElement>());
+  const lineBoxRef = useRef<HTMLDivElement | null>(null);
+  const lyricRef = useRef<HTMLDivElement | null>(null);
+  const [anchorPositions, setAnchorPositions] = useState<Record<number, { left: number; top: number }>>({});
+  const anchorKey = anchoredLine.anchors.map((anchor) => `${anchor.index}:${anchor.chord}`).join('|');
+  const anchorIndexes = useMemo(
+    () => Array.from(new Set(anchoredLine.anchors.map((anchor) => anchor.index))).sort((a, b) => a - b),
+    [anchorKey]
+  );
+
+  const measureAnchors = useCallback(() => {
+    const nextPositions: Record<number, { left: number; top: number }> = {};
+    anchorIndexes.forEach((index) => {
+      const marker = markerRefs.current.get(index);
+      if (!marker) return;
+      const chordTop = Math.min(
+        chordLaneMaxTop,
+        Math.max(0, marker.offsetTop - lyricTop + safeChordVerticalOffset)
+      );
+      nextPositions[index] = {
+        left: marker.offsetLeft,
+        top: chordTop
+      };
+    });
+    setAnchorPositions((current) => (sameAnchorPositions(current, nextPositions) ? current : nextPositions));
+  }, [anchorIndexes, lyricTop, safeChordVerticalOffset, chordLaneMaxTop]);
+
+  useLayoutEffect(() => {
+    measureAnchors();
+  }, [
+    measureAnchors,
+    anchorKey,
+    anchoredLine.lyricLine,
+    lyricFontSize,
+    chordFontSize,
+    lyricLineHeight,
+    totalLineHeight,
+    chordVerticalOffset
+  ]);
+
+  useLayoutEffect(() => {
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measureAnchors);
+      window.addEventListener('orientationchange', measureAnchors);
+      return () => {
+        window.removeEventListener('resize', measureAnchors);
+        window.removeEventListener('orientationchange', measureAnchors);
+      };
+    }
+
+    const observer = new ResizeObserver(() => measureAnchors());
+    if (lineBoxRef.current) observer.observe(lineBoxRef.current);
+    if (lyricRef.current) observer.observe(lyricRef.current);
+    window.addEventListener('orientationchange', measureAnchors);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('orientationchange', measureAnchors);
+    };
+  }, [measureAnchors]);
+
+  return (
+    <div data-line-index={lineIndex} className="overflow-visible font-mono" style={{ marginBottom: `${safeRowSpacing}px` }}>
+      <div
+        ref={lineBoxRef}
+        className="relative min-w-0 overflow-visible whitespace-pre"
+        style={{
+          minHeight: `${totalLineHeight}px`,
+          lineHeight: `${lyricLineHeight}px`
+        }}
+      >
+        {showChords && anchoredLine.anchors.length > 0 && (
+          <div
+            className="stage-anchored-chord-layer pointer-events-none absolute left-0 top-0 overflow-visible"
+            style={{ height: `${chordAreaHeight}px` }}
+          >
+            {anchoredLine.anchors.map((anchor, index) => (
+              <span
+                key={`${anchor.chord}-${anchor.index}-${index}`}
+                className={`absolute ${chordClassName}`}
+                style={{
+                  ...chordStyle,
+                  left: `${anchorPositions[anchor.index]?.left ?? 0}px`,
+                  top: `${anchorPositions[anchor.index]?.top ?? 0}px`
+                }}
+              >
+                {anchor.chord}
+                {showAnchorDebug && (
+                  <span className="absolute left-0 top-full mt-0.5 h-2 w-2 -translate-x-1/2 rounded-full bg-fuchsia-400 shadow-[0_0_0_2px_rgba(0,0,0,0.45)]" />
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+        <div
+          ref={lyricRef}
+          className="absolute left-0 whitespace-pre"
+          style={{
+            top: `${lyricTop}px`,
+            lineHeight: `${lyricLineHeight}px`
+          }}
+        >
+          {showHarmonyCues && harmonyIconVisible && anchoredLine.harmonyRanges.length > 0 && <HarmonyCueIcon color={harmonyIconColor} inline={false} />}
+          {renderLyricWithLegacyAnchorMarkers(anchoredLine.lyricLine, anchorIndexes, markerRefs, anchoredLine.harmonyRanges, sourceRanges, showHarmonyCues, harmonyStyle, showHarmonyDebug)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AnchoredChordDisplayLine({
   anchoredLine,
   sourceRanges,
@@ -12485,11 +12708,7 @@ function AnchoredChordDisplayLine({
       const localOffset = chordCoordinateMode === 'local-offset' && lineBox
         ? localOffsetWithin(marker, lineBox)
         : null;
-      const markerLeft = localOffset ? localOffset.left : lineRect ? markerRect.left - lineRect.left : marker.offsetLeft;
-      const fallbackLeft = shouldUseMeasuredAnchorFallback(markerLeft, index)
-        ? measuredLyricAnchorLeft(anchoredLine.lyricLine, index, lyricRef.current, lyricFontSize)
-        : null;
-      const left = fallbackLeft ?? markerLeft;
+      const left = localOffset ? localOffset.left : lineRect ? markerRect.left - lineRect.left : marker.offsetLeft;
       const wrappedLyricTop = localOffset ? localOffset.top - lyricTop : lineRect ? markerRect.top - lineRect.top - lyricTop : marker.offsetTop;
       const chordTop = Math.min(
         chordLaneMaxTop,
@@ -12815,28 +13034,6 @@ function localOffsetWithin(element: HTMLElement, ancestor: HTMLElement) {
   return null;
 }
 
-function shouldUseMeasuredAnchorFallback(markerLeft: number, anchorIndex: number) {
-  return anchorIndex > 0 && Math.abs(markerLeft) < 1;
-}
-
-function measuredLyricAnchorLeft(
-  lyricLine: string,
-  anchorIndex: number,
-  lyricElement: HTMLElement | null,
-  lyricFontSize: number
-) {
-  const safeIndex = Math.max(0, Math.min(anchorIndex, lyricLine.length));
-  if (safeIndex === 0) return 0;
-  const prefix = lyricLine.slice(0, safeIndex);
-  const computed = lyricElement && typeof window !== 'undefined'
-    ? window.getComputedStyle(lyricElement)
-    : null;
-  const font = computed?.font && computed.font !== ''
-    ? computed.font
-    : `${lyricFontSize}px ${stageChartMeasureFontFamily()}`;
-  return measureStageLyricText(prefix, font);
-}
-
 function shouldLogReceiverCoordinateLine(lyricLine: string) {
   const normalized = lyricLine.toLowerCase();
   return (
@@ -13021,6 +13218,60 @@ function roundDebug(value: number | null | undefined) {
 function cssEscapeSafe(value: string) {
   if (typeof window !== 'undefined' && typeof window.CSS?.escape === 'function') return window.CSS.escape(value);
   return value.replace(/["\\]/g, '\\$&');
+}
+
+function renderLyricWithLegacyAnchorMarkers(
+  lyricLine: string,
+  anchorIndexes: number[],
+  markerRefs: React.MutableRefObject<Map<number, HTMLSpanElement>>,
+  harmonyRanges: HarmonyRange[] = [],
+  sourceRanges?: LyricSourceRange[],
+  showHarmonyCues = true,
+  harmonyStyle: React.CSSProperties = {},
+  showHarmonyDebug = false
+) {
+  const nodes: React.ReactNode[] = [];
+  const safeAnchors = anchorIndexes.map((index) => Math.max(0, Math.min(lyricLine.length, index)));
+  const lyricState = lyricTextHarmonyState(lyricLine, harmonyRanges);
+  const boundaries = Array.from(new Set([
+    0,
+    lyricLine.length,
+    ...safeAnchors,
+    ...lyricState.ranges.flatMap((range) => [range.start, range.end])
+  ])).sort((left, right) => left - right);
+
+  for (let index = 0; index < boundaries.length; index += 1) {
+    const boundary = boundaries[index];
+    if (safeAnchors.includes(boundary)) {
+      nodes.push(
+        <span
+          key={`legacy-anchor-${boundary}-${index}`}
+          ref={(element) => {
+            if (element) markerRefs.current.set(boundary, element);
+            else markerRefs.current.delete(boundary);
+          }}
+          className="inline-block w-0"
+          data-chord-anchor-index={boundary}
+        />
+      );
+    }
+
+    const nextBoundary = boundaries[index + 1];
+    if (nextBoundary === undefined || boundary >= nextBoundary) continue;
+    nodes.push(
+      <span key={`legacy-text-${boundary}-${nextBoundary}`}>
+        {renderSelectableLyricTextWithHarmony(lyricLine.slice(boundary, nextBoundary), {
+          harmonyRanges: sliceHarmonyRanges(lyricState.ranges, boundary, nextBoundary),
+          sourceRanges: sliceLyricSourceRanges(sourceRanges, boundary, nextBoundary),
+          showHarmonyCues,
+          harmonyStyle,
+          showHarmonyDebug
+        })}
+      </span>
+    );
+  }
+
+  return nodes;
 }
 
 function renderLyricWithAnchorMarkers(
