@@ -62,7 +62,7 @@ import { db, ensureSeedData } from './data/db';
 import { lyricTextHarmonyState, renderLyricTextWithHarmony, type LyricTextWithHarmonyOptions } from './components/LyricTextWithHarmony';
 import { useCloud } from './cloud/cloud';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './lib/importExport';
-import { chordOverTextToAnchoredLine, chordTokensToAnchoredLine, inlineChordsToChordOverLyrics, type AnchoredChordLine } from './lib/chordLayout';
+import { chordOverTextToAnchoredLine, chordTokensToAnchoredLine, inlineChordsToChordOverLyrics, type AnchoredChordLine, type ChordAnchor } from './lib/chordLayout';
 import { isChordProFileName, parseChordPro, parseChordProBundle } from './lib/chordpro';
 import {
   advanceVirtualScrollTop,
@@ -4074,6 +4074,11 @@ function ReceiverBuildBadge({ renderer, route }: { renderer: 'StageShared' | 'Le
   );
 }
 
+function isReceiverDebugEnabled() {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('debugReceiver') === '1';
+}
+
 function safeAppVersion() {
   try {
     return typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'unknown';
@@ -4833,9 +4838,17 @@ function ReceiverCanvas({
 }) {
   const layout = calculateReceiverLayout(settings, viewport.width, viewport.height);
   return (
-    <div className="absolute inset-0 h-screen w-screen overflow-hidden" style={{ background: backgroundColor ?? (settings.blackBackground ? '#000' : '#f8fafc') }}>
+    <div
+      className="absolute inset-0 h-screen w-screen overflow-hidden"
+      data-receiver-route={typeof window !== 'undefined' ? window.location.pathname : '/receiver'}
+      style={{ background: backgroundColor ?? (settings.blackBackground ? '#000' : '#f8fafc') }}
+    >
       <div
         className="absolute left-1/2 top-1/2 overflow-hidden"
+        data-receiver-scale={layout.scale}
+        data-receiver-display-mode={settings.displayMode}
+        data-receiver-content-width={layout.contentWidth}
+        data-receiver-content-height={layout.contentHeight}
         style={{
           width: `${layout.contentWidth}px`,
           height: `${layout.contentHeight}px`,
@@ -4873,6 +4886,7 @@ function ReceiverSong({
   const documentTheme = { background: receiverVisual.background, text: receiverVisual.text, muted: receiverVisual.muted };
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
   const chordFontFamily = getEffectiveUseMonospaceChords(state) ? 'Consolas, "Courier New", monospace' : stageFontFamily;
+  const showReceiverCoordinateDebug = isReceiverDebugEnabled();
   const rendered = renderSong(payload.song, {
     transpose: state.transpose,
     capo: payload.effectiveCapo,
@@ -4945,6 +4959,14 @@ function ReceiverSong({
 
   return (
     <div ref={viewportRef} className="relative h-full w-full overflow-hidden">
+      {showReceiverCoordinateDebug && (
+        <pre
+          id="openstage-receiver-chord-debug"
+          className="pointer-events-none fixed bottom-3 right-3 z-[999998] max-h-[42vh] max-w-[min(34rem,calc(100vw-1.5rem))] overflow-hidden rounded-md border border-emerald-300/70 bg-black/85 p-3 font-mono text-[12px] leading-snug text-emerald-50 shadow-2xl"
+        >
+          Receiver chord diagnostics waiting for target Twilight Zone lines...
+        </pre>
+      )}
       <article
         ref={contentRef}
         className="stage-chart font-chart w-full"
@@ -4995,6 +5017,7 @@ function ReceiverSong({
             lineSpacing={lineSpacing}
             chordVerticalOffset={getEffectiveChordVerticalOffset(state)}
             mobileReflowMode={false}
+            showReceiverCoordinateDebug={showReceiverCoordinateDebug}
             showAnchorDebug={false}
             showHarmonyDebug={false}
           />
@@ -12420,6 +12443,9 @@ function AnchoredChordDisplayLine({
     ),
     [anchoredLine, sourceRanges, availableWidth, lyricFontSize]
   );
+  const receiverDebugTargets = showReceiverCoordinateDebug
+    ? anchoredLine.anchors.filter((anchor) => receiverCoordinateDebugLabel(anchoredLine.lyricLine, anchor))
+    : [];
 
   useLayoutEffect(() => {
     const updateWidth = () => {
@@ -12475,13 +12501,15 @@ function AnchoredChordDisplayLine({
     setMeasuredLineHeight((current) => (Math.abs(current - nextHeight) < 1 ? current : nextHeight));
     if (showReceiverCoordinateDebug) {
       window.requestAnimationFrame(() => {
-        logReceiverChordCoordinatesOnce({
-          anchoredLine,
-          anchorPositions: nextPositions,
-          lineBox: lineBoxRef.current,
-          chart: lineBoxRef.current?.closest('.stage-chart') as HTMLElement | null,
-          lyricRow: lyricRef.current,
-          chordCoordinateMode
+        window.requestAnimationFrame(() => {
+          logReceiverChordCoordinatesOnce({
+            anchoredLine,
+            anchorPositions: nextPositions,
+            lineBox: lineBoxRef.current,
+            chart: lineBoxRef.current?.closest('.stage-chart') as HTMLElement | null,
+            lyricRow: lyricRef.current,
+            chordCoordinateMode
+          });
         });
       });
     }
@@ -12575,6 +12603,22 @@ function AnchoredChordDisplayLine({
             className="stage-anchored-chord-layer pointer-events-none absolute left-0 top-0 w-full overflow-visible"
             style={{ height: `${chordAreaHeight}px` }}
           >
+            {receiverDebugTargets.map((anchor, index) => {
+              const position = anchorPositions[anchor.index];
+              if (!position) return null;
+              return (
+                <span
+                  key={`receiver-expected-${anchor.chord}-${anchor.index}-${index}`}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-0 w-px bg-emerald-400"
+                  data-receiver-debug-line="expected-anchor"
+                  style={{
+                    left: `${position.left}px`,
+                    height: `${Math.max(measuredLineHeight, totalLineHeight)}px`
+                  }}
+                />
+              );
+            })}
             {anchoredLine.anchors.map((anchor, index) => (
               <span
                 key={`${anchor.chord}-${anchor.index}-${index}`}
@@ -12588,6 +12632,18 @@ function AnchoredChordDisplayLine({
                   top: `${anchorPositions[anchor.index]?.top ?? 0}px`
                 }}
               >
+                {showReceiverCoordinateDebug && receiverCoordinateDebugLabel(anchoredLine.lyricLine, anchor) && (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute w-px bg-red-500"
+                    data-receiver-debug-line="actual-chord"
+                    style={{
+                      left: 0,
+                      top: `-${anchorPositions[anchor.index]?.top ?? 0}px`,
+                      height: `${Math.max(measuredLineHeight, totalLineHeight)}px`
+                    }}
+                  />
+                )}
                 {anchor.chord}
                 {showAnchorDebug && (
                   <span className="absolute left-0 top-full mt-0.5 h-2 w-2 -translate-x-1/2 rounded-full bg-fuchsia-400 shadow-[0_0_0_2px_rgba(0,0,0,0.45)]" />
@@ -12713,6 +12769,8 @@ function splitLyricByMeasuredWidth(text: string, width: number, font: string) {
 
 let stageMeasureCanvas: HTMLCanvasElement | null = null;
 const loggedReceiverCoordinateLines = new Set<string>();
+const receiverChordDebugRows = new Map<string, string>();
+let lastReceiverChordDebugText = '';
 
 function measureStageLyricText(text: string, font: string) {
   if (typeof document === 'undefined') return text.length * 12;
@@ -12755,14 +12813,62 @@ function localOffsetWithin(element: HTMLElement, ancestor: HTMLElement) {
 function shouldLogReceiverCoordinateLine(lyricLine: string) {
   const normalized = lyricLine.toLowerCase();
   return (
-    normalized.includes('cannot decode') &&
-      normalized.includes('whole life') &&
-      normalized.includes('frenzy')
-  ) || (
-    normalized.includes('maybe my connection') &&
-      normalized.includes('tired of taking') &&
+    normalized.includes('cannot decode') ||
+      normalized.includes('frenzy') ||
+      normalized.includes('maybe my connection') ||
       normalized.includes('chances')
   );
+}
+
+function receiverCoordinateDebugLabel(lyricLine: string, anchor: ChordAnchor) {
+  const normalized = lyricLine.toLowerCase();
+  if (normalized.includes('cannot decode') || normalized.includes('frenzy')) {
+    if (anchor.chord === 'F#m') return 'near beginning of Cannot decode';
+    if (anchor.chord === 'Bm') return 'near end of frenzy';
+  }
+  if (normalized.includes('maybe my connection') || normalized.includes('chances')) {
+    if (anchor.chord === 'Bm') return 'near end of chances';
+  }
+  return '';
+}
+
+function updateReceiverChordDebugPanel(key: string, text: string) {
+  receiverChordDebugRows.set(key, text);
+  const panel = ensureReceiverChordDebugPanel();
+  if (!panel) return;
+  const nextText = Array.from(receiverChordDebugRows.values()).join('\n\n');
+  if (nextText === lastReceiverChordDebugText) return;
+  lastReceiverChordDebugText = nextText;
+  panel.textContent = nextText;
+}
+
+function ensureReceiverChordDebugPanel() {
+  if (typeof document === 'undefined') return null;
+  const existing = document.getElementById('openstage-receiver-chord-debug') as HTMLElement | null;
+  if (existing) return existing;
+  const panel = document.createElement('pre');
+  panel.id = 'openstage-receiver-chord-debug';
+  panel.style.position = 'fixed';
+  panel.style.right = '12px';
+  panel.style.bottom = '12px';
+  panel.style.zIndex = '999998';
+  panel.style.maxWidth = 'min(34rem, calc(100vw - 1.5rem))';
+  panel.style.maxHeight = '42vh';
+  panel.style.overflow = 'hidden';
+  panel.style.margin = '0';
+  panel.style.padding = '12px';
+  panel.style.border = '1px solid rgba(110, 231, 183, 0.8)';
+  panel.style.borderRadius = '8px';
+  panel.style.background = 'rgba(0, 0, 0, 0.86)';
+  panel.style.color = '#ecfdf5';
+  panel.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+  panel.style.fontSize = '12px';
+  panel.style.lineHeight = '1.35';
+  panel.style.whiteSpace = 'pre-wrap';
+  panel.style.pointerEvents = 'none';
+  panel.textContent = 'Receiver chord diagnostics waiting for target Twilight Zone lines...';
+  document.body.appendChild(panel);
+  return panel;
 }
 
 function logReceiverChordCoordinatesOnce({
@@ -12782,8 +12888,6 @@ function logReceiverChordCoordinatesOnce({
 }) {
   if (!shouldLogReceiverCoordinateLine(anchoredLine.lyricLine)) return;
   const logKey = `${chordCoordinateMode}|${anchoredLine.lyricLine}`;
-  if (loggedReceiverCoordinateLines.has(logKey)) return;
-  loggedReceiverCoordinateLines.add(logKey);
 
   const chartRect = chart?.getBoundingClientRect();
   const lyricRowRect = lyricRow?.getBoundingClientRect();
@@ -12791,21 +12895,30 @@ function logReceiverChordCoordinatesOnce({
   const lyricTextRect = lyricRow?.getClientRects()[0] ?? lyricRowRect;
   const chordParent = lineBox?.querySelector('.stage-anchored-chord-layer') as HTMLElement | null;
   const chordParentRect = chordParent?.getBoundingClientRect();
+  const receiverRoot = lineBox?.closest('[data-receiver-scale]') as HTMLElement | null;
+  const receiverScale = Number(receiverRoot?.dataset.receiverScale ?? '1') || 1;
   const chordLogs = anchoredLine.anchors
-    .filter((anchor) => anchor.chord === 'F#m' || anchor.chord === 'Bm')
+    .filter((anchor) => receiverCoordinateDebugLabel(anchoredLine.lyricLine, anchor))
     .map((anchor) => {
       const chordElement = lineBox?.querySelector(`[data-stage-chord-index="${anchor.index}"][data-stage-chord-text="${cssEscapeSafe(anchor.chord)}"]`) as HTMLElement | null;
+      const chordRect = chordElement?.getBoundingClientRect();
+      const localOffset = chordElement && lineBox ? localOffsetWithin(chordElement, lineBox) : null;
+      const rectLocalLeft = chordRect && lineBoxRect ? (chordRect.left - lineBoxRect.left) / receiverScale : null;
       return {
         chord: anchor.chord,
+        expectedAnchor: receiverCoordinateDebugLabel(anchoredLine.lyricLine, anchor),
         lyricIndex: anchor.index,
         calculatedX: anchorPositions[anchor.index]?.left ?? null,
-        finalRenderedLeft: chordElement?.getBoundingClientRect().left ?? null
+        finalRenderedLocalLeft: localOffset?.left ?? rectLocalLeft,
+        finalRenderedScreenLeft: chordRect?.left ?? null
       };
     });
 
-  console.info('RECEIVER_CHORD_COORDINATES', {
+  const diagnostic = {
     line: anchoredLine.lyricLine,
+    rendererPath: `${window.location.pathname || '/receiver'} StageShared`,
     mode: chordCoordinateMode,
+    receiverScale,
     viewportWidth: window.innerWidth,
     chartRect: rectDebug(chartRect),
     lyricRowRect: rectDebug(lyricRowRect),
@@ -12813,7 +12926,56 @@ function logReceiverChordCoordinatesOnce({
     chordParentRect: rectDebug(chordParentRect),
     lineBoxRect: rectDebug(lineBoxRect),
     chords: chordLogs
+  };
+
+  updateReceiverChordDebugPanel(logKey, formatReceiverChordDebugText(diagnostic));
+
+  if (!loggedReceiverCoordinateLines.has(logKey)) {
+    loggedReceiverCoordinateLines.add(logKey);
+    console.info('RECEIVER_CHORD_COORDINATES', diagnostic);
+  }
+}
+
+function formatReceiverChordDebugText(diagnostic: {
+  line: string;
+  rendererPath: string;
+  mode: 'viewport-rect' | 'local-offset';
+  receiverScale: number;
+  viewportWidth: number;
+  chartRect: { left: number; width: number } | null;
+  lyricRowRect: { left: number; width: number } | null;
+  lyricTextRect: { left: number; width: number } | null;
+  chordParentRect: { left: number; width: number } | null;
+  lineBoxRect: { left: number; width: number } | null;
+  chords: Array<{
+    chord: string;
+    expectedAnchor: string;
+    lyricIndex: number;
+    calculatedX: number | null;
+    finalRenderedLocalLeft: number | null;
+    finalRenderedScreenLeft: number | null;
+  }>;
+}) {
+  const lines = [
+    `Renderer path: ${diagnostic.rendererPath}`,
+    `chordCoordinateMode: ${diagnostic.mode}`,
+    `receiver scale: ${roundDebug(diagnostic.receiverScale)}`,
+    `viewport width: ${roundDebug(diagnostic.viewportWidth)}`,
+    `chart width: ${roundDebug(diagnostic.chartRect?.width)}`,
+    `lineBox width: ${roundDebug(diagnostic.lineBoxRect?.width)}`,
+    `lyricText width: ${roundDebug(diagnostic.lyricTextRect?.width)}`,
+    `Line: ${diagnostic.line}`
+  ];
+  diagnostic.chords.forEach((chord) => {
+    lines.push(
+      `- ${chord.chord} (${chord.expectedAnchor})`,
+      `  lyric index: ${chord.lyricIndex}`,
+      `  calculated localX: ${roundDebug(chord.calculatedX)}`,
+      `  final local left: ${roundDebug(chord.finalRenderedLocalLeft)}`,
+      `  final screen left: ${roundDebug(chord.finalRenderedScreenLeft)}`
+    );
   });
+  return lines.join('\n');
 }
 
 function rectDebug(rect: DOMRect | undefined) {
@@ -12823,6 +12985,10 @@ function rectDebug(rect: DOMRect | undefined) {
         width: Math.round(rect.width * 100) / 100
       }
     : null;
+}
+
+function roundDebug(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) / 100 : '-';
 }
 
 function cssEscapeSafe(value: string) {
