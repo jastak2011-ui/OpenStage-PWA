@@ -9,6 +9,9 @@ import { configurePwaUpdateService, notifyPwaUpdateFound, notifyPwaUpdateWaiting
 import { getStartupDiagnostics, markStartupError, shouldShowStartupDebug } from './services/startupDiagnostics';
 import { fallbackCastState, fetchStaticCastState, loadLocalCastState, normalizeCastState } from './services/castState';
 
+declare const __APP_VERSION__: string;
+declare const __APP_BUILD_TIME__: string;
+
 declare global {
   interface Window {
     OpenStageStartup?: {
@@ -124,6 +127,62 @@ function MountMarker() {
   return null;
 }
 
+function isDebugHudEnabled() {
+  return window.location.search.includes('debugHud=1');
+}
+
+function safeAppVersion() {
+  try {
+    return typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function safeBuildTime() {
+  try {
+    return typeof __APP_BUILD_TIME__ === 'string' ? __APP_BUILD_TIME__ : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function DebugHudBanner() {
+  if (!isDebugHudEnabled()) return null;
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        zIndex: 9999999,
+        width: '100vw',
+        maxHeight: '44vh',
+        overflow: 'hidden',
+        background: '#ff00ff',
+        color: '#fff200',
+        padding: '10px 14px',
+        fontFamily: 'Arial, Helvetica, sans-serif',
+        fontSize: '24px',
+        fontWeight: 800,
+        lineHeight: 1.18,
+        pointerEvents: 'none',
+        textAlign: 'left',
+        boxShadow: '0 0 0 4px #fff200'
+      }}
+    >
+      <div>DEBUG HUD ACTIVE</div>
+      <div>path: {window.location.pathname}</div>
+      <div>search: {window.location.search || '-'}</div>
+      <div>viewport: {window.innerWidth} x {window.innerHeight}</div>
+      <div>version: {safeAppVersion()}</div>
+      <div>build: {safeBuildTime()}</div>
+      <div style={{ fontSize: '16px', wordBreak: 'break-word' }}>userAgent: {window.navigator.userAgent}</div>
+    </div>
+  );
+}
+
 function CastReceiverTestPage() {
   const params = new URLSearchParams(window.location.search);
   const demo = params.get('demo')?.trim().toLowerCase() || '';
@@ -175,6 +234,7 @@ function CastReceiverTestPage() {
 
   return (
     <main className="flex min-h-screen w-screen items-center justify-center bg-white p-8 text-center text-black">
+      <DebugHudBanner />
       <section className="grid max-w-4xl gap-10">
         <div>
           <h1 className="text-6xl font-bold leading-tight">OpenStage Cast Receiver</h1>

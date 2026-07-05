@@ -995,9 +995,9 @@ function makeUniqueRestoreSongIds(candidates: RestoreSongCandidate[]) {
 }
 
 export default function App() {
-  if (isExternalPrompterRoute()) return <ExternalPrompterApp />;
-  if (isReceiverRoute()) return <RemoteReceiverApp />;
-  if (isDisplayRoute()) return <RemoteDisplayApp />;
+  if (isExternalPrompterRoute()) return <DebugHudFrame><ExternalPrompterApp /></DebugHudFrame>;
+  if (isReceiverRoute()) return <DebugHudFrame><RemoteReceiverApp /></DebugHudFrame>;
+  if (isDisplayRoute()) return <DebugHudFrame><RemoteDisplayApp /></DebugHudFrame>;
 
   const cloud = useCloud();
   const sharedImportId = getSharedImportIdFromPath();
@@ -2882,6 +2882,7 @@ export default function App() {
   if (activeSharedImportId) {
     return (
       <div className="min-h-screen bg-slate-100 text-slate-950">
+        <DebugHudBanner />
         {storageError ? (
           <StorageErrorView message={storageError} />
         ) : shouldShowSharedImportLanding ? (
@@ -2913,6 +2914,7 @@ export default function App() {
 
   return (
     <div className={`min-h-screen ${isStageSurface ? getStageTheme(performanceState.stageTheme).className : 'bg-slate-100 text-slate-950'}`}>
+      <DebugHudBanner />
       <header className={`${isStageSurface ? 'hidden' : 'sticky'} top-0 z-30 border-b border-slate-300 bg-slate-950 text-white`}>
         <div className="app-desktop-header flex min-h-16 flex-wrap items-center gap-3 px-4 py-3">
           <div className="flex items-center gap-3 pr-3">
@@ -4091,6 +4093,55 @@ function safeBuildTime() {
   }
 }
 
+function isDebugHudEnabled() {
+  return typeof window !== 'undefined' && window.location.search.includes('debugHud=1');
+}
+
+function DebugHudFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      {children}
+      <DebugHudBanner />
+    </>
+  );
+}
+
+function DebugHudBanner() {
+  if (!isDebugHudEnabled()) return null;
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        zIndex: 9999999,
+        width: '100vw',
+        maxHeight: '44vh',
+        overflow: 'hidden',
+        background: '#ff00ff',
+        color: '#fff200',
+        padding: '10px 14px',
+        fontFamily: 'Arial, Helvetica, sans-serif',
+        fontSize: '24px',
+        fontWeight: 800,
+        lineHeight: 1.18,
+        pointerEvents: 'none',
+        textAlign: 'left',
+        boxShadow: '0 0 0 4px #fff200'
+      }}
+    >
+      <div>DEBUG HUD ACTIVE</div>
+      <div>path: {window.location.pathname}</div>
+      <div>search: {window.location.search || '-'}</div>
+      <div>viewport: {window.innerWidth} x {window.innerHeight}</div>
+      <div>version: {safeAppVersion()}</div>
+      <div>build: {safeBuildTime()}</div>
+      <div style={{ fontSize: '16px', wordBreak: 'break-word' }}>userAgent: {window.navigator.userAgent}</div>
+    </div>
+  );
+}
+
 function sameReceiverScrollMetrics(left: ReceiverScrollMetrics, right: ReceiverScrollMetrics) {
   return (
     left.scrollHeight === right.scrollHeight &&
@@ -4772,6 +4823,11 @@ function RemoteDisplaySong({ song, state, diagnostics }: { song: Song; state: Pe
         className="pointer-events-none fixed right-4 top-4 z-30 grid gap-1 rounded-md border border-white/15 bg-black/45 px-3 py-2 text-right font-semibold leading-tight text-white shadow-lg backdrop-blur-sm"
         style={{ fontSize: `${Math.max(14, Math.round(headerFontSize * 0.72))}px`, fontFamily: stageFontFamily }}
       >
+        {isDebugHudEnabled() && (
+          <div style={{ background: '#ff00ff', color: '#fff200', padding: '2px 4px' }}>
+            HUD SOURCE: RemoteDisplaySong
+          </div>
+        )}
         <div>Key: {song.performanceKey || song.key || '-'}</div>
         <div>Capo: {effectiveCapo}</div>
       </div>
@@ -4878,7 +4934,7 @@ function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayl
   const headerFontSize = getEffectiveHeaderFontSize(state);
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
   const layout = calculateReceiverLayout(receiver, viewport.width, viewport.height);
-  const debugHud = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debugHud') === '1';
+  const debugHud = isDebugHudEnabled();
   const rotatedWidth = Math.abs(layout.rotation) === 90 ? layout.contentHeight * layout.scale : layout.contentWidth * layout.scale;
   const rotatedHeight = Math.abs(layout.rotation) === 90 ? layout.contentWidth * layout.scale : layout.contentHeight * layout.scale;
   const receiverBounds = {
@@ -9222,6 +9278,11 @@ function PerformanceView({
         className={`stage-keycapo-badge pointer-events-none fixed right-4 top-24 z-40 grid gap-1 rounded-md border border-white/10 bg-black/35 px-3 py-2 text-right font-semibold leading-tight opacity-100 shadow-lg backdrop-blur-sm sm:right-6 ${headerText}`}
         style={{ fontSize: `${headerFontSize}px`, color: documentTheme.text, fontFamily: stageFontFamily }}
       >
+        {isDebugHudEnabled() && (
+          <div style={{ background: '#ff00ff', color: '#fff200', padding: '2px 4px', fontSize: '0.72em' }}>
+            HUD SOURCE: StageKeyCapoHud
+          </div>
+        )}
         <div style={{ fontSize: '0.78em' }}>Key: {song.performanceKey || song.key || '-'}</div>
         <div style={{ fontSize: '0.78em' }}>Capo: {effectiveCapo}</div>
       </div>
@@ -11554,6 +11615,11 @@ function ExternalPrompterApp() {
         className="pointer-events-none fixed right-4 top-4 z-30 grid gap-1 rounded-md border border-white/15 bg-black/45 px-3 py-2 text-right font-semibold leading-tight text-white shadow-lg backdrop-blur-sm"
         style={{ fontSize: `${Math.max(14, Math.round(getEffectiveHeaderFontSize(payload.performance) * 0.72))}px`, fontFamily: stageFontFamily }}
       >
+        {isDebugHudEnabled() && (
+          <div style={{ background: '#ff00ff', color: '#fff200', padding: '2px 4px' }}>
+            HUD SOURCE: ExternalPrompterApp
+          </div>
+        )}
         <div>Key: {concertKey}</div>
         <div>Capo: {prompterCapo}</div>
       </div>
