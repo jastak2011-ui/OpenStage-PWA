@@ -5247,13 +5247,17 @@ function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayl
   const hudClassName = 'pointer-events-none absolute z-[9999]';
   const panel = (
     <div
-      className="grid gap-1 rounded-md border border-white/30 bg-black/70 px-3 py-2 text-right font-semibold leading-tight text-white shadow-2xl"
+      className="inline-grid gap-0.5 rounded-md border border-white/25 bg-black/70 px-2 py-1 text-left font-semibold text-white shadow-2xl"
       style={{
         background: debugHud ? '#ff00ff' : undefined,
         color: debugHud ? '#fff200' : undefined,
         borderColor: debugHud ? '#fff200' : undefined,
-        fontSize: `${Math.max(16, Math.round(headerFontSize * 0.72))}px`,
-        fontFamily: stageFontFamily
+        fontSize: `${Math.max(14, Math.round(headerFontSize * 0.58))}px`,
+        fontFamily: stageFontFamily,
+        lineHeight: 1.2,
+        minWidth: 'max-content',
+        width: 'max-content',
+        whiteSpace: 'nowrap'
       }}
     >
       {debugHud && <div>HUD SOURCE: ReceiverKeyCapoHud</div>}
