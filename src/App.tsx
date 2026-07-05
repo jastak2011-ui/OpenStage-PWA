@@ -4869,6 +4869,8 @@ function ReceiverCanvas({
 }
 
 function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayload; viewport: { width: number; height: number } }) {
+  const hudRef = useRef<HTMLDivElement | null>(null);
+  const [hudDiagnostics, setHudDiagnostics] = useState<Array<[string, string]>>([]);
   const receiver = normalizeReceiverDisplaySettings(payload.receiver);
   const state = scaleReceiverPerformanceState(payload.performance, receiver, payload.typography);
   const concertKey = payload.concertKey || payload.song.performanceKey || payload.song.key || '-';
@@ -4876,36 +4878,126 @@ function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayl
   const headerFontSize = getEffectiveHeaderFontSize(state);
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
   const layout = calculateReceiverLayout(receiver, viewport.width, viewport.height);
+  const debugHud = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debugHud') === '1';
   const rotatedWidth = Math.abs(layout.rotation) === 90 ? layout.contentHeight * layout.scale : layout.contentWidth * layout.scale;
   const rotatedHeight = Math.abs(layout.rotation) === 90 ? layout.contentWidth * layout.scale : layout.contentHeight * layout.scale;
   const receiverBounds = {
     top: Math.max(0, (viewport.height - rotatedHeight) / 2),
     right: Math.max(0, (viewport.width - rotatedWidth) / 2)
   };
+  const hudTop = `max(${Math.round(receiverBounds.top + 12)}px, env(safe-area-inset-top))`;
+  const hudRight = `max(${Math.round(receiverBounds.right + 12)}px, env(safe-area-inset-right))`;
+  const hudClassName = 'pointer-events-none fixed z-[9999]';
   const panel = (
     <div
       className="grid gap-1 rounded-md border border-white/30 bg-black/70 px-3 py-2 text-right font-semibold leading-tight text-white shadow-2xl"
       style={{
+        background: debugHud ? '#ff00ff' : undefined,
+        color: debugHud ? '#fff200' : undefined,
+        borderColor: debugHud ? '#fff200' : undefined,
         fontSize: `${Math.max(16, Math.round(headerFontSize * 0.72))}px`,
         fontFamily: stageFontFamily
       }}
     >
+      {debugHud && <div>HUD SOURCE: ReceiverKeyCapoHud</div>}
       <div>Key: {concertKey}</div>
       <div>Capo: {receiverCapo}</div>
     </div>
   );
 
+  useLayoutEffect(() => {
+    if (!debugHud) {
+      setHudDiagnostics([]);
+      return;
+    }
+
+    const collect = () => {
+      const hudElement = hudRef.current;
+      const hudRect = hudElement?.getBoundingClientRect();
+      const hudStyle = hudElement ? window.getComputedStyle(hudElement) : null;
+      const receiverCanvas = document.querySelector<HTMLElement>('[data-receiver-route]');
+      const transformedCanvas = document.querySelector<HTMLElement>('[data-receiver-content-width]');
+      const receiverCanvasRect = receiverCanvas?.getBoundingClientRect();
+      const transformedCanvasRect = transformedCanvas?.getBoundingClientRect();
+      const next: Array<[string, string]> = [
+        ['component name', 'ReceiverKeyCapoHud'],
+        ['route', window.location.pathname || '/receiver'],
+        ['layout mode', receiver.displayMode],
+        ['viewport width/height', `${viewport.width} x ${viewport.height}`],
+        ['innerWidth x innerHeight', `${window.innerWidth} x ${window.innerHeight}`],
+        ['screen.width x screen.height', `${window.screen.width} x ${window.screen.height}`],
+        ['content width/height', `${layout.contentWidth} x ${layout.contentHeight}`],
+        ['rotation', String(layout.rotation)],
+        ['scale', layout.scale.toFixed(4)],
+        ['rotated width/height', `${Math.round(rotatedWidth)} x ${Math.round(rotatedHeight)}`],
+        ['computed top', hudTop],
+        ['computed right', hudRight],
+        ['computed left', hudStyle?.left ?? '-'],
+        ['computed bottom', hudStyle?.bottom ?? '-'],
+        ['computed transform', hudStyle?.transform ?? '-'],
+        ['computed position', hudStyle?.position ?? '-'],
+        ['HUD rect', hudRect ? `l=${Math.round(hudRect.left)} t=${Math.round(hudRect.top)} r=${Math.round(hudRect.right)} b=${Math.round(hudRect.bottom)} w=${Math.round(hudRect.width)} h=${Math.round(hudRect.height)}` : '-'],
+        ['HUD className', hudClassName],
+        ['HUD path', 'ReceiverKeyCapoHud'],
+        ['ReceiverCanvas rect', receiverCanvasRect ? `l=${Math.round(receiverCanvasRect.left)} t=${Math.round(receiverCanvasRect.top)} r=${Math.round(receiverCanvasRect.right)} b=${Math.round(receiverCanvasRect.bottom)} w=${Math.round(receiverCanvasRect.width)} h=${Math.round(receiverCanvasRect.height)}` : '-'],
+        ['Transformed canvas rect', transformedCanvasRect ? `l=${Math.round(transformedCanvasRect.left)} t=${Math.round(transformedCanvasRect.top)} r=${Math.round(transformedCanvasRect.right)} b=${Math.round(transformedCanvasRect.bottom)} w=${Math.round(transformedCanvasRect.width)} h=${Math.round(transformedCanvasRect.height)}` : '-']
+      ];
+      setHudDiagnostics((current) => {
+        const currentKey = current.map(([key, value]) => `${key}:${value}`).join('|');
+        const nextKey = next.map(([key, value]) => `${key}:${value}`).join('|');
+        return currentKey === nextKey ? current : next;
+      });
+    };
+
+    collect();
+    const frameId = window.requestAnimationFrame(collect);
+    window.addEventListener('resize', collect);
+    window.addEventListener('orientationchange', collect);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', collect);
+      window.removeEventListener('orientationchange', collect);
+    };
+  }, [
+    debugHud,
+    hudTop,
+    hudRight,
+    layout.contentWidth,
+    layout.contentHeight,
+    layout.rotation,
+    layout.scale,
+    receiver.displayMode,
+    rotatedHeight,
+    rotatedWidth,
+    viewport.width,
+    viewport.height
+  ]);
+
   return (
-    <div
-      className="pointer-events-none fixed z-[9999]"
-      style={{
-        top: `max(${Math.round(receiverBounds.top + 12)}px, env(safe-area-inset-top))`,
-        right: `max(${Math.round(receiverBounds.right + 12)}px, env(safe-area-inset-right))`,
-        transform: 'none',
-        transformOrigin: 'top right'
-      }}
-    >
-      {panel}
+    <div className="pointer-events-none fixed inset-0 z-[9999] overflow-visible">
+      <div
+        ref={hudRef}
+        className={hudClassName}
+        data-openstage-hud-source="ReceiverKeyCapoHud"
+        style={{
+          top: hudTop,
+          right: hudRight,
+          transform: 'none',
+          transformOrigin: 'top right'
+        }}
+      >
+        {panel}
+      </div>
+      {debugHud && (
+        <div
+          className="pointer-events-none fixed left-3 top-3 z-[10000] max-h-[92vh] max-w-[62vw] overflow-hidden rounded-md border-4 border-yellow-300 bg-fuchsia-600 p-3 font-mono text-[18px] font-bold leading-tight text-yellow-200 shadow-2xl"
+        >
+          <div className="mb-2 text-[24px]">HUD DIAGNOSTIC ACTIVE</div>
+          {hudDiagnostics.map(([key, value]) => (
+            <div key={key}>{key}: {value}</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
