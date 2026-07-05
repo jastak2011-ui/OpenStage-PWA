@@ -4876,6 +4876,12 @@ function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayl
   const headerFontSize = getEffectiveHeaderFontSize(state);
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
   const layout = calculateReceiverLayout(receiver, viewport.width, viewport.height);
+  const rotatedWidth = Math.abs(layout.rotation) === 90 ? layout.contentHeight * layout.scale : layout.contentWidth * layout.scale;
+  const rotatedHeight = Math.abs(layout.rotation) === 90 ? layout.contentWidth * layout.scale : layout.contentHeight * layout.scale;
+  const receiverBounds = {
+    top: Math.max(0, (viewport.height - rotatedHeight) / 2),
+    right: Math.max(0, (viewport.width - rotatedWidth) / 2)
+  };
   const panel = (
     <div
       className="grid gap-1 rounded-md border border-white/30 bg-black/70 px-3 py-2 text-right font-semibold leading-tight text-white shadow-2xl"
@@ -4889,44 +4895,17 @@ function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayl
     </div>
   );
 
-  if (receiver.displayMode === 'landscape-lyrics') {
-    return (
-      <div
-        className="pointer-events-none fixed z-[9999]"
-        style={{
-          top: 'max(8px, env(safe-area-inset-top))',
-          right: 'max(8px, env(safe-area-inset-right))'
-        }}
-      >
-        {panel}
-      </div>
-    );
-  }
-
   return (
     <div
-      className="pointer-events-none fixed inset-0 z-[9999] overflow-visible"
+      className="pointer-events-none fixed z-[9999]"
+      style={{
+        top: `max(${Math.round(receiverBounds.top + 12)}px, env(safe-area-inset-top))`,
+        right: `max(${Math.round(receiverBounds.right + 12)}px, env(safe-area-inset-right))`,
+        transform: 'none',
+        transformOrigin: 'top right'
+      }}
     >
-      <div
-        className="absolute left-1/2 top-1/2 overflow-visible"
-        style={{
-          width: `${layout.contentWidth}px`,
-          height: `${layout.contentHeight}px`,
-          transform: `translate(-50%, -50%) rotate(${layout.rotation}deg) scale(${layout.scale})`,
-          transformOrigin: 'center center'
-        }}
-      >
-        <div
-          className="absolute"
-          style={{
-            top: '8px',
-            right: '8px',
-            transform: 'translateZ(0)'
-          }}
-        >
-          {panel}
-        </div>
-      </div>
+      {panel}
     </div>
   );
 }
