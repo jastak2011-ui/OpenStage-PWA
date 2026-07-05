@@ -5087,6 +5087,143 @@ function ReceiverCanvas({
   );
 }
 
+function normalizeReceiverRotation(rotation: number) {
+  const normalized = ((Math.round(rotation) % 360) + 360) % 360;
+  if (normalized === 270) return -90;
+  if (normalized === 180) return 180;
+  if (normalized === 90) return 90;
+  return 0;
+}
+
+function buildReceiverHudOverlayLayout({
+  rotation,
+  viewportWidth,
+  viewportHeight,
+  rotatedWidth,
+  rotatedHeight,
+  inset = 12
+}: {
+  rotation: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  rotatedWidth: number;
+  rotatedHeight: number;
+  inset?: number;
+}) {
+  const normalizedRotation = normalizeReceiverRotation(rotation);
+  const topInset = Math.max(0, (viewportHeight - rotatedHeight) / 2);
+  const bottomInset = topInset;
+  const leftInset = Math.max(0, (viewportWidth - rotatedWidth) / 2);
+  const rightInset = leftInset;
+  const anchorBase = {
+    width: '0px',
+    height: '0px',
+    zIndex: 9999
+  };
+
+  if (normalizedRotation === 90) {
+    const anchorLeft = viewportWidth - rightInset - inset;
+    const anchorTop = viewportHeight - bottomInset - inset;
+    return {
+      normalizedRotation,
+      visualTargetCorner: 'portrait/chart top-right mapped to WebView bottom-right',
+      anchorStyle: {
+        ...anchorBase,
+        left: `${Math.round(anchorLeft)}px`,
+        top: `${Math.round(anchorTop)}px`
+      },
+      hudStyle: {
+        top: '0px',
+        right: '0px',
+        transform: 'rotate(90deg)',
+        transformOrigin: 'top right'
+      },
+      finalCss: {
+        top: `${Math.round(anchorTop)}px`,
+        right: `${Math.round(rightInset + inset)}px`,
+        bottom: 'auto',
+        left: 'auto'
+      }
+    };
+  }
+
+  if (normalizedRotation === -90) {
+    const anchorLeft = leftInset + inset;
+    const anchorTop = topInset + inset;
+    return {
+      normalizedRotation,
+      visualTargetCorner: 'portrait/chart top-right mapped to WebView top-left',
+      anchorStyle: {
+        ...anchorBase,
+        left: `${Math.round(anchorLeft)}px`,
+        top: `${Math.round(anchorTop)}px`
+      },
+      hudStyle: {
+        top: '0px',
+        right: '0px',
+        transform: 'rotate(-90deg)',
+        transformOrigin: 'top right'
+      },
+      finalCss: {
+        top: `${Math.round(anchorTop)}px`,
+        right: 'auto',
+        bottom: 'auto',
+        left: `${Math.round(anchorLeft)}px`
+      }
+    };
+  }
+
+  if (normalizedRotation === 180) {
+    const anchorLeft = leftInset + inset;
+    const anchorTop = viewportHeight - bottomInset - inset;
+    return {
+      normalizedRotation,
+      visualTargetCorner: 'chart top-right mapped to WebView bottom-left',
+      anchorStyle: {
+        ...anchorBase,
+        left: `${Math.round(anchorLeft)}px`,
+        top: `${Math.round(anchorTop)}px`
+      },
+      hudStyle: {
+        top: '0px',
+        left: '0px',
+        transform: 'rotate(180deg)',
+        transformOrigin: 'top left'
+      },
+      finalCss: {
+        top: `${Math.round(anchorTop)}px`,
+        right: 'auto',
+        bottom: `${Math.round(bottomInset + inset)}px`,
+        left: `${Math.round(anchorLeft)}px`
+      }
+    };
+  }
+
+  const anchorLeft = viewportWidth - rightInset - inset;
+  const anchorTop = topInset + inset;
+  return {
+    normalizedRotation,
+    visualTargetCorner: 'chart top-right mapped to WebView top-right',
+    anchorStyle: {
+      ...anchorBase,
+      left: `${Math.round(anchorLeft)}px`,
+      top: `${Math.round(anchorTop)}px`
+    },
+    hudStyle: {
+      top: '0px',
+      right: '0px',
+      transform: 'none',
+      transformOrigin: 'top right'
+    },
+    finalCss: {
+      top: `${Math.round(anchorTop)}px`,
+      right: `${Math.round(rightInset + inset)}px`,
+      bottom: 'auto',
+      left: 'auto'
+    }
+  };
+}
+
 function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayload; viewport: { width: number; height: number } }) {
   const hudRef = useRef<HTMLDivElement | null>(null);
   const [hudDiagnostics, setHudDiagnostics] = useState<Array<[string, string]>>([]);
@@ -5100,13 +5237,14 @@ function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayl
   const debugHud = isDebugHudEnabled();
   const rotatedWidth = Math.abs(layout.rotation) === 90 ? layout.contentHeight * layout.scale : layout.contentWidth * layout.scale;
   const rotatedHeight = Math.abs(layout.rotation) === 90 ? layout.contentWidth * layout.scale : layout.contentHeight * layout.scale;
-  const receiverBounds = {
-    top: Math.max(0, (viewport.height - rotatedHeight) / 2),
-    right: Math.max(0, (viewport.width - rotatedWidth) / 2)
-  };
-  const hudTop = `max(${Math.round(receiverBounds.top + 12)}px, env(safe-area-inset-top))`;
-  const hudRight = `max(${Math.round(receiverBounds.right + 12)}px, env(safe-area-inset-right))`;
-  const hudClassName = 'pointer-events-none fixed z-[9999]';
+  const hudOverlayLayout = buildReceiverHudOverlayLayout({
+    rotation: layout.rotation,
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
+    rotatedWidth,
+    rotatedHeight
+  });
+  const hudClassName = 'pointer-events-none absolute z-[9999]';
   const panel = (
     <div
       className="grid gap-1 rounded-md border border-white/30 bg-black/70 px-3 py-2 text-right font-semibold leading-tight text-white shadow-2xl"
@@ -5134,6 +5272,9 @@ function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayl
       const hudElement = hudRef.current;
       const hudRect = hudElement?.getBoundingClientRect();
       const hudStyle = hudElement ? window.getComputedStyle(hudElement) : null;
+      const anchorElement = hudElement?.parentElement;
+      const anchorRect = anchorElement?.getBoundingClientRect();
+      const anchorStyle = anchorElement ? window.getComputedStyle(anchorElement) : null;
       const receiverCanvas = document.querySelector<HTMLElement>('[data-receiver-route]');
       const transformedCanvas = document.querySelector<HTMLElement>('[data-receiver-content-width]');
       const receiverCanvasRect = receiverCanvas?.getBoundingClientRect();
@@ -5147,14 +5288,25 @@ function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayl
         ['screen.width x screen.height', `${window.screen.width} x ${window.screen.height}`],
         ['content width/height', `${layout.contentWidth} x ${layout.contentHeight}`],
         ['rotation', String(layout.rotation)],
+        ['normalized HUD rotation', String(hudOverlayLayout.normalizedRotation)],
         ['scale', layout.scale.toFixed(4)],
         ['rotated width/height', `${Math.round(rotatedWidth)} x ${Math.round(rotatedHeight)}`],
-        ['computed top', hudTop],
-        ['computed right', hudRight],
+        ['visual target corner', hudOverlayLayout.visualTargetCorner],
+        ['final CSS top', hudOverlayLayout.finalCss.top],
+        ['final CSS right', hudOverlayLayout.finalCss.right],
+        ['final CSS bottom', hudOverlayLayout.finalCss.bottom],
+        ['final CSS left', hudOverlayLayout.finalCss.left],
+        ['final HUD transform string', hudOverlayLayout.hudStyle.transform],
+        ['transform-origin', hudOverlayLayout.hudStyle.transformOrigin],
+        ['anchor computed top', anchorStyle?.top ?? '-'],
+        ['anchor computed left', anchorStyle?.left ?? '-'],
         ['computed left', hudStyle?.left ?? '-'],
+        ['computed top', hudStyle?.top ?? '-'],
+        ['computed right', hudStyle?.right ?? '-'],
         ['computed bottom', hudStyle?.bottom ?? '-'],
         ['computed transform', hudStyle?.transform ?? '-'],
         ['computed position', hudStyle?.position ?? '-'],
+        ['HUD anchor rect', anchorRect ? `l=${Math.round(anchorRect.left)} t=${Math.round(anchorRect.top)} r=${Math.round(anchorRect.right)} b=${Math.round(anchorRect.bottom)} w=${Math.round(anchorRect.width)} h=${Math.round(anchorRect.height)}` : '-'],
         ['HUD rect', hudRect ? `l=${Math.round(hudRect.left)} t=${Math.round(hudRect.top)} r=${Math.round(hudRect.right)} b=${Math.round(hudRect.bottom)} w=${Math.round(hudRect.width)} h=${Math.round(hudRect.height)}` : '-'],
         ['HUD className', hudClassName],
         ['HUD path', 'ReceiverKeyCapoHud'],
@@ -5179,8 +5331,16 @@ function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayl
     };
   }, [
     debugHud,
-    hudTop,
-    hudRight,
+    hudOverlayLayout.anchorStyle.left,
+    hudOverlayLayout.anchorStyle.top,
+    hudOverlayLayout.finalCss.bottom,
+    hudOverlayLayout.finalCss.left,
+    hudOverlayLayout.finalCss.right,
+    hudOverlayLayout.finalCss.top,
+    hudOverlayLayout.hudStyle.transform,
+    hudOverlayLayout.hudStyle.transformOrigin,
+    hudOverlayLayout.normalizedRotation,
+    hudOverlayLayout.visualTargetCorner,
     layout.contentWidth,
     layout.contentHeight,
     layout.rotation,
@@ -5195,17 +5355,18 @@ function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayl
   return (
     <div className="pointer-events-none fixed inset-0 z-[9999] overflow-visible">
       <div
+        className="pointer-events-none fixed overflow-visible"
+        data-openstage-hud-anchor="ReceiverKeyCapoHud"
+        style={hudOverlayLayout.anchorStyle}
+      >
+      <div
         ref={hudRef}
         className={hudClassName}
         data-openstage-hud-source="ReceiverKeyCapoHud"
-        style={{
-          top: hudTop,
-          right: hudRight,
-          transform: 'none',
-          transformOrigin: 'top right'
-        }}
+        style={hudOverlayLayout.hudStyle}
       >
         {panel}
+      </div>
       </div>
       {debugHud && (
         <div
