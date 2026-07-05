@@ -128,6 +128,9 @@ function MountMarker() {
 }
 
 function isDebugHudEnabled() {
+  const stored = window.localStorage.getItem('openstage.receiver.debugHud');
+  if (stored === 'true') return true;
+  if (stored === 'false') return false;
   return window.location.search.includes('debugHud=1');
 }
 

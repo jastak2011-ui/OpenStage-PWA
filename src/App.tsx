@@ -4094,8 +4094,15 @@ function safeBuildTime() {
 }
 
 function isDebugHudEnabled() {
-  return typeof window !== 'undefined' && window.location.search.includes('debugHud=1');
+  if (typeof window === 'undefined') return false;
+  const stored = window.localStorage.getItem(receiverDebugHudStorageKey);
+  if (stored === 'true') return true;
+  if (stored === 'false') return false;
+  return window.location.search.includes('debugHud=1');
 }
+
+const receiverDebugHudStorageKey = 'openstage.receiver.debugHud';
+const receiverDebugHudChangedEvent = 'openstage:receiver-debug-hud-changed';
 
 function DebugHudFrame({ children }: { children: React.ReactNode }) {
   return (
@@ -4107,7 +4114,19 @@ function DebugHudFrame({ children }: { children: React.ReactNode }) {
 }
 
 function DebugHudBanner() {
-  if (!isDebugHudEnabled()) return null;
+  const [enabled, setEnabled] = useState(() => isDebugHudEnabled());
+
+  useEffect(() => {
+    const refresh = () => setEnabled(isDebugHudEnabled());
+    window.addEventListener(receiverDebugHudChangedEvent, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener(receiverDebugHudChangedEvent, refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
+
+  if (!enabled) return null;
 
   return (
     <div
@@ -4196,12 +4215,23 @@ function RemoteReceiverApp() {
   const [receiverNameDraft, setReceiverNameDraft] = useState(() => getReceiverDisplayName() || 'FireTV Receiver');
   const [renamingReceiver, setRenamingReceiver] = useState(false);
   const [receiverSettingsOpen, setReceiverSettingsOpen] = useState(false);
+  const [receiverSettingsSelectedIndex, setReceiverSettingsSelectedIndex] = useState(0);
+  const receiverSettingsButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [receiverDiagnosticsVisible, setReceiverDiagnosticsVisible] = useState(false);
+  const [receiverDebugHudEnabled, setReceiverDebugHudEnabled] = useState(() => isDebugHudEnabled());
   const [wakeLockStatus, setWakeLockStatus] = useState<'active' | 'unsupported' | 'error' | 'released'>('released');
   const receiver = normalizeReceiverDisplaySettings(testPattern?.receiver ?? payload?.receiver);
   const diagnosticsForcedByUrl = new URLSearchParams(window.location.search).get('diagnostics') === '1';
   const useLocalRelay = shouldUseLocalReceiverRelay();
   const showDiagnostics = diagnosticsForcedByUrl || receiver.showDiagnostics || receiverDiagnosticsVisible;
+  const setReceiverDebugHud = useCallback((enabled: boolean) => {
+    window.localStorage.setItem(receiverDebugHudStorageKey, enabled ? 'true' : 'false');
+    setReceiverDebugHudEnabled(enabled);
+    window.dispatchEvent(new Event(receiverDebugHudChangedEvent));
+  }, []);
+  const toggleReceiverDebugHud = useCallback(() => {
+    setReceiverDebugHud(!receiverDebugHudEnabled);
+  }, [receiverDebugHudEnabled, setReceiverDebugHud]);
   const handleReceiverMetricsChange = useCallback((nextMetrics: ReceiverScrollMetrics) => {
     setScrollMetrics((current) => (sameReceiverScrollMetrics(current, nextMetrics) ? current : nextMetrics));
   }, []);
@@ -4381,6 +4411,24 @@ function RemoteReceiverApp() {
     };
   }, [useLocalRelay]);
 
+  useEffect(() => {
+    if (receiverSettingsOpen) return;
+    const handleReceiverMenuKey = (event: KeyboardEvent) => {
+      const isMenu = event.key === 'ContextMenu' || event.code === 'ContextMenu' || event.key === 'Menu' || event.code === 'Menu';
+      if (!isMenu) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+      setReceiverSettingsOpen(true);
+    };
+    window.addEventListener('keydown', handleReceiverMenuKey, true);
+    document.addEventListener('keydown', handleReceiverMenuKey, true);
+    return () => {
+      window.removeEventListener('keydown', handleReceiverMenuKey, true);
+      document.removeEventListener('keydown', handleReceiverMenuKey, true);
+    };
+  }, [receiverSettingsOpen]);
+
   function saveReceiverRelayUrl() {
     saveRemoteDisplayUrl(relayUrl.trim());
     setStatus('connecting');
@@ -4409,6 +4457,92 @@ function RemoteReceiverApp() {
     }
     setConnectionKey((key) => key + 1);
   }
+
+  function activateReceiverSettingsAction(index: number) {
+    if (index === 0) {
+      saveReceiverName();
+      return;
+    }
+    if (index === 1) {
+      toggleReceiverDebugHud();
+      return;
+    }
+    if (index === 2) {
+      setReceiverSettingsOpen(false);
+      resetReceiverPairing();
+      return;
+    }
+    if (index === 3) {
+      setReceiverDiagnosticsVisible((visible) => !visible);
+      return;
+    }
+    if (index === 4) {
+      setPayload(null);
+      setTestPattern(null);
+      setReceiverSettingsOpen(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!receiverSettingsOpen) return;
+    setReceiverSettingsSelectedIndex(0);
+    window.setTimeout(() => receiverSettingsButtonRefs.current[0]?.focus(), 0);
+  }, [receiverSettingsOpen]);
+
+  useEffect(() => {
+    if (!receiverSettingsOpen) return;
+    const menuItemCount = 5;
+    const handleReceiverSettingsKey = (event: KeyboardEvent) => {
+      console.log('RECEIVER_SETTINGS_KEY', {
+        key: event.key,
+        code: event.code,
+        keyCode: event.keyCode,
+        selectedIndex: receiverSettingsSelectedIndex
+      });
+
+      const key = event.key;
+      const code = event.code;
+      const isUp = key === 'ArrowUp' || code === 'ArrowUp';
+      const isDown = key === 'ArrowDown' || code === 'ArrowDown';
+      const isEnter = key === 'Enter' || code === 'Enter' || code === 'NumpadEnter' || event.keyCode === 13;
+      const isClose = key === 'Escape' || key === 'Backspace' || key === 'BrowserBack' || key === 'GoBack' || event.keyCode === 461;
+      const isMenu = key === 'ContextMenu' || code === 'ContextMenu' || key === 'Menu' || code === 'Menu';
+      if (!isUp && !isDown && !isEnter && !isClose && !isMenu) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+
+      if (isClose || isMenu) {
+        setReceiverSettingsOpen(false);
+        return;
+      }
+
+      if (isEnter) {
+        activateReceiverSettingsAction(receiverSettingsSelectedIndex);
+        return;
+      }
+
+      setReceiverSettingsSelectedIndex((current) => {
+        const next = isDown
+          ? (current + 1) % menuItemCount
+          : (current - 1 + menuItemCount) % menuItemCount;
+        window.setTimeout(() => {
+          const button = receiverSettingsButtonRefs.current[next];
+          button?.focus();
+          button?.scrollIntoView({ block: 'nearest' });
+        }, 0);
+        return next;
+      });
+    };
+
+    window.addEventListener('keydown', handleReceiverSettingsKey, true);
+    document.addEventListener('keydown', handleReceiverSettingsKey, true);
+    return () => {
+      window.removeEventListener('keydown', handleReceiverSettingsKey, true);
+      document.removeEventListener('keydown', handleReceiverSettingsKey, true);
+    };
+  }, [receiverSettingsOpen, receiverSettingsSelectedIndex, toggleReceiverDebugHud]);
 
   if (!useLocalRelay && !receiverName) {
     return (
@@ -4551,25 +4685,54 @@ function RemoteReceiverApp() {
                   <input className="rounded-md border border-slate-600 bg-black px-3 py-3 text-slate-100" value={receiverNameDraft} onChange={(event) => setReceiverNameDraft(event.target.value)} />
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  <button className="stage-menu-button" type="button" onClick={saveReceiverName}>Save Name</button>
-                  <button className="stage-menu-button" type="button" onClick={() => {
-                    setReceiverSettingsOpen(false);
-                    resetReceiverPairing();
-                  }}>
+                  <button
+                    ref={(element) => { receiverSettingsButtonRefs.current[0] = element; }}
+                    className={`stage-menu-button ${receiverSettingsSelectedIndex === 0 ? 'ring-4 ring-amber-300 ring-offset-2 ring-offset-slate-950' : ''}`}
+                    type="button"
+                    onFocus={() => setReceiverSettingsSelectedIndex(0)}
+                    onClick={() => activateReceiverSettingsAction(0)}
+                  >
+                    Save Name
+                  </button>
+                  <button
+                    ref={(element) => { receiverSettingsButtonRefs.current[1] = element; }}
+                    className={`stage-menu-button ${receiverSettingsSelectedIndex === 1 ? 'ring-4 ring-amber-300 ring-offset-2 ring-offset-slate-950' : ''}`}
+                    type="button"
+                    onFocus={() => setReceiverSettingsSelectedIndex(1)}
+                    onClick={() => activateReceiverSettingsAction(1)}
+                  >
+                    HUD Debug: {receiverDebugHudEnabled ? 'On' : 'Off'}
+                  </button>
+                  <button
+                    ref={(element) => { receiverSettingsButtonRefs.current[2] = element; }}
+                    className={`stage-menu-button ${receiverSettingsSelectedIndex === 2 ? 'ring-4 ring-amber-300 ring-offset-2 ring-offset-slate-950' : ''}`}
+                    type="button"
+                    onFocus={() => setReceiverSettingsSelectedIndex(2)}
+                    onClick={() => activateReceiverSettingsAction(2)}
+                  >
                     Reset Pairing
                   </button>
-                  <button className="stage-menu-button" type="button" onClick={() => setReceiverDiagnosticsVisible((visible) => !visible)}>
+                  <button
+                    ref={(element) => { receiverSettingsButtonRefs.current[3] = element; }}
+                    className={`stage-menu-button ${receiverSettingsSelectedIndex === 3 ? 'ring-4 ring-amber-300 ring-offset-2 ring-offset-slate-950' : ''}`}
+                    type="button"
+                    onFocus={() => setReceiverSettingsSelectedIndex(3)}
+                    onClick={() => activateReceiverSettingsAction(3)}
+                  >
                     {showDiagnostics ? 'Hide Diagnostics' : 'Show Diagnostics'}
                   </button>
-                  <button className="stage-menu-button" type="button" onClick={() => {
-                    setPayload(null);
-                    setTestPattern(null);
-                    setReceiverSettingsOpen(false);
-                  }}>
+                  <button
+                    ref={(element) => { receiverSettingsButtonRefs.current[4] = element; }}
+                    className={`stage-menu-button ${receiverSettingsSelectedIndex === 4 ? 'ring-4 ring-amber-300 ring-offset-2 ring-offset-slate-950' : ''}`}
+                    type="button"
+                    onFocus={() => setReceiverSettingsSelectedIndex(4)}
+                    onClick={() => activateReceiverSettingsAction(4)}
+                  >
                     Exit Performance Mode
                   </button>
                 </div>
                 <div className="rounded-md border border-slate-700 bg-black/30 p-2 text-sm text-slate-300">
+                  <div>HUD Debug: {receiverDebugHudEnabled ? 'On' : 'Off'}</div>
                   <div>Diagnostics: {showDiagnostics ? 'On' : 'Off'}</div>
                   <div>Wake Lock: {wakeLockStatus}</div>
                   <div>Pairing Code: <span className="font-mono">{hostedRoomCode || '-'}</span></div>
