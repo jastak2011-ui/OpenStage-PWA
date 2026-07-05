@@ -321,6 +321,10 @@ export function boldChordsUpdate(state: PerformanceState, boldChords: boolean): 
   };
 }
 
+export function chordFontWeightForBoldSetting(boldChords: boolean) {
+  return boldChords ? 800 : 500;
+}
+
 export function getEffectiveItalicChords(state: PerformanceState) {
   return state.italicChordsByProfile?.[state.activeProfile] ?? state.italicChords ?? false;
 }

@@ -36,8 +36,11 @@ import {
   chartLineHeightEm,
   chartRowSpacingPx,
   chordFontSizeUpdate,
+  chordFontWeightForBoldSetting,
   chordVerticalOffsetUpdate,
   clampChordFontSize,
+  boldChordsUpdate,
+  getEffectiveBoldChords,
   getEffectiveChordFontSize,
   getEffectiveChordVerticalOffset,
   getEffectiveHarmonyUnderline,
@@ -105,6 +108,15 @@ assert.equal(tempoDotTone(1, 1), 'purple');
 assert.equal(tempoDotTone(2, 2), 'purple');
 assert.equal(tempoDotTone(3, 3), 'purple');
 assert.equal(tempoDotTone(1, 0), 'dim');
+assert.equal(chordFontWeightForBoldSetting(true), 800);
+assert.equal(chordFontWeightForBoldSetting(false), 500);
+const boldChordState = { activeProfile: 'desktop', boldChords: false, boldChordsByProfile: {} };
+const boldChordUpdate = boldChordsUpdate(boldChordState, true);
+assert.equal(boldChordUpdate.boldChords, true);
+assert.equal(boldChordUpdate.boldChordsByProfile.desktop, true);
+assert.equal(getEffectiveBoldChords({ ...boldChordState, ...boldChordUpdate }), true);
+const normalChordUpdate = boldChordsUpdate({ ...boldChordState, ...boldChordUpdate }, false);
+assert.equal(getEffectiveBoldChords({ ...boldChordState, ...boldChordUpdate, ...normalChordUpdate }), false);
 
 const favoriteCsvSong = parseCsvSongs('title,artist,favorite,chart\n"Favorite Tune","OpenStage","true","[G]Go"')[0];
 assert.equal(favoriteCsvSong.favorite, true);

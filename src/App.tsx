@@ -130,6 +130,7 @@ import {
   chordFontSizeUpdate,
   chordFontColorOptions,
   chordFontColorUpdate,
+  chordFontWeightForBoldSetting,
   chordHighlightColorUpdate,
   chordHighlightOptions,
   chordVerticalOffsetUpdate,
@@ -12445,6 +12446,7 @@ function ChordProDisplayLine({
     backgroundColor: hasHighlight ? resolvedHighlightColor : undefined,
     borderRadius: hasHighlight ? '0.18em' : undefined,
     padding: hasHighlight ? '0 0.12em' : undefined,
+    fontWeight: chordFontWeightForBoldSetting(boldChords),
     fontStyle: italicChords ? 'italic' : undefined
   };
   const chordClassName = `stage-chord ${boldChords ? 'font-bold' : 'font-semibold'}`;
