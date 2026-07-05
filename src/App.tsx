@@ -4460,7 +4460,7 @@ function RemoteReceiverApp() {
           <ReceiverSong payload={payload} viewport={viewport} onMetricsChange={handleReceiverMetricsChange} />
         ) : null}
       </ReceiverCanvas>
-      {payload && <ReceiverKeyCapoHud payload={payload} />}
+      {payload && <ReceiverKeyCapoHud payload={payload} viewport={viewport} />}
       {showDiagnostics && payload && (
         <ReceiverDiagnosticsOverlay
           payload={payload}
@@ -4646,7 +4646,7 @@ function RemoteDisplayApp() {
         <ReceiverCanvas settings={receiver} viewport={viewport} backgroundColor={receiverPayload.visualTheme?.background ?? getReceiverVisualTheme(scaleReceiverPerformanceState(receiverPayload.performance, receiver, receiverPayload.typography), receiver).background}>
           <ReceiverSong payload={receiverPayload} viewport={viewport} onMetricsChange={ignoreReceiverMetrics} />
         </ReceiverCanvas>
-        <ReceiverKeyCapoHud payload={receiverPayload} />
+        <ReceiverKeyCapoHud payload={receiverPayload} viewport={viewport} />
       </main>
     );
   }
@@ -4868,26 +4868,65 @@ function ReceiverCanvas({
   );
 }
 
-function ReceiverKeyCapoHud({ payload }: { payload: RemoteReceiverPayload }) {
+function ReceiverKeyCapoHud({ payload, viewport }: { payload: RemoteReceiverPayload; viewport: { width: number; height: number } }) {
   const receiver = normalizeReceiverDisplaySettings(payload.receiver);
   const state = scaleReceiverPerformanceState(payload.performance, receiver, payload.typography);
   const concertKey = payload.concertKey || payload.song.performanceKey || payload.song.key || '-';
   const receiverCapo = normalizePrompterCapoValue(payload.effectivePrompterCapo ?? payload.effectiveCapo);
   const headerFontSize = getEffectiveHeaderFontSize(state);
   const stageFontFamily = resolveStageFontFamily(getEffectiveStageFontFamily(state));
-
-  return (
+  const layout = calculateReceiverLayout(receiver, viewport.width, viewport.height);
+  const panel = (
     <div
-      className="pointer-events-none fixed z-[9999] grid gap-1 rounded-md border border-white/30 bg-black/70 px-3 py-2 text-right font-semibold leading-tight text-white shadow-2xl"
+      className="grid gap-1 rounded-md border border-white/30 bg-black/70 px-3 py-2 text-right font-semibold leading-tight text-white shadow-2xl"
       style={{
-        top: 'max(8px, env(safe-area-inset-top))',
-        right: 'max(8px, env(safe-area-inset-right))',
         fontSize: `${Math.max(16, Math.round(headerFontSize * 0.72))}px`,
         fontFamily: stageFontFamily
       }}
     >
       <div>Key: {concertKey}</div>
       <div>Capo: {receiverCapo}</div>
+    </div>
+  );
+
+  if (receiver.displayMode === 'landscape-lyrics') {
+    return (
+      <div
+        className="pointer-events-none fixed z-[9999]"
+        style={{
+          top: 'max(8px, env(safe-area-inset-top))',
+          right: 'max(8px, env(safe-area-inset-right))'
+        }}
+      >
+        {panel}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="pointer-events-none fixed inset-0 z-[9999] overflow-visible"
+    >
+      <div
+        className="absolute left-1/2 top-1/2 overflow-visible"
+        style={{
+          width: `${layout.contentWidth}px`,
+          height: `${layout.contentHeight}px`,
+          transform: `translate(-50%, -50%) rotate(${layout.rotation}deg) scale(${layout.scale})`,
+          transformOrigin: 'center center'
+        }}
+      >
+        <div
+          className="absolute"
+          style={{
+            top: '8px',
+            right: '8px',
+            transform: 'translateZ(0)'
+          }}
+        >
+          {panel}
+        </div>
+      </div>
     </div>
   );
 }
