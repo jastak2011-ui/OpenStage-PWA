@@ -56,6 +56,17 @@ export const defaultPerformanceState: PerformanceState = {
     tablet: 52,
     'portrait-prompter': 52
   },
+  showSongTitleInChart: true,
+  showSongTitleInChartByProfile: {
+    desktop: true,
+    'ipad-portrait': true,
+    'ipad-landscape': true,
+    iphone: true,
+    'prompter-display': true,
+    'stage-device': true,
+    tablet: true,
+    'portrait-prompter': true
+  },
   songTitleColor: 'document',
   songTitleColorsByProfile: {
     desktop: 'document',
@@ -87,6 +98,17 @@ export const defaultPerformanceState: PerformanceState = {
     'stage-device': 30,
     tablet: 30,
     'portrait-prompter': 30
+  },
+  showArtistInChart: true,
+  showArtistInChartByProfile: {
+    desktop: true,
+    'ipad-portrait': true,
+    'ipad-landscape': true,
+    iphone: true,
+    'prompter-display': true,
+    'stage-device': true,
+    tablet: true,
+    'portrait-prompter': true
   },
   songArtistColor: 'muted',
   songArtistColorsByProfile: {
@@ -406,10 +428,12 @@ export const useAppStore = create<AppStore>()(
           const currentLyricSizes = state.performance.fontSizesByProfile ?? {};
           const currentHeaderSizes = state.performance.headerFontSizesByProfile ?? {};
           const currentSongTitleSizes = state.performance.songTitleFontSizesByProfile ?? {};
+          const currentShowSongTitleInChart = state.performance.showSongTitleInChartByProfile ?? {};
           const currentSongTitleColors = state.performance.songTitleColorsByProfile ?? {};
           const currentSongTitleBold = state.performance.songTitleBoldByProfile ?? {};
           const currentSongTitleItalic = state.performance.songTitleItalicByProfile ?? {};
           const currentSongArtistSizes = state.performance.songArtistFontSizesByProfile ?? {};
+          const currentShowArtistInChart = state.performance.showArtistInChartByProfile ?? {};
           const currentSongArtistColors = state.performance.songArtistColorsByProfile ?? {};
           const currentSongArtistBold = state.performance.songArtistBoldByProfile ?? {};
           const currentSongArtistItalic = state.performance.songArtistItalicByProfile ?? {};
@@ -454,6 +478,11 @@ export const useAppStore = create<AppStore>()(
             currentSongTitleSizes[activeProfile] ??
             state.performance.songTitleFontSize ??
             defaultPerformanceState.songTitleFontSize;
+          const nextShowSongTitleInChart =
+            next.showSongTitleInChart ??
+            currentShowSongTitleInChart[activeProfile] ??
+            state.performance.showSongTitleInChart ??
+            defaultPerformanceState.showSongTitleInChart;
           const nextSongTitleColor =
             next.songTitleColor ??
             currentSongTitleColors[activeProfile] ??
@@ -474,6 +503,11 @@ export const useAppStore = create<AppStore>()(
             currentSongArtistSizes[activeProfile] ??
             state.performance.songArtistFontSize ??
             defaultPerformanceState.songArtistFontSize;
+          const nextShowArtistInChart =
+            next.showArtistInChart ??
+            currentShowArtistInChart[activeProfile] ??
+            state.performance.showArtistInChart ??
+            defaultPerformanceState.showArtistInChart;
           const nextSongArtistColor =
             next.songArtistColor ??
             currentSongArtistColors[activeProfile] ??
@@ -642,6 +676,12 @@ export const useAppStore = create<AppStore>()(
                 ...(next.songTitleFontSizesByProfile ?? {}),
                 [activeProfile]: nextSongTitleFontSize
               },
+              showSongTitleInChart: nextShowSongTitleInChart,
+              showSongTitleInChartByProfile: {
+                ...currentShowSongTitleInChart,
+                ...(next.showSongTitleInChartByProfile ?? {}),
+                [activeProfile]: nextShowSongTitleInChart
+              },
               songTitleColor: nextSongTitleColor,
               songTitleColorsByProfile: {
                 ...currentSongTitleColors,
@@ -665,6 +705,12 @@ export const useAppStore = create<AppStore>()(
                 ...currentSongArtistSizes,
                 ...(next.songArtistFontSizesByProfile ?? {}),
                 [activeProfile]: nextSongArtistFontSize
+              },
+              showArtistInChart: nextShowArtistInChart,
+              showArtistInChartByProfile: {
+                ...currentShowArtistInChart,
+                ...(next.showArtistInChartByProfile ?? {}),
+                [activeProfile]: nextShowArtistInChart
               },
               songArtistColor: nextSongArtistColor,
               songArtistColorsByProfile: {

@@ -14,6 +14,8 @@ export type RenderOptions = {
   headerFontSize?: number;
   songTitleFontSize?: number;
   songArtistFontSize?: number;
+  showSongTitleInChart?: boolean;
+  showArtistInChart?: boolean;
   sectionFontSize?: number;
   sectionSpacingBefore?: number;
   sectionSpacingAfter?: number;
@@ -52,6 +54,8 @@ export function renderSong(song: Song, options: RenderOptions) {
     options.headerFontSize ?? '',
     options.songTitleFontSize ?? '',
     options.songArtistFontSize ?? '',
+    options.showSongTitleInChart ?? true,
+    options.showArtistInChart ?? true,
     options.sectionFontSize ?? '',
     options.sectionSpacingBefore ?? '',
     options.sectionSpacingAfter ?? '',
@@ -68,7 +72,7 @@ export function renderSong(song: Song, options: RenderOptions) {
 
   const sourceLines = getSongDisplayLines(song);
   const renderedLines = sourceLines.map((line) => renderLine(line, options));
-  const metadataLines = classifySongMetadataLines(song, renderedLines);
+  const metadataLines = classifySongMetadataLines(song, renderedLines, options);
   const lines = song.displayPreference === 'chords-over' ? renderChordOverTextPairs(metadataLines, options) : metadataLines;
   renderCache.set(cacheKey, lines);
 
@@ -123,23 +127,26 @@ function renderChordOverTextPairs(lines: RenderedLine[], options: RenderOptions)
   return result;
 }
 
-function classifySongMetadataLines(song: Song, lines: RenderedLine[]): RenderedLine[] {
+function classifySongMetadataLines(song: Song, lines: RenderedLine[], options: RenderOptions): RenderedLine[] {
   const result: RenderedLine[] = [];
   const title = song.title?.trim() ?? '';
   const artist = song.artist?.trim() ?? '';
   const subtitle = song.subtitle?.trim() ?? '';
   const hasTitleDirective = lines.some((line) => line.type === 'directive' && line.name === 'title' && line.value.trim().length > 0);
   const hasArtistDirective = lines.some((line) => line.type === 'directive' && line.name === 'artist' && line.value.trim().length > 0);
-  const leadingPlainHeaderTexts = collectLeadingPlainHeaderTexts(lines);
-  const hasPlainHeaderPair = leadingPlainHeaderTexts.length >= 2;
+  const showTitle = options.showSongTitleInChart !== false;
+  const showArtist = options.showArtistInChart !== false;
   let titleRendered = false;
   let artistRendered = false;
+  let titleMetadataSeen = false;
+  let artistMetadataSeen = false;
   let leadingMetadataRegion = true;
   let leadingPlainHeaderLineCount = 0;
 
   lines.forEach((line) => {
     if (line.type === 'directive' && line.name === 'title') {
-      if (!titleRendered && (title || line.value)) {
+      titleMetadataSeen = true;
+      if (showTitle && !titleRendered && (title || line.value)) {
         result.push({ type: 'song-title', raw: line.raw, value: title || line.value, sourceStart: line.sourceStart });
         titleRendered = true;
       }
@@ -147,7 +154,8 @@ function classifySongMetadataLines(song: Song, lines: RenderedLine[]): RenderedL
     }
 
     if (line.type === 'directive' && line.name === 'artist') {
-      if (!artistRendered && (artist || line.value)) {
+      artistMetadataSeen = true;
+      if (showArtist && !artistRendered && (artist || line.value)) {
         result.push({ type: 'song-artist', raw: line.raw, value: artist || line.value, sourceStart: line.sourceStart });
         artistRendered = true;
       }
@@ -155,7 +163,8 @@ function classifySongMetadataLines(song: Song, lines: RenderedLine[]): RenderedL
     }
 
     if (line.type === 'directive' && line.name === 'subtitle' && !hasArtistDirective) {
-      if (!artistRendered && (artist || line.value)) {
+      artistMetadataSeen = true;
+      if (showArtist && !artistRendered && (artist || line.value)) {
         result.push({ type: 'song-artist', raw: line.raw, value: artist || line.value, sourceStart: line.sourceStart });
         artistRendered = true;
       }
@@ -167,19 +176,26 @@ function classifySongMetadataLines(song: Song, lines: RenderedLine[]): RenderedL
       const isChordOnlyHeaderCandidate = isStandaloneChordLine(text);
       if (text && !isChordOnlyHeaderCandidate && !isStageMetadataLabelText(text)) {
         leadingPlainHeaderLineCount += 1;
-        if (!titleRendered && leadingPlainHeaderLineCount === 1 && (sameMetadataText(text, title) || (!hasTitleDirective && hasPlainHeaderPair))) {
-          result.push({ type: 'song-title', raw: line.raw, value: title || text, sourceStart: line.sourceStart });
-          titleRendered = true;
+        if (!titleMetadataSeen && !hasTitleDirective && leadingPlainHeaderLineCount === 1 && sameMetadataText(text, title)) {
+          titleMetadataSeen = true;
+          if (showTitle && !titleRendered) {
+            result.push({ type: 'song-title', raw: line.raw, value: title || text, sourceStart: line.sourceStart });
+            titleRendered = true;
+          }
           return;
         }
         if (
-          titleRendered &&
-          !artistRendered &&
+          titleMetadataSeen &&
+          !artistMetadataSeen &&
           leadingPlainHeaderLineCount === 2 &&
-          (sameMetadataText(text, artist) || sameMetadataText(text, subtitle) || (!hasArtistDirective && hasPlainHeaderPair))
+          !hasArtistDirective &&
+          (sameMetadataText(text, artist) || sameMetadataText(text, subtitle))
         ) {
-          result.push({ type: 'song-artist', raw: line.raw, value: artist || subtitle || text, sourceStart: line.sourceStart });
-          artistRendered = true;
+          artistMetadataSeen = true;
+          if (showArtist && !artistRendered) {
+            result.push({ type: 'song-artist', raw: line.raw, value: artist || subtitle || text, sourceStart: line.sourceStart });
+            artistRendered = true;
+          }
           return;
         }
       }
@@ -194,20 +210,6 @@ function classifySongMetadataLines(song: Song, lines: RenderedLine[]): RenderedL
   });
 
   return result;
-}
-
-function collectLeadingPlainHeaderTexts(lines: RenderedLine[]) {
-  const texts: string[] = [];
-  for (const line of lines) {
-    if (line.type === 'blank' || line.type === 'comment') continue;
-    if (line.type !== 'lyrics' || line.tokens.some((token) => token.type === 'chord')) break;
-
-    const text = plainText(line).trim();
-    if (!text || isStandaloneChordLine(text) || isStageMetadataLabelText(text)) break;
-    texts.push(text);
-    if (texts.length >= 2) break;
-  }
-  return texts;
 }
 
 function isStageMetadataLabelText(text: string) {
@@ -366,6 +368,7 @@ function isChordSymbol(value: string) {
 }
 
 function sameMetadataText(left: string, right: string) {
+  if (!left.trim() || !right.trim()) return false;
   return normalizeMetadataText(left) === normalizeMetadataText(right);
 }
 

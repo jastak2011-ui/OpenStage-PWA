@@ -159,8 +159,10 @@ import {
   getEffectiveSectionSpacingAfter,
   getEffectiveSectionSpacingBefore,
   getEffectiveSectionUppercase,
+  getEffectiveShowArtistInChart,
   getEffectiveShowChords,
   getEffectiveShowHarmonyCues,
+  getEffectiveShowSongTitleInChart,
   getEffectiveSongArtistBold,
   getEffectiveSongArtistColor,
   getEffectiveSongArtistFontSize,
@@ -195,7 +197,9 @@ import {
   sectionSpacingBeforeUpdate,
   sectionUppercaseUpdate,
   showHarmonyCuesUpdate,
+  showArtistInChartUpdate,
   showChordsUpdate,
+  showSongTitleInChartUpdate,
   songArtistBoldUpdate,
   songArtistColorUpdate,
   songArtistFontSizeUpdate,
@@ -1439,6 +1443,8 @@ export default function App() {
       headerFontSize: getEffectiveHeaderFontSize(performanceState),
       songTitleFontSize: getEffectiveSongTitleFontSize(performanceState),
       songArtistFontSize: getEffectiveSongArtistFontSize(performanceState),
+      showSongTitleInChart: getEffectiveShowSongTitleInChart(performanceState),
+      showArtistInChart: getEffectiveShowArtistInChart(performanceState),
       sectionFontSize: getEffectiveSectionFontSize(performanceState),
       sectionSpacingBefore: getEffectiveSectionSpacingBefore(performanceState),
       sectionSpacingAfter: getEffectiveSectionSpacingAfter(performanceState),
@@ -1468,6 +1474,10 @@ export default function App() {
     performanceState.showNashvilleNumbers,
     performanceState.songArtistFontSize,
     performanceState.songArtistFontSizesByProfile,
+    performanceState.showArtistInChart,
+    performanceState.showArtistInChartByProfile,
+    performanceState.showSongTitleInChart,
+    performanceState.showSongTitleInChartByProfile,
     performanceState.songTitleFontSize,
     performanceState.songTitleFontSizesByProfile,
     performanceState.splitScreen,
@@ -4954,6 +4964,8 @@ function RemoteDisplaySong({ song, state, diagnostics }: { song: Song; state: Pe
     headerFontSize,
     songTitleFontSize: getEffectiveSongTitleFontSize(state),
     songArtistFontSize: getEffectiveSongArtistFontSize(state),
+    showSongTitleInChart: getEffectiveShowSongTitleInChart(state),
+    showArtistInChart: getEffectiveShowArtistInChart(state),
     sectionFontSize: getEffectiveSectionFontSize(state),
     sectionSpacingBefore: getEffectiveSectionSpacingBefore(state),
     sectionSpacingAfter: getEffectiveSectionSpacingAfter(state),
@@ -5423,6 +5435,8 @@ function ReceiverSong({
     headerFontSize,
     songTitleFontSize: getEffectiveSongTitleFontSize(state),
     songArtistFontSize: getEffectiveSongArtistFontSize(state),
+    showSongTitleInChart: getEffectiveShowSongTitleInChart(state),
+    showArtistInChart: getEffectiveShowArtistInChart(state),
     sectionFontSize: getEffectiveSectionFontSize(state),
     sectionSpacingBefore: getEffectiveSectionSpacingBefore(state),
     sectionSpacingAfter: getEffectiveSectionSpacingAfter(state),
@@ -9033,6 +9047,8 @@ function PerformanceView({
     headerFontSize,
     songTitleFontSize: getEffectiveSongTitleFontSize(state),
     songArtistFontSize: getEffectiveSongArtistFontSize(state),
+    showSongTitleInChart: getEffectiveShowSongTitleInChart(state),
+    showArtistInChart: getEffectiveShowArtistInChart(state),
     sectionFontSize: getEffectiveSectionFontSize(state),
     sectionSpacingBefore: getEffectiveSectionSpacingBefore(state),
     sectionSpacingAfter: getEffectiveSectionSpacingAfter(state),
@@ -11321,6 +11337,9 @@ function StageControlPopover({
                 <Stepper label="Header Font Size" value={getEffectiveHeaderFontSize(state)} min={12} max={34} onChange={(fontSize) => setState(headerFontSizeUpdate(state, fontSize))} />
                 <div className="grid gap-2 rounded-md border border-slate-700/70 bg-black/20 p-3">
                   <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Song Title</div>
+                  <button className="stage-menu-button" type="button" onClick={() => setState(showSongTitleInChartUpdate(state, !getEffectiveShowSongTitleInChart(state)))}>
+                    Show Song Title in Chart {getEffectiveShowSongTitleInChart(state) ? 'On' : 'Off'}
+                  </button>
                   <Stepper label="Title Font Size" value={getEffectiveSongTitleFontSize(state)} min={20} max={96} onChange={(fontSize) => setState(songTitleFontSizeUpdate(state, fontSize))} />
                   <ColorSwatchGroup
                     title="Title Color"
@@ -11339,6 +11358,9 @@ function StageControlPopover({
                 </div>
                 <div className="grid gap-2 rounded-md border border-slate-700/70 bg-black/20 p-3">
                   <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Artist</div>
+                  <button className="stage-menu-button" type="button" onClick={() => setState(showArtistInChartUpdate(state, !getEffectiveShowArtistInChart(state)))}>
+                    Show Artist in Chart {getEffectiveShowArtistInChart(state) ? 'On' : 'Off'}
+                  </button>
                   <Stepper label="Artist Font Size" value={getEffectiveSongArtistFontSize(state)} min={14} max={72} onChange={(fontSize) => setState(songArtistFontSizeUpdate(state, fontSize))} />
                   <ColorSwatchGroup
                     title="Artist Color"
@@ -11926,6 +11948,8 @@ function ExternalPrompterApp() {
     headerFontSize: getEffectiveHeaderFontSize(payload.performance),
     songTitleFontSize: getEffectiveSongTitleFontSize(payload.performance),
     songArtistFontSize: getEffectiveSongArtistFontSize(payload.performance),
+    showSongTitleInChart: getEffectiveShowSongTitleInChart(payload.performance),
+    showArtistInChart: getEffectiveShowArtistInChart(payload.performance),
     sectionFontSize: getEffectiveSectionFontSize(payload.performance),
     sectionSpacingBefore: getEffectiveSectionSpacingBefore(payload.performance),
     sectionSpacingAfter: getEffectiveSectionSpacingAfter(payload.performance),

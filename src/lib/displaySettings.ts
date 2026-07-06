@@ -123,6 +123,20 @@ export function songTitleFontSizeUpdate(state: PerformanceState, songTitleFontSi
   };
 }
 
+export function getEffectiveShowSongTitleInChart(state: PerformanceState) {
+  return state.showSongTitleInChartByProfile?.[state.activeProfile] ?? state.showSongTitleInChart ?? true;
+}
+
+export function showSongTitleInChartUpdate(state: PerformanceState, showSongTitleInChart: boolean): Partial<PerformanceState> {
+  return {
+    showSongTitleInChart,
+    showSongTitleInChartByProfile: {
+      ...(state.showSongTitleInChartByProfile ?? {}),
+      [state.activeProfile]: showSongTitleInChart
+    }
+  };
+}
+
 export function getEffectiveSongTitleColor(state: PerformanceState) {
   return state.songTitleColorsByProfile?.[state.activeProfile] ?? state.songTitleColor ?? 'document';
 }
@@ -177,6 +191,20 @@ export function songArtistFontSizeUpdate(state: PerformanceState, songArtistFont
     songArtistFontSizesByProfile: {
       ...(state.songArtistFontSizesByProfile ?? {}),
       [state.activeProfile]: nextSize
+    }
+  };
+}
+
+export function getEffectiveShowArtistInChart(state: PerformanceState) {
+  return state.showArtistInChartByProfile?.[state.activeProfile] ?? state.showArtistInChart ?? true;
+}
+
+export function showArtistInChartUpdate(state: PerformanceState, showArtistInChart: boolean): Partial<PerformanceState> {
+  return {
+    showArtistInChart,
+    showArtistInChartByProfile: {
+      ...(state.showArtistInChartByProfile ?? {}),
+      [state.activeProfile]: showArtistInChart
     }
   };
 }
