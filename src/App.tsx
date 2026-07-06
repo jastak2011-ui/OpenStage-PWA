@@ -5037,6 +5037,8 @@ function RemoteDisplaySong({ song, state, diagnostics }: { song: Song; state: Pe
             sectionSpacingAfter={getEffectiveSectionSpacingAfter(state)}
             songTitleStyle={songTitleStyle}
             songArtistStyle={songArtistStyle}
+            showSongTitleInChart={getEffectiveShowSongTitleInChart(state)}
+            showArtistInChart={getEffectiveShowArtistInChart(state)}
             showHarmonyCues={getEffectiveShowHarmonyCues(state)}
             harmonyTextColor={getEffectiveHarmonyTextColor(state)}
             harmonyIconColor={getEffectiveHarmonyIconColor(state)}
@@ -5535,6 +5537,8 @@ function ReceiverSong({
             sectionSpacingAfter={getEffectiveSectionSpacingAfter(state)}
             songTitleStyle={songTitleStyle}
             songArtistStyle={songArtistStyle}
+            showSongTitleInChart={getEffectiveShowSongTitleInChart(state)}
+            showArtistInChart={getEffectiveShowArtistInChart(state)}
             showHarmonyCues={getEffectiveShowHarmonyCues(state)}
             harmonyTextColor={receiverVisual.harmonyTextColor}
             harmonyIconColor={receiverVisual.harmonyIconColor}
@@ -9933,6 +9937,8 @@ function PerformanceView({
               sectionSpacingAfter={sectionSpacingAfter}
               songTitleStyle={songTitleStyle}
               songArtistStyle={songArtistStyle}
+              showSongTitleInChart={getEffectiveShowSongTitleInChart(state)}
+              showArtistInChart={getEffectiveShowArtistInChart(state)}
               showHarmonyCues={showHarmonyCues}
               harmonyTextColor={harmonyTextColor}
               harmonyIconColor={harmonyIconColor}
@@ -12032,6 +12038,8 @@ function ExternalPrompterApp() {
                     sectionSpacingAfter={sectionSpacingAfter}
                     songTitleStyle={songTitleStyle}
                     songArtistStyle={songArtistStyle}
+                    showSongTitleInChart={getEffectiveShowSongTitleInChart(payload.performance)}
+                    showArtistInChart={getEffectiveShowArtistInChart(payload.performance)}
                     showHarmonyCues={showHarmonyCues}
                     harmonyTextColor={harmonyTextColor}
                     harmonyIconColor={harmonyIconColor}
@@ -12403,6 +12411,8 @@ function ChordProDisplayLine({
   sectionSpacingAfter,
   songTitleStyle,
   songArtistStyle,
+  showSongTitleInChart,
+  showArtistInChart,
   showHarmonyCues,
   harmonyTextColor,
   harmonyIconColor,
@@ -12440,6 +12450,8 @@ function ChordProDisplayLine({
   sectionSpacingAfter: number;
   songTitleStyle: React.CSSProperties;
   songArtistStyle: React.CSSProperties;
+  showSongTitleInChart: boolean;
+  showArtistInChart: boolean;
   showHarmonyCues: boolean;
   harmonyTextColor: string;
   harmonyIconColor: string;
@@ -12510,6 +12522,7 @@ function ChordProDisplayLine({
   }
 
   if (line.type === 'song-title') {
+    if (!showSongTitleInChart) return null;
     return (
       <div
         data-line-index={lineIndex}
@@ -12524,6 +12537,7 @@ function ChordProDisplayLine({
   }
 
   if (line.type === 'song-artist') {
+    if (!showArtistInChart) return null;
     return (
       <div
         data-line-index={lineIndex}

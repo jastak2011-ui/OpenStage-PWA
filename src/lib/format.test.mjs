@@ -816,6 +816,15 @@ assert.equal(chordProMetadataRendered.lines[0].type, 'song-title');
 assert.equal(chordProMetadataRendered.lines[0].value, 'Take On Me');
 assert.equal(chordProMetadataRendered.lines[1].type, 'song-artist');
 assert.equal(chordProMetadataRendered.lines[1].value, 'a-ha');
+const chordProTitleHiddenRendered = renderSong(chordProMetadataSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', showSongTitleInChart: false });
+assert.equal(chordProTitleHiddenRendered.lines.some((line) => line.type === 'song-title'), false);
+assert.equal(chordProTitleHiddenRendered.lines[0].type, 'song-artist');
+assert.equal(chordProTitleHiddenRendered.lines[1].type, 'lyrics');
+assert.equal(chordProTitleHiddenRendered.lines[1].tokens.map((token) => token.display).join(''), 'GTalking away');
+const chordProArtistHiddenRendered = renderSong(chordProMetadataSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', showArtistInChart: false });
+assert.equal(chordProArtistHiddenRendered.lines[0].type, 'song-title');
+assert.equal(chordProArtistHiddenRendered.lines.some((line) => line.type === 'song-artist'), false);
+assert.equal(chordProArtistHiddenRendered.lines[1].type, 'lyrics');
 
 const shorthandMetadataSong = {
   ...capoSong,
@@ -953,6 +962,9 @@ assert.equal(renderedLineText(twilightIntroRendered.lines[2]), 'Somewhere in a l
 assert.equal(renderedLineText(twilightIntroRendered.lines[3]), "There's a guy startin to realize");
 assert.equal(renderedLineText(twilightIntroRendered.lines[4]), 'That eternal fate has turned its back on him');
 assert.equal(renderedLineText(twilightIntroRendered.lines[5]), "It's 2am");
+const twilightIntroHiddenMetadataRendered = renderSong(twilightIntroSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'Bm', showSongTitleInChart: false, showArtistInChart: false });
+assert.equal(renderedLineText(twilightIntroHiddenMetadataRendered.lines[0]), 'Intro:');
+assert.equal(renderedLineText(twilightIntroHiddenMetadataRendered.lines[2]), 'Somewhere in a lonely hotel room');
 
 const duplicateTitleChart = 'Twilight Zone\nIntro:\nSomewhere in a lonely hotel room';
 const duplicateTitleSong = {
