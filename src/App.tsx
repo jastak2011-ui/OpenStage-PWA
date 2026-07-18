@@ -88,6 +88,17 @@ import { getEffectivePrompterCapo, getPrompterCapoTransposeOffset, normalizeProm
 import { createId, createSongUuid } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
+import { createOnSongTextSetlistBundle, createOnSongTextSetlistFileName } from './lib/onsongSetlists';
+import {
+  createDuplicateOnSongImportedSong,
+  createOnSongImportedSongCopy,
+  createOnSongSetlistReview,
+  createSetlistFromOnSongReview,
+  replaceSongWithOnSongImport,
+  type OnSongSetlistDecision,
+  type OnSongSetlistMatchKind,
+  type OnSongSetlistReview
+} from './lib/onsongSetlistImport';
 import {
   connectRemoteDisplay,
   connectRemoteDisplayControllerForDiagnostics,
@@ -213,7 +224,7 @@ import {
   stageFontFamilyUpdate,
   useMonospaceChordsUpdate
 } from './lib/displaySettings';
-import { isRangeInsideHarmonyMarkup, markHarmonyRange, removeHarmonyRange, type HarmonyRange } from './lib/harmony';
+import { hasHarmonyMarkup, isRangeInsideHarmonyMarkup, markHarmonyRange, removeHarmonyRange, type HarmonyRange } from './lib/harmony';
 import { isOnSongArchiveFileName, parseOnSongArchive } from './lib/onsongArchive';
 import {
   createPortableBackup,
@@ -1016,6 +1027,7 @@ export default function App() {
   const [setlistNotes, setSetlistNotes] = useState('');
   const [setlistDirty, setSetlistDirty] = useState(false);
   const [allowSetlistDuplicates, setAllowSetlistDuplicates] = useState(false);
+  const [pendingOnSongSetlistReview, setPendingOnSongSetlistReview] = useState<OnSongSetlistReview | null>(null);
   const [selectedSongId, setSelectedSongId] = useState('');
   const [activeMode, setActiveMode] = useState<StageMode>('library');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -2469,6 +2481,17 @@ export default function App() {
     downloadText(content, `openstage-songs.${format}`, format === 'json' ? 'application/json' : 'text/csv');
   }
 
+  function exportSetlistToOnSong(setlist: SavedSetlist) {
+    const setlistSongs = setlist.songIds.map((songId) => songMap.get(songId)).filter((song): song is Song => Boolean(song));
+    if (setlistSongs.length === 0) {
+      setToast({ message: 'Setlist has no available songs to export', type: 'error' });
+      return;
+    }
+    const content = createOnSongTextSetlistBundle(setlist, setlistSongs);
+    downloadText(content, createOnSongTextSetlistFileName(setlist.name), 'text/plain');
+    setToast({ message: 'OnSong setlist export ready', type: 'success' });
+  }
+
   async function importSongs(file: File) {
     const text = await file.text();
     const imported = file.name.toLowerCase().endsWith('.csv') ? parseCsvSongs(text) : parseJsonSongs(text);
@@ -2735,6 +2758,14 @@ export default function App() {
           summary.songsFound += archive.songsFound;
           archive.warnings.forEach((warning) => summary.parseWarnings.push(`${candidate.fileName}: ${warning}`));
 
+          if (archive.setlists.length > 0) {
+            setPendingOnSongSetlistReview(createOnSongSetlistReview(archive, archive.setlists[0], songs));
+            summary.skippedCount += archive.songsFound;
+            summary.parseWarnings.push(`${candidate.fileName}: OnSong setlist review opened. Confirm choices to import the setlist.`);
+            if (archive.setlists.length > 1) summary.parseWarnings.push(`${candidate.fileName}: ${archive.setlists.length - 1} additional setlist(s) detected; import the archive again after finishing this setlist.`);
+            continue;
+          }
+
           for (const parsed of archive.songs) {
             const duplicateKeys = songDuplicateKeys(parsed.song);
             const existing = duplicateKeys.map((key) => existingByFingerprint.get(key)).find(Boolean);
@@ -2828,6 +2859,71 @@ export default function App() {
     }
 
     return summary;
+  }
+
+  function updatePendingOnSongSetlistDecision(sourceId: string, decision: OnSongSetlistDecision) {
+    setPendingOnSongSetlistReview((review) => review
+      ? {
+          ...review,
+          rows: review.rows.map((row) => (row.sourceId === sourceId ? { ...row, decision } : row))
+        }
+      : review);
+  }
+
+  async function applyPendingOnSongSetlistImport(review: OnSongSetlistReview, setlistNameMode: 'copy' | 'replace') {
+    const now = new Date().toISOString();
+    const songsToPut: Song[] = [];
+    const resolvedSongIds: string[] = [];
+
+    for (const row of review.rows) {
+      if (!row.imported || row.matchKind === 'invalid' || row.decision === 'skip') continue;
+
+      if (row.decision === 'use-existing' && row.existing) {
+        resolvedSongIds.push(row.existing.id);
+        continue;
+      }
+
+      if (row.decision === 'replace-existing' && row.existing) {
+        if (hasHarmonyMarkup(row.existing.chart) && !hasHarmonyMarkup(row.imported.chart)) {
+          const proceed = window.confirm(`"${row.existing.title}" contains OpenStage harmony markings that are not present in the OnSong version.\n\nReplace chart and remove harmony markings?`);
+          if (!proceed) {
+            resolvedSongIds.push(row.existing.id);
+            continue;
+          }
+        }
+        const replacement = replaceSongWithOnSongImport(row.existing, row.imported, now);
+        songsToPut.push(replacement);
+        resolvedSongIds.push(replacement.id);
+        continue;
+      }
+
+      const imported = row.decision === 'import-duplicate'
+        ? createDuplicateOnSongImportedSong(row.imported, now)
+        : createOnSongImportedSongCopy(row.imported, now);
+      songsToPut.push(imported);
+      resolvedSongIds.push(imported.id);
+    }
+
+    if (resolvedSongIds.length === 0) {
+      setToast({ message: 'No OnSong setlist songs selected', type: 'error' });
+      return;
+    }
+
+    const matchingSetlist = savedSetlists.find((saved) => saved.name.trim().toLowerCase() === review.setlist.name.trim().toLowerCase());
+    const setlistToStore = setlistNameMode === 'replace' && matchingSetlist
+      ? { ...matchingSetlist, songIds: resolvedSongIds, updatedAt: now, notes: 'Imported from OnSong setlist.' }
+      : createSetlistFromOnSongReview(review.setlist.name, resolvedSongIds, savedSetlists.map((saved) => saved.name), now);
+
+    await db.transaction('rw', db.songs, db.setlists, async () => {
+      if (songsToPut.length > 0) await db.songs.bulkPut(songsToPut);
+      await db.setlists.put(setlistToStore);
+    });
+
+    setPendingOnSongSetlistReview(null);
+    await loadData();
+    openSavedSetlist(setlistToStore);
+    setActiveMode('setlist');
+    setToast({ message: `Imported OnSong setlist "${setlistToStore.name}"`, type: 'success' });
   }
 
   async function syncPush() {
@@ -3175,6 +3271,7 @@ export default function App() {
           onOpen={openSavedSetlist}
           onRun={runSavedSetlist}
           onDuplicate={duplicateSavedSetlist}
+          onExportOnSong={exportSetlistToOnSong}
           onDelete={deleteSavedSetlist}
         />
       )}
@@ -3404,6 +3501,23 @@ export default function App() {
         <ReceiveSongModal
           onClose={() => setReceiveSongOpen(false)}
           onReceive={openSharedSongCode}
+        />
+      )}
+      {pendingOnSongSetlistReview && (
+        <OnSongSetlistImportReviewModal
+          review={pendingOnSongSetlistReview}
+          existingSetlistNames={savedSetlists.map((setlist) => setlist.name)}
+          onSetDecision={updatePendingOnSongSetlistDecision}
+          onBulkDecision={(matchKind, decision) => {
+            setPendingOnSongSetlistReview((review) => review
+              ? {
+                  ...review,
+                  rows: review.rows.map((row) => (row.matchKind === matchKind && row.matchKind !== 'invalid' ? { ...row, decision } : row))
+                }
+              : review);
+          }}
+          onCancel={() => setPendingOnSongSetlistReview(null)}
+          onImport={(mode) => applyPendingOnSongSetlistImport(pendingOnSongSetlistReview, mode)}
         />
       )}
       {toast && <Toast toast={toast} />}
@@ -5901,6 +6015,19 @@ function ImportSongsView({
                     }}
                   />
                 </label>
+                <label className="secondary-button cursor-pointer">
+                  <ListMusic size={18} />
+                  Import OnSong Setlist
+                  <input
+                    className="hidden"
+                    type="file"
+                    accept=".archive,application/octet-stream"
+                    onChange={(event) => {
+                      void addFiles(Array.from(event.currentTarget.files ?? []));
+                      event.currentTarget.value = '';
+                    }}
+                  />
+                </label>
               </div>
             </div>
           </div>
@@ -6035,6 +6162,169 @@ function ImportSummaryModal({ summary, onClose }: { summary: ImportSummary; onCl
           </button>
         </div>
       </section>
+    </div>
+  );
+}
+
+function OnSongSetlistImportReviewModal({
+  review,
+  existingSetlistNames,
+  onSetDecision,
+  onBulkDecision,
+  onCancel,
+  onImport
+}: {
+  review: OnSongSetlistReview;
+  existingSetlistNames: string[];
+  onSetDecision: (sourceId: string, decision: OnSongSetlistDecision) => void;
+  onBulkDecision: (matchKind: OnSongSetlistMatchKind, decision: OnSongSetlistDecision) => void;
+  onCancel: () => void;
+  onImport: (mode: 'copy' | 'replace') => Promise<void>;
+}) {
+  const [setlistNameMode, setSetlistNameMode] = useState<'copy' | 'replace'>('copy');
+  const [importing, setImporting] = useState(false);
+  const hasNameConflict = existingSetlistNames.some((name) => name.trim().toLowerCase() === review.setlist.name.trim().toLowerCase());
+  const counts = {
+    exact: review.rows.filter((row) => row.matchKind === 'exact').length,
+    possible: review.rows.filter((row) => row.matchKind === 'possible').length,
+    new: review.rows.filter((row) => row.matchKind === 'new').length,
+    invalid: review.rows.filter((row) => row.matchKind === 'invalid').length
+  };
+
+  async function importReviewedSetlist() {
+    setImporting(true);
+    try {
+      await onImport(hasNameConflict ? setlistNameMode : 'copy');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] overflow-y-auto bg-slate-950/70 p-4">
+      <div className="mx-auto my-6 max-w-5xl rounded-lg bg-white p-5 text-slate-900 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-sm font-semibold uppercase tracking-normal text-teal-700">OnSong Set Import</div>
+            <h2 className="text-2xl font-semibold">{review.setlist.name}</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              {review.archiveFileName} / {review.rows.length} song{review.rows.length === 1 ? '' : 's'}
+            </p>
+          </div>
+          <button className="icon-button-dark" type="button" onClick={onCancel} aria-label="Cancel OnSong setlist import">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-2 text-sm sm:grid-cols-4">
+          <ImportCategoryCount label="Existing exact matches" value={counts.exact} />
+          <ImportCategoryCount label="Possible duplicates" value={counts.possible} tone={counts.possible ? 'warning' : 'normal'} />
+          <ImportCategoryCount label="New songs" value={counts.new} />
+          <ImportCategoryCount label="Invalid songs" value={counts.invalid} tone={counts.invalid ? 'danger' : 'normal'} />
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2 text-sm">
+          <button className="secondary-button h-9" type="button" onClick={() => onBulkDecision('exact', 'use-existing')}>Use All Existing</button>
+          <button className="secondary-button h-9" type="button" onClick={() => onBulkDecision('exact', 'replace-existing')}>Replace All Exact</button>
+          <button className="secondary-button h-9" type="button" onClick={() => onBulkDecision('exact', 'import-duplicate')}>Import Exact as Duplicates</button>
+          <button className="secondary-button h-9" type="button" onClick={() => onBulkDecision('new', 'import-new')}>Import All New</button>
+          <button className="secondary-button h-9" type="button" onClick={() => onBulkDecision('new', 'skip')}>Skip All New</button>
+        </div>
+
+        {hasNameConflict && (
+          <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="font-semibold">A setlist named "{review.setlist.name}" already exists.</div>
+            <div className="mt-2 flex flex-wrap gap-3">
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={setlistNameMode === 'copy'} onChange={() => setSetlistNameMode('copy')} />
+                Import as New Copy
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={setlistNameMode === 'replace'} onChange={() => setSetlistNameMode('replace')} />
+                Replace Setlist
+              </label>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 grid max-h-[55vh] gap-3 overflow-y-auto pr-1">
+          {review.rows.map((row, index) => (
+            <div key={`${row.sourceId}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="font-semibold">
+                  {index + 1}. {row.imported?.title ?? 'Unreadable song'}
+                  <span className={`ml-2 rounded px-2 py-0.5 text-xs ${row.matchKind === 'possible' ? 'bg-amber-100 text-amber-800' : row.matchKind === 'invalid' ? 'bg-red-100 text-red-800' : row.matchKind === 'new' ? 'bg-teal-100 text-teal-800' : 'bg-slate-200 text-slate-700'}`}>
+                    {row.matchKind}
+                  </span>
+                </div>
+                <select
+                  className="input h-9 w-auto text-sm"
+                  value={row.decision}
+                  disabled={row.matchKind === 'invalid'}
+                  onChange={(event) => onSetDecision(row.sourceId, event.target.value as OnSongSetlistDecision)}
+                >
+                  {row.existing && <option value="use-existing">Use Existing</option>}
+                  {row.existing && <option value="replace-existing">Replace Existing</option>}
+                  <option value={row.matchKind === 'new' ? 'import-new' : 'import-duplicate'}>
+                    {row.matchKind === 'new' ? 'Import New' : 'Import as Duplicate'}
+                  </option>
+                  <option value="skip">Skip</option>
+                </select>
+              </div>
+              <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
+                <SongImportComparisonCard label="Imported" song={row.imported} />
+                <SongImportComparisonCard label="Existing" song={row.existing} emptyText={row.matchKind === 'new' ? 'No local match' : 'No exact local match'} />
+              </div>
+              {row.existing && row.imported && hasHarmonyMarkup(row.existing.chart) && !hasHarmonyMarkup(row.imported.chart) && row.decision === 'replace-existing' && (
+                <div className="mt-2 rounded bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-900">
+                  This replacement would remove OpenStage harmony markings from the local song.
+                </div>
+              )}
+              {row.warnings.length > 0 && (
+                <div className="mt-2 text-xs text-slate-600">{row.warnings.join(' ')}</div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button className="secondary-button" type="button" disabled={importing} onClick={onCancel}>Cancel</button>
+          <button className="primary-button" type="button" disabled={importing} onClick={() => void importReviewedSetlist()}>
+            {importing ? 'Importing...' : 'Import Setlist'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImportCategoryCount({ label, value, tone = 'normal' }: { label: string; value: number; tone?: 'normal' | 'warning' | 'danger' }) {
+  const toneClass = tone === 'danger' ? 'border-red-200 bg-red-50 text-red-800' : tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-slate-200 bg-slate-50 text-slate-700';
+  return (
+    <div className={`rounded-md border p-3 ${toneClass}`}>
+      <div className="text-2xl font-semibold">{value}</div>
+      <div>{label}</div>
+    </div>
+  );
+}
+
+function SongImportComparisonCard({ label, song, emptyText = 'None' }: { label: string; song?: Song; emptyText?: string }) {
+  if (!song) return (
+    <div className="rounded border border-dashed border-slate-300 bg-white p-3 text-slate-500">
+      <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">{label}</div>
+      {emptyText}
+    </div>
+  );
+  return (
+    <div className="rounded border border-slate-200 bg-white p-3">
+      <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">{label}</div>
+      <div className="mt-1 font-semibold">{song.title}</div>
+      <div className="text-slate-600">{song.artist || 'Unknown artist'}</div>
+      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+        <span>Key {song.key || '-'}</span>
+        <span>Capo {song.capo ?? 0}</span>
+        <span>BPM {song.bpm || '-'}</span>
+      </div>
     </div>
   );
 }
@@ -8675,6 +8965,7 @@ function SetlistView({
   onOpen,
   onRun,
   onDuplicate,
+  onExportOnSong,
   onDelete
 }: {
   entries: SetlistEntry[];
@@ -8701,6 +8992,7 @@ function SetlistView({
   onOpen: (setlist: SavedSetlist) => void;
   onRun: (setlist: SavedSetlist) => void;
   onDuplicate: (setlist: SavedSetlist) => void;
+  onExportOnSong: (setlist: SavedSetlist) => void;
   onDelete: (id: string) => void;
 }) {
   const [addQuery, setAddQuery] = useState('');
@@ -8829,6 +9121,7 @@ function SetlistView({
               }}
               onRun={() => onRun(saved)}
               onDuplicate={() => onDuplicate(saved)}
+              onExportOnSong={() => onExportOnSong(saved)}
               onDelete={() => onDelete(saved.id)}
             />
           ))}
@@ -8894,6 +9187,7 @@ function SavedSetlistRow({
   onOpen,
   onRun,
   onDuplicate,
+  onExportOnSong,
   onDelete
 }: {
   setlist: SavedSetlist;
@@ -8901,6 +9195,7 @@ function SavedSetlistRow({
   onOpen: () => void;
   onRun: () => void;
   onDuplicate: () => void;
+  onExportOnSong: () => void;
   onDelete: () => void;
 }) {
   const songMap = new Map(songs.map((song) => [song.id, song]));
@@ -8926,6 +9221,9 @@ function SavedSetlistRow({
           <Play size={17} /> Run in Stage
         </button>
         <button className="secondary-button h-10" onClick={onDuplicate}>Duplicate</button>
+        <button className="secondary-button h-10" onClick={onExportOnSong}>
+          <Download size={17} /> Export Setlist to OnSong
+        </button>
         <button className="secondary-button h-10 text-red-700" onClick={onDelete}>
           <Trash2 size={17} /> Delete
         </button>

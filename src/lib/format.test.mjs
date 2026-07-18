@@ -63,6 +63,9 @@ import {
   songTitleFontSizeUpdate
 } from './displaySettings-test-target.mjs';
 import { isOnSongArchiveFileName, parseOnSongKeyedArchive } from './onsongArchive-test-target.mjs';
+import { sanitizeChartForOnSong } from './onsongSanitize-test-target.mjs';
+import { createOnSongTextSetlistBundle } from './onsongSetlists-test-target.mjs';
+import { createOnSongSetlistReview, createSafeSetlistName, findOnSongImportMatch, replaceSongWithOnSongImport } from './onsongSetlistImport-test-target.mjs';
 import { addSongToSetlist, createNamedSetlist, getStageSongAt, removeSongFromSetlist, sortSetlistSongIds } from './setlists-test-target.mjs';
 import { clearRenderCache, getRenderCacheSize, renderSong } from '../services/rendering/songRenderer-test-target.mjs';
 
@@ -713,7 +716,7 @@ const onsongFixture = {
   $top: { root: { $uid: 1 } },
   $objects: [
     '$null',
-    { songs: { $uid: 2 } },
+    { songs: { $uid: 2 }, sets: { $uid: 7 } },
     { 'NS.objects': [{ $uid: 3 }, { $uid: 5 }] },
     { song: { $uid: 4 } },
     {
@@ -742,7 +745,9 @@ const onsongFixture = {
       content: '[G]Amazing [C]grace',
       filepath: 'Charts/Inline Test.txt',
       keywords: 'worship;inline'
-    }
+    },
+    { 'NS.objects': [{ $uid: 8 }] },
+    { name: 'Friday Night Set', songs: { $uid: 2 } }
   ]
 };
 const onsongImport = parseOnSongKeyedArchive(onsongFixture, 'All Songs(1).archive');
@@ -764,6 +769,13 @@ assert.equal(onsongImport.songs[0].song.notes, 'Source file: Charts/6th Avenue H
 assert.equal(onsongImport.songs[1].song.durationSeconds, 225);
 assert.equal(onsongImport.songs[1].song.displayPreference, 'inline');
 assert.deepEqual(onsongImport.songs[1].song.tags, ['worship', 'inline']);
+assert.equal(onsongImport.setlists.length, 1);
+assert.equal(onsongImport.setlists[0].name, 'Friday Night Set');
+assert.deepEqual(onsongImport.setlists[0].songSourceIds, ['onsong-song-1', 'onsong-song-2']);
+
+assert.equal(sanitizeChartForOnSong('[HARMONY]ooh[/HARMONY] [G]line'), 'ooh [G]line');
+assert.equal(sanitizeChartForOnSong('Lead [HARMONY]backup[/HARMONY] rest [HARMONY](ooh...)[/HARMONY]'), 'Lead backup rest (ooh...)');
+assert.equal(sanitizeChartForOnSong('No harmony here'), 'No harmony here');
 
 const capoSong = {
   id: 'capo-test-song',
@@ -1317,6 +1329,48 @@ assert.deepEqual(sortSetlistSongIds(['song-a', 'song-b', 'song-c'], setlistSongs
 assert.equal(getStageSongAt({ ...namedSetlist, songIds: ['song-a', 'song-b', 'song-c'] }, setlistSongs, 'song-b', 1).id, 'song-c');
 assert.equal(getStageSongAt({ ...namedSetlist, songIds: ['song-a', 'song-b', 'song-c'] }, setlistSongs, 'song-b', -1).id, 'song-a');
 assert.equal(getStageSongAt(namedSetlist, setlistSongs, 'song-b', 1), undefined);
+
+const onsongSetlistReview = createOnSongSetlistReview(onsongImport, onsongImport.setlists[0], [{ ...onsongImport.songs[0].song, id: 'existing-wallflowers' }]);
+assert.equal(onsongSetlistReview.setlist.name, 'Friday Night Set');
+assert.deepEqual(onsongSetlistReview.rows.map((row) => row.sourceId), ['onsong-song-1', 'onsong-song-2']);
+assert.equal(onsongSetlistReview.rows[0].matchKind, 'exact');
+assert.equal(onsongSetlistReview.rows[0].decision, 'use-existing');
+assert.equal(onsongSetlistReview.rows[1].matchKind, 'new');
+assert.equal(onsongSetlistReview.rows[1].decision, 'import-new');
+
+const titleOnlyExisting = { ...onsongImport.songs[1].song, id: 'existing-inline', artist: '' };
+const titleOnlyMatch = findOnSongImportMatch({ ...onsongImport.songs[1], song: { ...onsongImport.songs[1].song, artist: '' } }, [titleOnlyExisting]);
+assert.equal(titleOnlyMatch?.kind, 'exact');
+assert.equal(titleOnlyMatch?.reason, 'songUuid');
+const titleOnlyNoUuidMatch = findOnSongImportMatch({ ...onsongImport.songs[1], song: { ...onsongImport.songs[1].song, songUuid: '', artist: '' } }, [{ ...titleOnlyExisting, songUuid: '' }]);
+assert.equal(titleOnlyNoUuidMatch?.reason, 'title-only');
+
+const onSongExportBundle = createOnSongTextSetlistBundle(
+  { ...namedSetlist, name: 'Friday Night Gig', songIds: ['export-a', 'export-b'] },
+  [
+    { ...capoSong, id: 'export-a', title: 'Harmony Export', artist: 'OpenStage', chart: '[G][HARMONY]Sing this[/HARMONY] line', rawChordPro: '[G][HARMONY]Sing this[/HARMONY] line', tags: ['test'], durationSeconds: 120 },
+    { ...onsongImport.songs[1].song, id: 'export-b' }
+  ]
+);
+assert.match(onSongExportBundle, /\{comment: OpenStage setlist: Friday Night Gig\}/);
+assert.match(onSongExportBundle, /\{comment: OpenStage set order: 1\}/);
+assert.match(onSongExportBundle, /\{new_song\}/);
+assert.equal(onSongExportBundle.includes('[HARMONY]'), false);
+assert.match(onSongExportBundle, /Sing this line/);
+assert.equal(onSongExportBundle.indexOf('Harmony Export') < onSongExportBundle.indexOf('Inline Test'), true);
+
+const replacedOnSong = replaceSongWithOnSongImport(
+  { ...capoSong, id: 'existing-song-id', songUuid: 'existing-song-uuid', version: 4, favorite: true, chart: '[HARMONY]keep[/HARMONY]' },
+  { ...onsongImport.songs[1].song, chart: 'clean imported chart', referenceAudioUrl: '' },
+  '2026-05-27T01:00:00.000Z'
+);
+assert.equal(replacedOnSong.id, 'existing-song-id');
+assert.equal(replacedOnSong.songUuid, 'existing-song-uuid');
+assert.equal(replacedOnSong.favorite, true);
+assert.equal(replacedOnSong.version, 5);
+assert.equal(replacedOnSong.chart, 'clean imported chart');
+assert.equal(createSafeSetlistName('Friday Night Set', ['Friday Night Set']), 'Friday Night Set Copy');
+assert.equal(createSafeSetlistName('Friday Night Set', ['Friday Night Set', 'Friday Night Set Copy']), 'Friday Night Set Copy 2');
 
 const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
 Object.defineProperty(globalThis, 'crypto', {

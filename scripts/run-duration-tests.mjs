@@ -149,6 +149,30 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/lib/onsongSanitize.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/onsongSanitize-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/lib/onsongSetlists.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/onsongSetlists-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/lib/onsongSetlistImport.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/onsongSetlistImport-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/lib/setlists.ts')],
   bundle: true,
   platform: 'node',

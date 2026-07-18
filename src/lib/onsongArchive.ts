@@ -4,8 +4,15 @@ import { parseChordPro } from './chordpro';
 import { createId, createSongUuid } from './ids';
 
 export type OnSongImportResult = {
+  sourceId: string;
   fileName: string;
   song: Song;
+  warnings: string[];
+};
+
+export type OnSongSetlistImportResult = {
+  name: string;
+  songSourceIds: string[];
   warnings: string[];
 };
 
@@ -13,6 +20,7 @@ export type OnSongArchiveImportResult = {
   fileName: string;
   songsFound: number;
   songs: OnSongImportResult[];
+  setlists: OnSongSetlistImportResult[];
   warnings: string[];
 };
 
@@ -42,12 +50,20 @@ export function parseOnSongKeyedArchive(plist: BinaryPlistValue, fileName = 'OnS
   const root = resolver.resolve(top.root);
   const songObjects = findOnSongSongObjects(root);
   const uniqueSongObjects = uniqueObjects(songObjects);
-  const songs = uniqueSongObjects.map((songObject, index) => songFromOnSongObject(songObject, fileName, index));
+  const sourceIds = new Map<ArchiveObject, string>();
+  uniqueSongObjects.forEach((songObject, index) => {
+    sourceIds.set(songObject, `onsong-song-${index + 1}`);
+  });
+  const songs = uniqueSongObjects.map((songObject, index) => songFromOnSongObject(songObject, fileName, index, sourceIds.get(songObject) ?? `onsong-song-${index + 1}`));
+  const setlists = findOnSongSetlistObjects(root, new Set(uniqueSongObjects)).map((setlistObject, index) =>
+    setlistFromOnSongObject(setlistObject, sourceIds, index)
+  );
 
   return {
     fileName,
     songsFound: songs.length,
     songs,
+    setlists,
     warnings: songs.length === 0 ? ['No OnSong songs were found in the archive.'] : []
   };
 }
@@ -123,7 +139,7 @@ function isOnSongSong(value: unknown): value is ArchiveObject {
   return typeof value.title === 'string' && (typeof value.content === 'string' || typeof value.filepath === 'string');
 }
 
-function songFromOnSongObject(object: ArchiveObject, archiveFileName: string, index: number): OnSongImportResult {
+function songFromOnSongObject(object: ArchiveObject, archiveFileName: string, index: number, sourceId: string): OnSongImportResult {
   const title = stringValue(object.title) || `OnSong Song ${index + 1}`;
   const artist = stringValue(object.byline);
   const key = stringValue(object.key);
@@ -143,6 +159,7 @@ function songFromOnSongObject(object: ArchiveObject, archiveFileName: string, in
   if (!artist) warnings.push('Artist/byline is empty.');
 
   return {
+    sourceId,
     fileName: archiveFileName,
     song: {
       id: createId('onsong'),
@@ -169,6 +186,90 @@ function songFromOnSongObject(object: ArchiveObject, archiveFileName: string, in
     },
     warnings
   };
+}
+
+function findOnSongSetlistObjects(root: unknown, knownSongs: Set<ArchiveObject>) {
+  const setlists: ArchiveObject[] = [];
+  const visited = new Set<unknown>();
+
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== 'object' || visited.has(value)) return;
+    visited.add(value);
+
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+
+    const object = value as ArchiveObject;
+    if (!isOnSongSong(object)) {
+      const name = setlistNameValue(object);
+      const songs = collectDirectSetlistSongs(object, knownSongs);
+      if (name && songs.length > 0) setlists.push(object);
+    }
+
+    Object.values(object).forEach(visit);
+  };
+
+  visit(root);
+  return uniqueObjects(setlists);
+}
+
+function setlistFromOnSongObject(object: ArchiveObject, sourceIds: Map<ArchiveObject, string>, index: number): OnSongSetlistImportResult {
+  const knownSongs = new Set(sourceIds.keys());
+  const name = setlistNameValue(object) || `OnSong Setlist ${index + 1}`;
+  const songObjects = collectDirectSetlistSongs(object, knownSongs);
+  const songSourceIds = songObjects.map((song) => sourceIds.get(song)).filter((id): id is string => Boolean(id));
+  const warnings = songSourceIds.length === songObjects.length ? [] : [`${songObjects.length - songSourceIds.length} setlist song reference(s) could not be matched.`];
+
+  return {
+    name,
+    songSourceIds,
+    warnings
+  };
+}
+
+function collectDirectSetlistSongs(object: ArchiveObject, knownSongs: Set<ArchiveObject>) {
+  const songs: ArchiveObject[] = [];
+  Object.entries(object).forEach(([key, value]) => {
+    if (!/(song|songs|item|items|entry|entries|setlist|set)/i.test(key)) return;
+    collectKnownSongReferences(value, knownSongs, songs, new Set());
+  });
+  return uniqueObjects(songs);
+}
+
+function collectKnownSongReferences(value: unknown, knownSongs: Set<ArchiveObject>, songs: ArchiveObject[], visited: Set<unknown>) {
+  if (!value || typeof value !== 'object' || visited.has(value)) return;
+  visited.add(value);
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectKnownSongReferences(item, knownSongs, songs, visited));
+    return;
+  }
+
+  const object = value as ArchiveObject;
+  const nestedSong = object.song;
+  if (isOnSongSong(nestedSong) && knownSongs.has(nestedSong)) {
+    songs.push(nestedSong);
+    return;
+  }
+  if (isOnSongSong(object) && knownSongs.has(object)) {
+    songs.push(object);
+    return;
+  }
+
+  Object.values(object).forEach((child) => collectKnownSongReferences(child, knownSongs, songs, visited));
+}
+
+function setlistNameValue(object: ArchiveObject) {
+  return (
+    stringValue(object.name) ||
+    stringValue(object.title) ||
+    stringValue(object.setName) ||
+    stringValue(object.setTitle) ||
+    stringValue(object.displayName) ||
+    stringValue(object.date)
+  );
 }
 
 function detectOnSongDisplayPreference(content: string): Song['displayPreference'] {
