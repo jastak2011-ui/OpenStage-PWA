@@ -64,6 +64,7 @@ import {
 } from './displaySettings-test-target.mjs';
 import { isOnSongArchiveFileName, parseOnSongArchive, parseOnSongKeyedArchive } from './onsongArchive-test-target.mjs';
 import { createOnSongSetlistArchive, createOnSongSetlistArchiveFileName } from './onsongArchiveWriter-test-target.mjs';
+import { validateOnSongArchive } from './onsongArchiveValidator-test-target.mjs';
 import { sanitizeChartForOnSong } from './onsongSanitize-test-target.mjs';
 import { createOnSongSetlistReview, createSafeSetlistName, findOnSongImportMatch, replaceSongWithOnSongImport } from './onsongSetlistImport-test-target.mjs';
 import { addSongToSetlist, createNamedSetlist, getStageSongAt, removeSongFromSetlist, sortSetlistSongIds } from './setlists-test-target.mjs';
@@ -1355,6 +1356,14 @@ const onSongSetlistArchive = createOnSongSetlistArchive(
 );
 assert.equal(createOnSongSetlistArchiveFileName('Friday Night Gig'), 'Friday Night Gig.archive');
 assert.equal(String.fromCharCode(...onSongSetlistArchive.slice(0, 8)), 'bplist00');
+const onSongSetlistValidation = validateOnSongArchive(
+  onSongSetlistArchive.buffer.slice(onSongSetlistArchive.byteOffset, onSongSetlistArchive.byteOffset + onSongSetlistArchive.byteLength)
+);
+assert.equal(onSongSetlistValidation.ok, true);
+assert.equal(onSongSetlistValidation.summary.songCount, 3);
+assert.equal(onSongSetlistValidation.summary.setItemCount, 3);
+assert.equal(onSongSetlistValidation.summary.classNames.includes('NSDate'), true);
+assert.equal(onSongSetlistValidation.summary.classNames.includes('NSMutableString'), true);
 const onSongSetlistRoundTrip = parseOnSongArchive(
   onSongSetlistArchive.buffer.slice(onSongSetlistArchive.byteOffset, onSongSetlistArchive.byteOffset + onSongSetlistArchive.byteLength),
   'Friday Night Gig.archive'
@@ -1371,6 +1380,10 @@ assert.equal(onSongSetlistRoundTrip.songs[0].song.chart.includes('[HARMONY]'), f
 assert.match(onSongSetlistRoundTrip.songs[0].song.chart, /Sing this line/);
 assert.equal(onSongSetlistRoundTrip.songs[0].song.artist, 'OpenStage');
 assert.equal(onSongSetlistRoundTrip.songs[0].song.durationSeconds, 120);
+const invalidOnSongArchiveValidation = validateOnSongArchive(
+  new TextEncoder().encode('not-a-binary-plist').buffer
+);
+assert.equal(invalidOnSongArchiveValidation.ok, false);
 
 const replacedOnSong = replaceSongWithOnSongImport(
   { ...capoSong, id: 'existing-song-id', songUuid: 'existing-song-uuid', version: 4, favorite: true, chart: '[HARMONY]keep[/HARMONY]' },

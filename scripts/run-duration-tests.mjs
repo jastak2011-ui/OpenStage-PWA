@@ -165,6 +165,14 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/lib/onsongArchiveValidator.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/onsongArchiveValidator-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/lib/onsongSetlistImport.ts')],
   bundle: true,
   platform: 'node',

@@ -34,6 +34,8 @@ export function createOnSongSetlistArchiveFileName(setlistName: string) {
 class OnSongArchiveBuilder {
   private readonly objects: BinaryPlistWritableValue[] = ['$null'];
   private readonly nullUid = uid(0);
+  private readonly dateClassUid = this.addClass('NSDate', ['NSDate', 'NSObject']);
+  private readonly mutableStringClassUid = this.addClass('NSMutableString', ['NSMutableString', 'NSString', 'NSObject']);
   private readonly songClassUid = this.addClass('Song', ['Song', 'OSItem', 'NSObject']);
   private readonly songSetItemClassUid = this.addClass('SongSetItem', ['SongSetItem', 'NSObject']);
   private readonly mutableArrayClassUid = this.addClass('NSMutableArray', ['NSMutableArray', 'NSArray', 'NSObject']);
@@ -50,7 +52,7 @@ class OnSongArchiveBuilder {
         ID: this.addString(JSON.stringify({ setID: setId, songID: songId, orderIndex: index })),
         songID: this.addString(songId),
         bookID: this.nullUid,
-        orderIndex: index,
+        orderIndex: this.addNumber(index),
         setID: this.addString(setId),
         song: songUid,
         $class: this.songSetItemClassUid
@@ -69,7 +71,7 @@ class OnSongArchiveBuilder {
     });
     const rootUid = this.addObject({
       modified: this.nullUid,
-      playbackContinuity: 0,
+      playbackContinuity: this.addNumber(0),
       useSeparateStyles: this.nullUid,
       title: this.addString(setlist.name.trim() || 'OpenStage Setlist'),
       unarchived: this.nullUid,
@@ -78,7 +80,7 @@ class OnSongArchiveBuilder {
       archived: this.nullUid,
       providerName: this.addString('OpenStage'),
       sceneID: this.nullUid,
-      orderDirection: 0,
+      orderDirection: this.addNumber(0),
       datetime: this.addArchiveDate(now),
       quantity: this.nullUid,
       orderMethod: this.addString('orderIndex'),
@@ -88,7 +90,7 @@ class OnSongArchiveBuilder {
       ID: this.addString(setId),
       hasTime: this.nullUid,
       created: this.addArchiveDate(dateOrNow(setlist.createdAt, now)),
-      orderIndex: 0,
+      orderIndex: this.addNumber(0),
       $class: this.songSetClassUid
     });
 
@@ -113,8 +115,6 @@ class OnSongArchiveBuilder {
 
     return this.addObject({
       ID: this.addString(songId),
-      songUuid: this.addString(song.songUuid || songId),
-      version: finiteNumber(song.version, 1),
       user: this.nullUid,
       key: key ? this.addString(key) : this.nullUid,
       title: this.addString(title),
@@ -122,14 +122,14 @@ class OnSongArchiveBuilder {
       byline: artist ? this.addString(artist) : this.nullUid,
       bylineAlpha: artist ? this.addString(artist.slice(0, 1).toUpperCase()) : this.nullUid,
       content: this.addString(cleanChart),
-      lyrics: this.addObject({ 'NS.string': this.addString(stripChordMarkers(cleanChart)) }),
+      lyrics: this.addMutableString(stripChordMarkers(cleanChart)),
       filepath: this.addString(`${sanitizeFileName(title)}.txt`),
-      capo,
-      tempo: tempo || this.nullUid,
-      duration: duration || this.nullUid,
+      capo: this.addNumber(capo),
+      tempo: tempo ? this.addNumber(tempo) : this.nullUid,
+      duration: duration ? this.addNumber(duration) : this.nullUid,
       timeSignature: timeSignature ? this.addString(timeSignature) : this.nullUid,
       keywords: Array.isArray(song.tags) && song.tags.length ? this.addArray(song.tags.map((tag) => this.addString(tag))) : this.nullUid,
-      notes: song.notes?.trim() ? this.addString(song.notes.trim()) : this.nullUid,
+      notes: this.nullUid,
       transposedKey: performanceKey ? this.addString(performanceKey) : this.nullUid,
       showTitle: true,
       showChords: true,
@@ -140,29 +140,29 @@ class OnSongArchiveBuilder {
       chordPosition: 0,
       chordStyle: 0,
       fontName: this.addString('Helvetica'),
-      fontSize: 16,
+      fontSize: this.addNumber(16),
       headerFontName: this.addString('Helvetica-Bold'),
-      headerFontSize: 24,
+      headerFontSize: this.addNumber(24),
       chordFontName: this.addString('Helvetica-Bold'),
-      chordFontSize: 16,
+      chordFontSize: this.addNumber(16),
       metadataFontName: this.addString('Helvetica'),
-      metadataFontSize: 16,
+      metadataFontSize: this.addNumber(16),
       monospacedFontName: this.addString('Courier'),
-      monospacedFontSize: 16,
-      lineSpacing: 1,
-      beatsPerLine: 4,
-      zoomScale: 1,
+      monospacedFontSize: this.addNumber(16),
+      lineSpacing: this.addNumber(1),
+      beatsPerLine: this.addNumber(4),
+      zoomScale: this.addNumber(1),
       zoomPointX: 0,
       zoomPointY: 0,
       diagramPosition: 0,
-      showCapoedChords: 0,
+      showCapoedChords: this.addNumber(0),
       adjustForCapo: false,
       performTransposition: true,
       language: this.addString('en'),
-      imported: 1,
-      deleted: 0,
-      usefile: 0,
-      loaned: 0,
+      imported: this.addNumber(1),
+      deleted: this.addNumber(0),
+      usefile: this.addNumber(0),
+      loaned: this.addNumber(0),
       favorite: this.nullUid,
       created: this.addArchiveDate(now),
       modified: this.addArchiveDate(now),
@@ -178,7 +178,17 @@ class OnSongArchiveBuilder {
   }
 
   private addArchiveDate(date: Date) {
-    return this.addObject({ 'NS.time': (date.getTime() - Date.UTC(2001, 0, 1)) / 1000 });
+    return this.addObject({
+      'NS.time': (date.getTime() - Date.UTC(2001, 0, 1)) / 1000,
+      $class: this.dateClassUid
+    });
+  }
+
+  private addMutableString(value: string) {
+    return this.addObject({
+      $class: this.mutableStringClassUid,
+      'NS.string': value
+    });
   }
 
   private addArray(items: ReturnType<typeof uid>[]) {
@@ -189,6 +199,10 @@ class OnSongArchiveBuilder {
   }
 
   private addString(value: string) {
+    return this.addObject(value);
+  }
+
+  private addNumber(value: number) {
     return this.addObject(value);
   }
 

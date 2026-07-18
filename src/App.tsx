@@ -89,6 +89,8 @@ import { createId, createSongUuid } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
 import { createOnSongSetlistArchive, createOnSongSetlistArchiveFileName } from './lib/onsongArchiveWriter';
+import { validateOnSongArchive } from './lib/onsongArchiveValidator';
+import { parseBinaryPlist } from './lib/binaryPlist';
 import {
   createDuplicateOnSongImportedSong,
   createOnSongImportedSongCopy,
@@ -2488,7 +2490,19 @@ export default function App() {
       return;
     }
     const archive = createOnSongSetlistArchive(setlist, setlistSongs);
-    downloadBytes(archive, createOnSongSetlistArchiveFileName(setlist.name), 'application/octet-stream');
+    const validation = validateOnSongArchive(archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength));
+    if (!validation.ok) {
+      console.error('ONSONG_ARCHIVE_VALIDATION_FAILED', validation);
+      setToast({ message: 'OnSong archive validation failed', type: 'error' });
+      return;
+    }
+    const archiveFileName = createOnSongSetlistArchiveFileName(setlist.name);
+    downloadBytes(archive, archiveFileName, 'application/octet-stream');
+    if (localStorage.getItem('openstage.debugOnSongExport') === 'true') {
+      const archiveBuffer = archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength);
+      downloadText(JSON.stringify(parseBinaryPlist(archiveBuffer), null, 2), archiveFileName.replace(/\.archive$/i, '.decoded.json'), 'application/json');
+      downloadText(JSON.stringify(validation, null, 2), archiveFileName.replace(/\.archive$/i, '.validation.json'), 'application/json');
+    }
     setToast({ message: 'OnSong setlist export ready', type: 'success' });
   }
 
