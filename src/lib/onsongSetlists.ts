@@ -18,12 +18,12 @@ export type OnSongSetlistExportSong = Pick<
   | 'rawChordPro'
 >;
 
-export function createOnSongTextSetlistBundle(setlist: SavedSetlist, songs: OnSongSetlistExportSong[]) {
+export function createChordProSongBundle(setlist: SavedSetlist, songs: OnSongSetlistExportSong[]) {
   const setlistName = setlist.name.trim() || 'OpenStage Setlist';
   return songs.map((song, index) => songToOnSongChordPro(song, setlistName, index + 1)).join('\n\n{new_song}\n\n');
 }
 
-export function createOnSongTextSetlistFileName(setlistName: string) {
+export function createChordProSongBundleFileName(setlistName: string) {
   return `${sanitizeFileName(setlistName || 'OpenStage Setlist')}.chopro`;
 }
 

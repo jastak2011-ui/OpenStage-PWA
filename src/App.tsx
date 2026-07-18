@@ -88,7 +88,7 @@ import { getEffectivePrompterCapo, getPrompterCapoTransposeOffset, normalizeProm
 import { createId, createSongUuid } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
-import { createOnSongTextSetlistBundle, createOnSongTextSetlistFileName } from './lib/onsongSetlists';
+import { createOnSongSetlistArchive, createOnSongSetlistArchiveFileName } from './lib/onsongArchiveWriter';
 import {
   createDuplicateOnSongImportedSong,
   createOnSongImportedSongCopy,
@@ -2487,8 +2487,8 @@ export default function App() {
       setToast({ message: 'Setlist has no available songs to export', type: 'error' });
       return;
     }
-    const content = createOnSongTextSetlistBundle(setlist, setlistSongs);
-    downloadText(content, createOnSongTextSetlistFileName(setlist.name), 'text/plain');
+    const archive = createOnSongSetlistArchive(setlist, setlistSongs);
+    downloadBytes(archive, createOnSongSetlistArchiveFileName(setlist.name), 'application/octet-stream');
     setToast({ message: 'OnSong setlist export ready', type: 'success' });
   }
 
@@ -14263,6 +14263,15 @@ function matchesSmartFilter(song: Song, filter: string) {
 
 function downloadText(content: string, fileName: string, type: string) {
   const blob = new Blob([content], { type });
+  downloadBlob(blob, fileName);
+}
+
+function downloadBytes(content: Uint8Array, fileName: string, type: string) {
+  const blob = new Blob([content], { type });
+  downloadBlob(blob, fileName);
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = fileName;

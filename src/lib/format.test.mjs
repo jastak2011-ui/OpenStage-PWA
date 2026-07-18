@@ -62,9 +62,9 @@ import {
   songTitleBoldUpdate,
   songTitleFontSizeUpdate
 } from './displaySettings-test-target.mjs';
-import { isOnSongArchiveFileName, parseOnSongKeyedArchive } from './onsongArchive-test-target.mjs';
+import { isOnSongArchiveFileName, parseOnSongArchive, parseOnSongKeyedArchive } from './onsongArchive-test-target.mjs';
+import { createOnSongSetlistArchive, createOnSongSetlistArchiveFileName } from './onsongArchiveWriter-test-target.mjs';
 import { sanitizeChartForOnSong } from './onsongSanitize-test-target.mjs';
-import { createOnSongTextSetlistBundle } from './onsongSetlists-test-target.mjs';
 import { createOnSongSetlistReview, createSafeSetlistName, findOnSongImportMatch, replaceSongWithOnSongImport } from './onsongSetlistImport-test-target.mjs';
 import { addSongToSetlist, createNamedSetlist, getStageSongAt, removeSongFromSetlist, sortSetlistSongIds } from './setlists-test-target.mjs';
 import { clearRenderCache, getRenderCacheSize, renderSong } from '../services/rendering/songRenderer-test-target.mjs';
@@ -1345,19 +1345,32 @@ assert.equal(titleOnlyMatch?.reason, 'songUuid');
 const titleOnlyNoUuidMatch = findOnSongImportMatch({ ...onsongImport.songs[1], song: { ...onsongImport.songs[1].song, songUuid: '', artist: '' } }, [{ ...titleOnlyExisting, songUuid: '' }]);
 assert.equal(titleOnlyNoUuidMatch?.reason, 'title-only');
 
-const onSongExportBundle = createOnSongTextSetlistBundle(
-  { ...namedSetlist, name: 'Friday Night Gig', songIds: ['export-a', 'export-b'] },
+const onSongSetlistArchive = createOnSongSetlistArchive(
+  { ...namedSetlist, name: 'Friday Night Gig', songIds: ['export-a', 'export-b', 'export-a'] },
   [
-    { ...capoSong, id: 'export-a', title: 'Harmony Export', artist: 'OpenStage', chart: '[G][HARMONY]Sing this[/HARMONY] line', rawChordPro: '[G][HARMONY]Sing this[/HARMONY] line', tags: ['test'], durationSeconds: 120 },
-    { ...onsongImport.songs[1].song, id: 'export-b' }
+    { ...capoSong, id: 'export-a', songUuid: 'export-a-uuid', title: 'Harmony Export', artist: 'OpenStage', chart: '[G][HARMONY]Sing this[/HARMONY] line', rawChordPro: '[G][HARMONY]Sing this[/HARMONY] line', tags: ['test'], durationSeconds: 120 },
+    { ...onsongImport.songs[1].song, id: 'export-b', songUuid: 'export-b-uuid' },
+    { ...capoSong, id: 'export-a', songUuid: 'export-a-uuid', title: 'Harmony Export', artist: 'OpenStage', chart: '[G][HARMONY]Sing this[/HARMONY] line', rawChordPro: '[G][HARMONY]Sing this[/HARMONY] line', tags: ['test'], durationSeconds: 120 }
   ]
 );
-assert.match(onSongExportBundle, /\{comment: OpenStage setlist: Friday Night Gig\}/);
-assert.match(onSongExportBundle, /\{comment: OpenStage set order: 1\}/);
-assert.match(onSongExportBundle, /\{new_song\}/);
-assert.equal(onSongExportBundle.includes('[HARMONY]'), false);
-assert.match(onSongExportBundle, /Sing this line/);
-assert.equal(onSongExportBundle.indexOf('Harmony Export') < onSongExportBundle.indexOf('Inline Test'), true);
+assert.equal(createOnSongSetlistArchiveFileName('Friday Night Gig'), 'Friday Night Gig.archive');
+assert.equal(String.fromCharCode(...onSongSetlistArchive.slice(0, 8)), 'bplist00');
+const onSongSetlistRoundTrip = parseOnSongArchive(
+  onSongSetlistArchive.buffer.slice(onSongSetlistArchive.byteOffset, onSongSetlistArchive.byteOffset + onSongSetlistArchive.byteLength),
+  'Friday Night Gig.archive'
+);
+assert.equal(onSongSetlistRoundTrip.setlists.length, 1);
+assert.equal(onSongSetlistRoundTrip.setlists[0].name, 'Friday Night Gig');
+assert.equal(onSongSetlistRoundTrip.songs.length, 3);
+assert.equal(onSongSetlistRoundTrip.setlists[0].songSourceIds.length, 3);
+assert.deepEqual(
+  onSongSetlistRoundTrip.setlists[0].songSourceIds.map((sourceId) => onSongSetlistRoundTrip.songs.find((song) => song.sourceId === sourceId)?.song.title),
+  ['Harmony Export', 'Inline Test', 'Harmony Export']
+);
+assert.equal(onSongSetlistRoundTrip.songs[0].song.chart.includes('[HARMONY]'), false);
+assert.match(onSongSetlistRoundTrip.songs[0].song.chart, /Sing this line/);
+assert.equal(onSongSetlistRoundTrip.songs[0].song.artist, 'OpenStage');
+assert.equal(onSongSetlistRoundTrip.songs[0].song.durationSeconds, 120);
 
 const replacedOnSong = replaceSongWithOnSongImport(
   { ...capoSong, id: 'existing-song-id', songUuid: 'existing-song-uuid', version: 4, favorite: true, chart: '[HARMONY]keep[/HARMONY]' },

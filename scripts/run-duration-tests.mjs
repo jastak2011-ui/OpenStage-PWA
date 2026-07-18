@@ -157,11 +157,11 @@ await build({
 });
 
 await build({
-  entryPoints: [resolve(root, 'src/lib/onsongSetlists.ts')],
+  entryPoints: [resolve(root, 'src/lib/onsongArchiveWriter.ts')],
   bundle: true,
   platform: 'node',
   format: 'esm',
-  outfile: resolve(root, 'src/lib/onsongSetlists-test-target.mjs')
+  outfile: resolve(root, 'src/lib/onsongArchiveWriter-test-target.mjs')
 });
 
 await build({
