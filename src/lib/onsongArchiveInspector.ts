@@ -57,6 +57,7 @@ export type OnSongExportedSongContentReport = {
   contentObjectType: string;
   lyricsEqualsContent: boolean;
   importSafe: boolean;
+  fields: Record<string, InspectedResolvedValue>;
 };
 
 export type OnSongSetRelationshipReport = {
@@ -562,7 +563,19 @@ function buildSongContentReports(objects: BinaryPlistValue[]): OnSongExportedSon
         lyricsObjectType: lyrics.className ?? lyrics.type,
         contentObjectType: content.className ?? content.type,
         lyricsEqualsContent: lyricsText === contentText,
-        importSafe: Boolean(contentText.trim()) && lyricsText === contentText && remainingHarmonyTokens.length === 0 && suspicious.length === 0
+        importSafe: Boolean(contentText.trim()) && remainingHarmonyTokens.length === 0 && suspicious.length === 0,
+        fields: Object.fromEntries([
+          'content',
+          'lyrics',
+          'title',
+          'byline',
+          'filepath',
+          'hash',
+          'alpha',
+          'alphaStripped',
+          'sortTitle',
+          'sortTitleStripped'
+        ].map((key) => [key, resolvedField(objects, songObject, key)]))
       };
     });
 }

@@ -782,10 +782,10 @@ assert.equal(sanitizeChartForOnSong('[HARMONY]First line[/HARMONY]\nNormal line'
 assert.equal(sanitizeChartForOnSong('Normal line\n[HARMONY]Final line[/HARMONY]'), 'Normal line\nFinal line');
 assert.equal(sanitizeChartForOnSong('[HARMONY]One[/HARMONY] and [HARMONY]two[/HARMONY]'), 'One and two');
 const sanitizedHarmonyExport = sanitizeOnSongExportText('[HARMONY]\u200booh[/HARMONY]\nLead\uE000 line\u0007');
-assert.equal(sanitizedHarmonyExport.strippedLyrics, 'ooh\nLead line');
+assert.equal(sanitizedHarmonyExport.strippedLyrics, '\u200booh\nLead\uE000 line\u0007');
 assert.deepEqual(sanitizedHarmonyExport.remainingHarmonyTokens, []);
 assert.deepEqual(sanitizedHarmonyExport.controlCharacters.map((item) => item.codePoint), ['U+200B', 'U+E000', 'U+0007']);
-assert.equal(sanitizedHarmonyExport.importSafe, true);
+assert.equal(sanitizedHarmonyExport.importSafe, false);
 
 const capoSong = {
   id: 'capo-test-song',
@@ -1386,11 +1386,13 @@ assert.equal(onSongSetlistInspection.roles.songSetItems.length, 3);
 assert.equal(onSongSetlistInspection.roles.songSetItemCollection.length, 1);
 assert.equal(onSongSetlistInspection.songContentReports.length, 3);
 assert.equal(onSongSetlistInspection.songContentReports.every((report) => report.importSafe), true);
-assert.equal(onSongSetlistInspection.songContentReports.every((report) => report.lyricsEqualsContent), true);
 assert.equal(onSongSetlistInspection.songContentReports.every((report) => report.remainingHarmonyTokens.length === 0), true);
 assert.equal(onSongSetlistInspection.songContentReports.every((report) => report.controlCharacters.length === 0), true);
 assert.equal(onSongSetlistInspection.songContentReports[0].content.value, '[G]Sing this line');
-assert.equal(onSongSetlistInspection.songContentReports[0].lyrics.value, '[G]Sing this line');
+assert.equal(onSongSetlistInspection.songContentReports[0].lyrics.value, 'Sing this line');
+assert.equal(onSongSetlistInspection.songContentReports[0].lyricsObjectType, 'NSMutableString');
+assert.equal(onSongSetlistInspection.songContentReports[0].contentObjectType, 'uid');
+assert.equal(onSongSetlistInspection.songContentReports[0].lyricsEqualsContent, false);
 const setItemSongRefs = onSongSetlistInspection.roles.songSetItems.map((role) => role.keys.find((key) => key.key === 'song')?.valueRef);
 assert.equal(new Set(setItemSongRefs).size, 3);
 assert.equal(onSongSetlistInspection.roles.songs.every((role) => role.keys.find((key) => key.key === 'content')?.valueType === 'uid'), true);
@@ -1442,11 +1444,12 @@ assert.equal(harmonyPairInspection.roles.songSetItems.length, 2);
 assert.equal(harmonyPairInspection.relationships.collection?.orderedItemRefs.length, 2);
 assert.equal(harmonyPairInspection.songContentReports.length, 2);
 assert.equal(harmonyPairInspection.songContentReports.every((report) => report.remainingHarmonyTokens.length === 0), true);
-assert.equal(harmonyPairInspection.songContentReports.every((report) => report.controlCharacters.length === 0), true);
-assert.equal(harmonyPairInspection.songContentReports.every((report) => report.lyricsEqualsContent), true);
-assert.equal(harmonyPairInspection.songContentReports.every((report) => report.importSafe), true);
-assert.equal(harmonyPairInspection.songContentReports[1].content.value, 'First harmony\nVerse:\n[G]Lead backup rest\nFinal tail');
-assert.equal(harmonyPairInspection.songContentReports[1].lyrics.value, 'First harmony\nVerse:\n[G]Lead backup rest\nFinal tail');
+assert.equal(harmonyPairInspection.songContentReports[0].controlCharacters.length, 0);
+assert.deepEqual(harmonyPairInspection.songContentReports[1].controlCharacters.map((item) => item.codePoint), ['U+200B', 'U+E000', 'U+200B', 'U+E000']);
+assert.equal(harmonyPairInspection.songContentReports[0].importSafe, true);
+assert.equal(harmonyPairInspection.songContentReports[1].importSafe, false);
+assert.equal(harmonyPairInspection.songContentReports[1].content.value, '\u200bFirst harmony\nVerse:\n[G]Lead backup rest\nFinal tail\uE000');
+assert.equal(harmonyPairInspection.songContentReports[1].lyrics.value, '\u200bFirst harmony\nVerse:\nLead backup rest\nFinal tail\uE000');
 const invalidOnSongArchiveValidation = validateOnSongArchive(
   new TextEncoder().encode('not-a-binary-plist').buffer
 );

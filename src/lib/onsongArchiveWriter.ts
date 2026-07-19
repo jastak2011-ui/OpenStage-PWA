@@ -152,7 +152,7 @@ class OnSongArchiveBuilder {
       controlCharacters: exportTextReport.controlCharacters,
       lyricsObjectType: 'NSMutableString',
       contentObjectType: 'NSString',
-      lyricsEqualsContent: true,
+      lyricsEqualsContent: stripChordMarkers(cleanChart) === cleanChart,
       importSafe: exportTextReport.importSafe
     };
     console.info('ONSONG_EXPORT_SONG_CONTENT_REPORT', exportSongReport);
@@ -166,7 +166,7 @@ class OnSongArchiveBuilder {
       byline: artist ? this.addString(artist) : this.nullUid,
       bylineAlpha: artist ? this.addString(artist.slice(0, 1).toUpperCase()) : this.nullUid,
       content: this.addString(cleanChart),
-      lyrics: this.addMutableString(cleanChart),
+      lyrics: this.addMutableString(stripChordMarkers(cleanChart)),
       filepath: this.addString(`${sanitizeFileName(title)}.txt`),
       capo: this.addNumber(capo),
       tempo: tempo ? this.addNumber(tempo) : this.nullUid,
@@ -267,6 +267,10 @@ function finiteNumber(value: unknown, fallback: number) {
 
 function createOnSongArchiveId() {
   return createSongUuid().toUpperCase();
+}
+
+function stripChordMarkers(chart: string) {
+  return chart.replace(/\[[^\]]+\]/g, '').replace(/^[ \t]*[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*?(?:\s+[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*?)*[ \t]*$/gim, '');
 }
 
 function sanitizeFileName(value: string) {

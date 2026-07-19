@@ -21,13 +21,23 @@ export type OnSongExportTextReport = {
 
 export function sanitizeOnSongExportText(chartText: string): OnSongExportTextReport {
   const originalLyrics = chartText ?? '';
-  const strippedHarmony = stripHarmonyMarkup(originalLyrics);
-  const remainingHarmonyTokens = strippedHarmony.match(/\[\/?HARMONY\]/gi) ?? [];
-  const suspiciousCharacters: OnSongExportSuspiciousCharacter[] = [];
-  let strippedLyrics = '';
+  const strippedLyrics = stripHarmonyMarkup(originalLyrics);
+  const remainingHarmonyTokens = strippedLyrics.match(/\[\/?HARMONY\]/gi) ?? [];
+  const suspiciousCharacters = suspiciousCharactersForOnSong(strippedLyrics);
 
-  for (let index = 0; index < strippedHarmony.length; index += 1) {
-    const codePoint = strippedHarmony.codePointAt(index);
+  return {
+    originalLyrics,
+    strippedLyrics,
+    remainingHarmonyTokens,
+    controlCharacters: suspiciousCharacters,
+    importSafe: remainingHarmonyTokens.length === 0 && suspiciousCharacters.length === 0 && strippedLyrics.trim().length > 0
+  };
+}
+
+function suspiciousCharactersForOnSong(value: string) {
+  const suspiciousCharacters: OnSongExportSuspiciousCharacter[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const codePoint = value.codePointAt(index);
     if (codePoint === undefined) continue;
     const character = String.fromCodePoint(codePoint);
     if (codePoint > 0xffff) index += 1;
@@ -39,25 +49,9 @@ export function sanitizeOnSongExportText(chartText: string): OnSongExportTextRep
         codePoint: `U+${codePoint.toString(16).toUpperCase().padStart(4, '0')}`,
         reason
       });
-      continue;
     }
-    strippedLyrics += character;
   }
-
-  strippedLyrics = strippedLyrics
-    .replace(/\r\n?/g, '\n')
-    .split('\n')
-    .map((line) => line.replace(/[ \t]+$/g, ''))
-    .join('\n')
-    .trim();
-
-  return {
-    originalLyrics,
-    strippedLyrics,
-    remainingHarmonyTokens,
-    controlCharacters: suspiciousCharacters,
-    importSafe: remainingHarmonyTokens.length === 0 && strippedLyrics.trim().length > 0
-  };
+  return suspiciousCharacters;
 }
 
 function unsupportedOnSongCharacterReason(codePoint: number): OnSongExportSuspiciousCharacter['reason'] | null {
