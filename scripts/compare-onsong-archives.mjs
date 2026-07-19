@@ -67,6 +67,10 @@ const report = {
   relationships: {
     genuine: genuine.relationships,
     generated: generated.relationships
+  },
+  songContentReports: {
+    genuine: genuine.songContentReports,
+    generated: generated.songContentReports
   }
 };
 

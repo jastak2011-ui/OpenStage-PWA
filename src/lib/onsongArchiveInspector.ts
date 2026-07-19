@@ -38,10 +38,25 @@ export type OnSongArchiveInspection = {
     songs: InspectedRole[];
   };
   relationships: OnSongSetRelationshipReport;
+  songContentReports: OnSongExportedSongContentReport[];
   validation: {
     errors: string[];
     danglingRefs: Array<{ from: number; ref: number; key?: string }>;
   };
+};
+
+export type OnSongExportedSongContentReport = {
+  objectIndex: number;
+  title: InspectedResolvedValue;
+  byline: InspectedResolvedValue;
+  content: InspectedResolvedValue;
+  lyrics: InspectedResolvedValue;
+  remainingHarmonyTokens: string[];
+  controlCharacters: Array<{ index: number; character: string; codePoint: string; reason: string }>;
+  lyricsObjectType: string;
+  contentObjectType: string;
+  lyricsEqualsContent: boolean;
+  importSafe: boolean;
 };
 
 export type OnSongSetRelationshipReport = {
@@ -234,6 +249,7 @@ export function inspectOnSongArchive(buffer: ArrayBuffer, fileName = 'archive'):
     songs: archiveRolesByClass(archiveObjects, 'Song')
   };
   const relationships = buildSetRelationshipReport(archiveObjects, rootUid);
+  const songContentReports = buildSongContentReports(archiveObjects);
   const danglingRefs: Array<{ from: number; ref: number; key?: string }> = [];
   objects.forEach((object) => {
     refsForObject(object).forEach((ref) => {
@@ -261,6 +277,7 @@ export function inspectOnSongArchive(buffer: ArrayBuffer, fileName = 'archive'):
     reachableFromRoot,
     roles,
     relationships,
+    songContentReports,
     validation: {
       errors: [
         ...(topObject >= objects.length ? [`topObject ${topObject} is outside object table`] : []),
@@ -517,6 +534,71 @@ function buildSetRelationshipReport(objects: BinaryPlistValue[], rootUid: number
       uniqueItemId: (itemIds.get(String(item.itemId.value ?? '')) || 0) === 1
     }))
   };
+}
+
+function buildSongContentReports(objects: BinaryPlistValue[]): OnSongExportedSongContentReport[] {
+  return objects
+    .map((object, objectIndex) => ({ object, objectIndex }))
+    .filter(({ objectIndex }) => archiveClassNameForObject(objects, objectIndex) === 'Song')
+    .map(({ object, objectIndex }) => {
+      const songObject = isArchiveDict(object) ? object : {};
+      const content = resolvedField(objects, songObject, 'content');
+      const lyrics = resolvedField(objects, songObject, 'lyrics');
+      const contentText = typeof content.value === 'string' ? content.value : '';
+      const lyricsText = typeof lyrics.value === 'string' ? lyrics.value : '';
+      const suspicious = suspiciousCharactersForOnSong(`${contentText}\n${lyricsText}`);
+      const remainingHarmonyTokens = [
+        ...(contentText.match(/\[\/?HARMONY\]/gi) ?? []),
+        ...(lyricsText.match(/\[\/?HARMONY\]/gi) ?? [])
+      ];
+      return {
+        objectIndex,
+        title: resolvedField(objects, songObject, 'title'),
+        byline: resolvedField(objects, songObject, 'byline'),
+        content,
+        lyrics,
+        remainingHarmonyTokens,
+        controlCharacters: suspicious,
+        lyricsObjectType: lyrics.className ?? lyrics.type,
+        contentObjectType: content.className ?? content.type,
+        lyricsEqualsContent: lyricsText === contentText,
+        importSafe: Boolean(contentText.trim()) && lyricsText === contentText && remainingHarmonyTokens.length === 0 && suspicious.length === 0
+      };
+    });
+}
+
+function suspiciousCharactersForOnSong(value: string) {
+  const suspicious: Array<{ index: number; character: string; codePoint: string; reason: string }> = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const codePoint = value.codePointAt(index);
+    if (codePoint === undefined) continue;
+    const character = String.fromCodePoint(codePoint);
+    if (codePoint > 0xffff) index += 1;
+    const reason = unsupportedOnSongCharacterReason(codePoint);
+    if (reason) {
+      suspicious.push({
+        index,
+        character,
+        codePoint: `U+${codePoint.toString(16).toUpperCase().padStart(4, '0')}`,
+        reason
+      });
+    }
+  }
+  return suspicious;
+}
+
+function unsupportedOnSongCharacterReason(codePoint: number) {
+  if ((codePoint >= 0x0000 && codePoint <= 0x0008) || codePoint === 0x000b || codePoint === 0x000c || (codePoint >= 0x000e && codePoint <= 0x001f) || codePoint === 0x007f) return 'control';
+  if (
+    codePoint === 0x200b ||
+    codePoint === 0x200c ||
+    codePoint === 0x200d ||
+    codePoint === 0x2060 ||
+    codePoint === 0xfeff ||
+    (codePoint >= 0xfe00 && codePoint <= 0xfe0f)
+  ) return 'zero-width';
+  if ((codePoint >= 0xe000 && codePoint <= 0xf8ff) || (codePoint >= 0xf0000 && codePoint <= 0xffffd) || (codePoint >= 0x100000 && codePoint <= 0x10fffd)) return 'private-use';
+  return '';
 }
 
 function collectionItemRefs(objects: BinaryPlistValue[], collectionObject: Record<string, BinaryPlistValue>) {

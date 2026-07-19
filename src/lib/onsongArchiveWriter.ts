@@ -1,6 +1,6 @@
 import type { SavedSetlist, Song } from '../types';
 import { createSongUuid } from './ids';
-import { sanitizeChartForOnSong } from './onsongSanitize';
+import { sanitizeOnSongExportText } from './onsongSanitize';
 import { writeBinaryPlist, type BinaryPlistWritableValue } from './binaryPlistWriter';
 
 export type OnSongArchiveExportSong = Pick<
@@ -127,7 +127,9 @@ class OnSongArchiveBuilder {
   }
 
   private addSong(song: OnSongArchiveExportSong, songId: string, now: Date) {
-    const cleanChart = sanitizeChartForOnSong(song.rawChordPro || song.chart || '').trim();
+    const originalChart = song.rawChordPro || song.chart || '';
+    const exportTextReport = sanitizeOnSongExportText(originalChart);
+    const cleanChart = exportTextReport.strippedLyrics;
     const title = song.title?.trim() || 'Untitled Song';
     const artist = song.artist?.trim() || '';
     const key = song.key?.trim() || '';
@@ -136,6 +138,24 @@ class OnSongArchiveBuilder {
     const tempo = finiteNumber(song.bpm, 0);
     const duration = finiteNumber(song.durationSeconds, 0);
     const timeSignature = song.timeSignature?.trim() || '';
+    const exportSongReport = {
+      title,
+      originalLyrics: exportTextReport.originalLyrics,
+      strippedLyrics: exportTextReport.strippedLyrics,
+      originalTitle: song.title ?? '',
+      finalTitle: title,
+      originalByline: song.artist ?? '',
+      finalByline: artist,
+      originalLyricsLength: exportTextReport.originalLyrics.length,
+      strippedLyricsLength: exportTextReport.strippedLyrics.length,
+      remainingHarmonyTokens: exportTextReport.remainingHarmonyTokens,
+      controlCharacters: exportTextReport.controlCharacters,
+      lyricsObjectType: 'NSMutableString',
+      contentObjectType: 'NSString',
+      lyricsEqualsContent: true,
+      importSafe: exportTextReport.importSafe
+    };
+    console.info('ONSONG_EXPORT_SONG_CONTENT_REPORT', exportSongReport);
 
     return this.addObject({
       ID: this.addString(songId),
@@ -146,7 +166,7 @@ class OnSongArchiveBuilder {
       byline: artist ? this.addString(artist) : this.nullUid,
       bylineAlpha: artist ? this.addString(artist.slice(0, 1).toUpperCase()) : this.nullUid,
       content: this.addString(cleanChart),
-      lyrics: this.addMutableString(stripChordMarkers(cleanChart)),
+      lyrics: this.addMutableString(cleanChart),
       filepath: this.addString(`${sanitizeFileName(title)}.txt`),
       capo: this.addNumber(capo),
       tempo: tempo ? this.addNumber(tempo) : this.nullUid,
@@ -247,10 +267,6 @@ function finiteNumber(value: unknown, fallback: number) {
 
 function createOnSongArchiveId() {
   return createSongUuid().toUpperCase();
-}
-
-function stripChordMarkers(chart: string) {
-  return chart.replace(/\[[^\]]+\]/g, '').replace(/^[ \t]*[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*?(?:\s+[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*?)*[ \t]*$/gim, '');
 }
 
 function sanitizeFileName(value: string) {

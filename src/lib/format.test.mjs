@@ -66,7 +66,7 @@ import { isOnSongArchiveFileName, parseOnSongArchive, parseOnSongKeyedArchive } 
 import { createOnSongSetlistArchive, createOnSongSetlistArchiveFileName } from './onsongArchiveWriter-test-target.mjs';
 import { inspectOnSongArchive } from './onsongArchiveInspector-test-target.mjs';
 import { validateOnSongArchive } from './onsongArchiveValidator-test-target.mjs';
-import { sanitizeChartForOnSong } from './onsongSanitize-test-target.mjs';
+import { sanitizeChartForOnSong, sanitizeOnSongExportText } from './onsongSanitize-test-target.mjs';
 import { createOnSongSetlistReview, createSafeSetlistName, findOnSongImportMatch, replaceSongWithOnSongImport } from './onsongSetlistImport-test-target.mjs';
 import { addSongToSetlist, createNamedSetlist, getStageSongAt, removeSongFromSetlist, sortSetlistSongIds } from './setlists-test-target.mjs';
 import { clearRenderCache, getRenderCacheSize, renderSong } from '../services/rendering/songRenderer-test-target.mjs';
@@ -778,6 +778,14 @@ assert.deepEqual(onsongImport.setlists[0].songSourceIds, ['onsong-song-1', 'onso
 assert.equal(sanitizeChartForOnSong('[HARMONY]ooh[/HARMONY] [G]line'), 'ooh [G]line');
 assert.equal(sanitizeChartForOnSong('Lead [HARMONY]backup[/HARMONY] rest [HARMONY](ooh...)[/HARMONY]'), 'Lead backup rest (ooh...)');
 assert.equal(sanitizeChartForOnSong('No harmony here'), 'No harmony here');
+assert.equal(sanitizeChartForOnSong('[HARMONY]First line[/HARMONY]\nNormal line'), 'First line\nNormal line');
+assert.equal(sanitizeChartForOnSong('Normal line\n[HARMONY]Final line[/HARMONY]'), 'Normal line\nFinal line');
+assert.equal(sanitizeChartForOnSong('[HARMONY]One[/HARMONY] and [HARMONY]two[/HARMONY]'), 'One and two');
+const sanitizedHarmonyExport = sanitizeOnSongExportText('[HARMONY]\u200booh[/HARMONY]\nLead\uE000 line\u0007');
+assert.equal(sanitizedHarmonyExport.strippedLyrics, 'ooh\nLead line');
+assert.deepEqual(sanitizedHarmonyExport.remainingHarmonyTokens, []);
+assert.deepEqual(sanitizedHarmonyExport.controlCharacters.map((item) => item.codePoint), ['U+200B', 'U+E000', 'U+0007']);
+assert.equal(sanitizedHarmonyExport.importSafe, true);
 
 const capoSong = {
   id: 'capo-test-song',
@@ -1376,6 +1384,13 @@ const onSongSetlistInspection = inspectOnSongArchive(
 assert.equal(onSongSetlistInspection.roles.songs.length, 3);
 assert.equal(onSongSetlistInspection.roles.songSetItems.length, 3);
 assert.equal(onSongSetlistInspection.roles.songSetItemCollection.length, 1);
+assert.equal(onSongSetlistInspection.songContentReports.length, 3);
+assert.equal(onSongSetlistInspection.songContentReports.every((report) => report.importSafe), true);
+assert.equal(onSongSetlistInspection.songContentReports.every((report) => report.lyricsEqualsContent), true);
+assert.equal(onSongSetlistInspection.songContentReports.every((report) => report.remainingHarmonyTokens.length === 0), true);
+assert.equal(onSongSetlistInspection.songContentReports.every((report) => report.controlCharacters.length === 0), true);
+assert.equal(onSongSetlistInspection.songContentReports[0].content.value, '[G]Sing this line');
+assert.equal(onSongSetlistInspection.songContentReports[0].lyrics.value, '[G]Sing this line');
 const setItemSongRefs = onSongSetlistInspection.roles.songSetItems.map((role) => role.keys.find((key) => key.key === 'song')?.valueRef);
 assert.equal(new Set(setItemSongRefs).size, 3);
 assert.equal(onSongSetlistInspection.roles.songs.every((role) => role.keys.find((key) => key.key === 'content')?.valueType === 'uid'), true);
@@ -1403,6 +1418,35 @@ assert.equal(onSongSetlistRoundTrip.songs[0].song.chart.includes('[HARMONY]'), f
 assert.match(onSongSetlistRoundTrip.songs[0].song.chart, /Sing this line/);
 assert.equal(onSongSetlistRoundTrip.songs[0].song.artist, 'OpenStage');
 assert.equal(onSongSetlistRoundTrip.songs[0].song.durationSeconds, 120);
+
+const harmonySecondSongArchive = createOnSongSetlistArchive(
+  { ...namedSetlist, name: 'Harmony Pair', songIds: ['normal-export', 'harmony-export'] },
+  [
+    { ...capoSong, id: 'normal-export', title: 'Normal Export', artist: 'OpenStage', chart: 'Verse:\n[G]Normal line', rawChordPro: 'Verse:\n[G]Normal line' },
+    {
+      ...capoSong,
+      id: 'harmony-export',
+      title: 'Harmony Export B',
+      artist: 'OpenStage',
+      chart: '[HARMONY]\u200bFirst harmony[/HARMONY]\nVerse:\n[G]Lead [HARMONY]backup[/HARMONY] rest\nFinal [HARMONY]tail[/HARMONY]\uE000',
+      rawChordPro: '[HARMONY]\u200bFirst harmony[/HARMONY]\nVerse:\n[G]Lead [HARMONY]backup[/HARMONY] rest\nFinal [HARMONY]tail[/HARMONY]\uE000'
+    }
+  ]
+);
+const harmonyPairInspection = inspectOnSongArchive(
+  harmonySecondSongArchive.buffer.slice(harmonySecondSongArchive.byteOffset, harmonySecondSongArchive.byteOffset + harmonySecondSongArchive.byteLength),
+  'Harmony Pair.archive'
+);
+assert.equal(harmonyPairInspection.roles.songs.length, 2);
+assert.equal(harmonyPairInspection.roles.songSetItems.length, 2);
+assert.equal(harmonyPairInspection.relationships.collection?.orderedItemRefs.length, 2);
+assert.equal(harmonyPairInspection.songContentReports.length, 2);
+assert.equal(harmonyPairInspection.songContentReports.every((report) => report.remainingHarmonyTokens.length === 0), true);
+assert.equal(harmonyPairInspection.songContentReports.every((report) => report.controlCharacters.length === 0), true);
+assert.equal(harmonyPairInspection.songContentReports.every((report) => report.lyricsEqualsContent), true);
+assert.equal(harmonyPairInspection.songContentReports.every((report) => report.importSafe), true);
+assert.equal(harmonyPairInspection.songContentReports[1].content.value, 'First harmony\nVerse:\n[G]Lead backup rest\nFinal tail');
+assert.equal(harmonyPairInspection.songContentReports[1].lyrics.value, 'First harmony\nVerse:\n[G]Lead backup rest\nFinal tail');
 const invalidOnSongArchiveValidation = validateOnSongArchive(
   new TextEncoder().encode('not-a-binary-plist').buffer
 );
