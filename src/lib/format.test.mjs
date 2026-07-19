@@ -251,6 +251,9 @@ assert.deepEqual(
 );
 assert.equal(stripHarmonyMarkup('[HARMONY]Full line[/HARMONY]'), 'Full line');
 assert.equal(markHarmonyRange('Take it easy', 8, 12), 'Take it [HARMONY]easy[/HARMONY]');
+const markedPlainHarmony = markHarmonyRange('Hello world', 0, 5);
+assert.equal(markedPlainHarmony.includes('\u200b'), false);
+assert.equal(markedPlainHarmony.includes('\uE000'), false);
 assert.equal(markHarmonyRange('(ooh...ooh....ooh...ooh)', 0, 25), '[HARMONY](ooh...ooh....ooh...ooh)[/HARMONY]');
 assert.equal(isRangeInsideHarmonyMarkup('Take it [HARMONY]easy[/HARMONY]', 17, 21), true);
 assert.equal(removeHarmonyRange('Take it [HARMONY]easy[/HARMONY]', 17, 21), 'Take it easy');
@@ -782,10 +785,11 @@ assert.equal(sanitizeChartForOnSong('[HARMONY]First line[/HARMONY]\nNormal line'
 assert.equal(sanitizeChartForOnSong('Normal line\n[HARMONY]Final line[/HARMONY]'), 'Normal line\nFinal line');
 assert.equal(sanitizeChartForOnSong('[HARMONY]One[/HARMONY] and [HARMONY]two[/HARMONY]'), 'One and two');
 const sanitizedHarmonyExport = sanitizeOnSongExportText('[HARMONY]\u200booh[/HARMONY]\nLead\uE000 line\u0007');
-assert.equal(sanitizedHarmonyExport.strippedLyrics, '\u200booh\nLead\uE000 line\u0007');
+assert.equal(sanitizedHarmonyExport.strippedLyrics, 'ooh\nLead line\u0007');
 assert.deepEqual(sanitizedHarmonyExport.remainingHarmonyTokens, []);
-assert.deepEqual(sanitizedHarmonyExport.controlCharacters.map((item) => item.codePoint), ['U+200B', 'U+E000', 'U+0007']);
+assert.deepEqual(sanitizedHarmonyExport.controlCharacters.map((item) => item.codePoint), ['U+0007']);
 assert.equal(sanitizedHarmonyExport.importSafe, false);
+assert.equal(sanitizeChartForOnSong('Keep\u200C other zero width and \uE001 private use'), 'Keep\u200C other zero width and \uE001 private use');
 
 const capoSong = {
   id: 'capo-test-song',
@@ -1445,11 +1449,15 @@ assert.equal(harmonyPairInspection.relationships.collection?.orderedItemRefs.len
 assert.equal(harmonyPairInspection.songContentReports.length, 2);
 assert.equal(harmonyPairInspection.songContentReports.every((report) => report.remainingHarmonyTokens.length === 0), true);
 assert.equal(harmonyPairInspection.songContentReports[0].controlCharacters.length, 0);
-assert.deepEqual(harmonyPairInspection.songContentReports[1].controlCharacters.map((item) => item.codePoint), ['U+200B', 'U+E000', 'U+200B', 'U+E000']);
+assert.deepEqual(harmonyPairInspection.songContentReports[1].controlCharacters.map((item) => item.codePoint), []);
 assert.equal(harmonyPairInspection.songContentReports[0].importSafe, true);
-assert.equal(harmonyPairInspection.songContentReports[1].importSafe, false);
-assert.equal(harmonyPairInspection.songContentReports[1].content.value, '\u200bFirst harmony\nVerse:\n[G]Lead backup rest\nFinal tail\uE000');
-assert.equal(harmonyPairInspection.songContentReports[1].lyrics.value, '\u200bFirst harmony\nVerse:\nLead backup rest\nFinal tail\uE000');
+assert.equal(harmonyPairInspection.songContentReports[1].importSafe, true);
+assert.equal(harmonyPairInspection.songContentReports[1].content.value, 'First harmony\nVerse:\n[G]Lead backup rest\nFinal tail');
+assert.equal(harmonyPairInspection.songContentReports[1].lyrics.value, 'First harmony\nVerse:\nLead backup rest\nFinal tail');
+assert.equal(String(harmonyPairInspection.songContentReports[1].content.value).includes('\u200b'), false);
+assert.equal(String(harmonyPairInspection.songContentReports[1].content.value).includes('\uE000'), false);
+assert.equal(String(harmonyPairInspection.songContentReports[1].lyrics.value).includes('\u200b'), false);
+assert.equal(String(harmonyPairInspection.songContentReports[1].lyrics.value).includes('\uE000'), false);
 const invalidOnSongArchiveValidation = validateOnSongArchive(
   new TextEncoder().encode('not-a-binary-plist').buffer
 );

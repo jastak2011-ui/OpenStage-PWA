@@ -21,7 +21,7 @@ export type OnSongExportTextReport = {
 
 export function sanitizeOnSongExportText(chartText: string): OnSongExportTextReport {
   const originalLyrics = chartText ?? '';
-  const strippedLyrics = stripHarmonyMarkup(originalLyrics);
+  const strippedLyrics = removeOnSongBlockedHarmonyArtifacts(stripHarmonyMarkup(originalLyrics));
   const remainingHarmonyTokens = strippedLyrics.match(/\[\/?HARMONY\]/gi) ?? [];
   const suspiciousCharacters = suspiciousCharactersForOnSong(strippedLyrics);
 
@@ -32,6 +32,10 @@ export function sanitizeOnSongExportText(chartText: string): OnSongExportTextRep
     controlCharacters: suspiciousCharacters,
     importSafe: remainingHarmonyTokens.length === 0 && suspiciousCharacters.length === 0 && strippedLyrics.trim().length > 0
   };
+}
+
+function removeOnSongBlockedHarmonyArtifacts(value: string) {
+  return value.replace(/[\u200B\uE000]/g, '');
 }
 
 function suspiciousCharactersForOnSong(value: string) {
