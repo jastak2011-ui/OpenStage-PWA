@@ -64,6 +64,7 @@ import {
 } from './displaySettings-test-target.mjs';
 import { isOnSongArchiveFileName, parseOnSongArchive, parseOnSongKeyedArchive } from './onsongArchive-test-target.mjs';
 import { createOnSongSetlistArchive, createOnSongSetlistArchiveFileName } from './onsongArchiveWriter-test-target.mjs';
+import { inspectOnSongArchive } from './onsongArchiveInspector-test-target.mjs';
 import { validateOnSongArchive } from './onsongArchiveValidator-test-target.mjs';
 import { sanitizeChartForOnSong } from './onsongSanitize-test-target.mjs';
 import { createOnSongSetlistReview, createSafeSetlistName, findOnSongImportMatch, replaceSongWithOnSongImport } from './onsongSetlistImport-test-target.mjs';
@@ -1368,6 +1369,16 @@ const onSongSetlistRoundTrip = parseOnSongArchive(
   onSongSetlistArchive.buffer.slice(onSongSetlistArchive.byteOffset, onSongSetlistArchive.byteOffset + onSongSetlistArchive.byteLength),
   'Friday Night Gig.archive'
 );
+const onSongSetlistInspection = inspectOnSongArchive(
+  onSongSetlistArchive.buffer.slice(onSongSetlistArchive.byteOffset, onSongSetlistArchive.byteOffset + onSongSetlistArchive.byteLength),
+  'Friday Night Gig.archive'
+);
+assert.equal(onSongSetlistInspection.roles.songs.length, 3);
+assert.equal(onSongSetlistInspection.roles.songSetItems.length, 3);
+assert.equal(onSongSetlistInspection.roles.songSetItemCollection.length, 1);
+const setItemSongRefs = onSongSetlistInspection.roles.songSetItems.map((role) => role.keys.find((key) => key.key === 'song')?.valueRef);
+assert.equal(new Set(setItemSongRefs).size, 3);
+assert.equal(onSongSetlistInspection.roles.songs.every((role) => role.keys.find((key) => key.key === 'content')?.valueType === 'uid'), true);
 assert.equal(onSongSetlistRoundTrip.setlists.length, 1);
 assert.equal(onSongSetlistRoundTrip.setlists[0].name, 'Friday Night Gig');
 assert.equal(onSongSetlistRoundTrip.songs.length, 3);

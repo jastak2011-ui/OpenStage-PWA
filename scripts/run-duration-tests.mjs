@@ -173,6 +173,14 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/lib/onsongArchiveInspector.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/onsongArchiveInspector-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/lib/onsongSetlistImport.ts')],
   bundle: true,
   platform: 'node',

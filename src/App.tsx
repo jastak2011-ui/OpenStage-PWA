@@ -2483,20 +2483,45 @@ export default function App() {
     downloadText(content, `openstage-songs.${format}`, format === 'json' ? 'application/json' : 'text/csv');
   }
 
-  function exportSetlistToOnSong(setlist: SavedSetlist) {
-    const setlistSongs = setlist.songIds.map((songId) => songMap.get(songId)).filter((song): song is Song => Boolean(song));
+  function exportSetlistToOnSong(savedSetlist: SavedSetlist) {
+    const liveBuilderEntries = editingSetlistId === savedSetlist.id && setlistDirty
+      ? [...setlist].sort((a, b) => a.order - b.order)
+      : null;
+    const liveBuilderSongIds = liveBuilderEntries
+      ? liveBuilderEntries.map((item) => item.songId)
+      : null;
+    const exportSongIds = liveBuilderSongIds && liveBuilderSongIds.length > 0 ? liveBuilderSongIds : savedSetlist.songIds;
+    const setlistForExport = exportSongIds === savedSetlist.songIds ? savedSetlist : { ...savedSetlist, songIds: exportSongIds };
+    const setlistSongs = exportSongIds.map((songId) => songMap.get(songId)).filter((song): song is Song => Boolean(song));
+    console.info('ONSONG_EXPORT_SETLIST_RESOLVE', {
+      setlistName: savedSetlist.name,
+      savedSongIdCount: savedSetlist.songIds.length,
+      liveBuilderSongIdCount: liveBuilderSongIds?.length ?? null,
+      exportSongIdCount: exportSongIds.length,
+      resolvedSongCount: setlistSongs.length,
+      items: exportSongIds.map((songId, index) => {
+        const resolvedSong = songMap.get(songId);
+        return {
+          index,
+          setlistItemId: liveBuilderEntries ? liveBuilderEntries[index]?.id : `${savedSetlist.id}-${index}-${songId}`,
+          resolvedSongId: songId,
+          resolvedSongTitle: resolvedSong?.title ?? '(missing)',
+          chartLength: resolvedSong?.chart?.length ?? 0
+        };
+      })
+    });
     if (setlistSongs.length === 0) {
       setToast({ message: 'Setlist has no available songs to export', type: 'error' });
       return;
     }
-    const archive = createOnSongSetlistArchive(setlist, setlistSongs);
+    const archive = createOnSongSetlistArchive(setlistForExport, setlistSongs);
     const validation = validateOnSongArchive(archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength));
     if (!validation.ok) {
       console.error('ONSONG_ARCHIVE_VALIDATION_FAILED', validation);
       setToast({ message: 'OnSong archive validation failed', type: 'error' });
       return;
     }
-    const archiveFileName = createOnSongSetlistArchiveFileName(setlist.name);
+    const archiveFileName = createOnSongSetlistArchiveFileName(setlistForExport.name);
     downloadBytes(archive, archiveFileName, 'application/octet-stream');
     if (localStorage.getItem('openstage.debugOnSongExport') === 'true') {
       const archiveBuffer = archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength);

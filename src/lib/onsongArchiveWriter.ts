@@ -45,10 +45,21 @@ class OnSongArchiveBuilder {
   build(setlist: SavedSetlist, songs: OnSongArchiveExportSong[]) {
     const now = new Date();
     const setId = toOnSongId(setlist.id || createSongUuid());
+    console.info('ONSONG_ARCHIVE_WRITER_INPUT', {
+      setlistName: setlist.name,
+      setlistSongIdCount: setlist.songIds.length,
+      inputSongCount: songs.length,
+      songs: songs.map((song, index) => ({
+        index,
+        id: song.id,
+        title: song.title,
+        chartLength: (song.rawChordPro || song.chart || '').length
+      }))
+    });
     const itemUids = songs.map((song, index) => {
       const songId = toOnSongId(song.songUuid || song.id || createSongUuid());
       const songUid = this.addSong(song, songId, now);
-      return this.addObject({
+      const itemUid = this.addObject({
         ID: this.addString(JSON.stringify({ setID: setId, songID: songId, orderIndex: index })),
         songID: this.addString(songId),
         bookID: this.nullUid,
@@ -57,11 +68,24 @@ class OnSongArchiveBuilder {
         song: songUid,
         $class: this.songSetItemClassUid
       });
+      console.info('ONSONG_ARCHIVE_WRITER_ITEM', {
+        index,
+        title: song.title,
+        songObjectIndex: songUid.$uid,
+        songSetItemObjectIndex: itemUid.$uid
+      });
+      return itemUid;
     });
 
     const itemArrayUid = this.addObject({
       'NS.objects': itemUids,
       $class: this.mutableArrayClassUid
+    });
+    console.info('ONSONG_ARCHIVE_WRITER_COLLECTION', {
+      setlistName: setlist.name,
+      songSetItemReferenceCount: itemUids.length,
+      songSetItemObjectIndexes: itemUids.map((item) => item.$uid),
+      collectionArrayObjectIndex: itemArrayUid.$uid
     });
     const collectionUid = this.addObject({
       collection: itemArrayUid,
