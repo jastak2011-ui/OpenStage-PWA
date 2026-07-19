@@ -37,10 +37,48 @@ export type OnSongArchiveInspection = {
     songSetItems: InspectedRole[];
     songs: InspectedRole[];
   };
+  relationships: OnSongSetRelationshipReport;
   validation: {
     errors: string[];
     danglingRefs: Array<{ from: number; ref: number; key?: string }>;
   };
+};
+
+export type OnSongSetRelationshipReport = {
+  songSet?: {
+    objectIndex: number;
+    id: InspectedResolvedValue;
+    title: InspectedResolvedValue;
+    songsReference: InspectedResolvedValue;
+    properties: Record<string, InspectedResolvedValue>;
+  };
+  collection?: {
+    objectIndex: number;
+    collectionReference: InspectedResolvedValue;
+    classValue: InspectedResolvedValue;
+    indexValue: InspectedResolvedValue;
+    orderedItemRefs: number[];
+  };
+  items: Array<{
+    itemObjectIndex: number;
+    itemId: InspectedResolvedValue;
+    setId: InspectedResolvedValue;
+    songId: InspectedResolvedValue;
+    songObjectIndex: number | null;
+    referencedSongId: InspectedResolvedValue;
+    orderIndex: InspectedResolvedValue;
+    setIdMatchesParent: boolean;
+    songIdMatchesReferencedSong: boolean;
+    uniqueItemId: boolean;
+    validOrderIndex: boolean;
+  }>;
+};
+
+export type InspectedResolvedValue = {
+  value: unknown;
+  type: string;
+  className?: string;
+  ref?: number;
 };
 
 export type InspectedRole = {
@@ -195,6 +233,7 @@ export function inspectOnSongArchive(buffer: ArrayBuffer, fileName = 'archive'):
     songSetItems: archiveRolesByClass(archiveObjects, 'SongSetItem'),
     songs: archiveRolesByClass(archiveObjects, 'Song')
   };
+  const relationships = buildSetRelationshipReport(archiveObjects, rootUid);
   const danglingRefs: Array<{ from: number; ref: number; key?: string }> = [];
   objects.forEach((object) => {
     refsForObject(object).forEach((ref) => {
@@ -221,6 +260,7 @@ export function inspectOnSongArchive(buffer: ArrayBuffer, fileName = 'archive'):
     classDictionaries,
     reachableFromRoot,
     roles,
+    relationships,
     validation: {
       errors: [
         ...(topObject >= objects.length ? [`topObject ${topObject} is outside object table`] : []),
@@ -416,6 +456,116 @@ function archiveValueType(value: unknown) {
   if (value instanceof Date) return 'date';
   if (value === null) return 'null';
   return typeof value;
+}
+
+function buildSetRelationshipReport(objects: BinaryPlistValue[], rootUid: number | undefined): OnSongSetRelationshipReport {
+  const root = rootUid === undefined ? undefined : objects[rootUid];
+  const songSet = rootUid === undefined || !isArchiveDict(root) ? undefined : {
+    objectIndex: rootUid,
+    id: resolvedField(objects, root, 'ID'),
+    title: resolvedField(objects, root, 'title'),
+    songsReference: resolvedField(objects, root, 'songs'),
+    properties: Object.fromEntries(Object.keys(root)
+      .filter((key) => key !== '$class')
+      .map((key) => [key, resolvedField(objects, root, key)]))
+  };
+  const collectionRef = songSet?.songsReference.ref;
+  const collectionObject = collectionRef === undefined ? undefined : objects[collectionRef];
+  const collection = collectionRef === undefined || !isArchiveDict(collectionObject) ? undefined : {
+    objectIndex: collectionRef,
+    collectionReference: resolvedField(objects, collectionObject, 'collection'),
+    classValue: resolvedField(objects, collectionObject, 'class'),
+    indexValue: resolvedField(objects, collectionObject, 'index'),
+    orderedItemRefs: collectionItemRefs(objects, collectionObject)
+  };
+  const itemIds = new Map<string, number>();
+  const itemObjects = collection?.orderedItemRefs.length
+    ? collection.orderedItemRefs
+    : objects.map((object, index) => archiveClassNameForObject(objects, index) === 'SongSetItem' ? index : -1).filter((index) => index >= 0);
+  const parentComparableSetId = comparableSetId(songSet?.id);
+
+  const items = itemObjects.map((itemObjectIndex) => {
+    const itemObject = objects[itemObjectIndex];
+    const itemId = isArchiveDict(itemObject) ? resolvedField(objects, itemObject, 'ID') : emptyResolvedValue();
+    const setId = isArchiveDict(itemObject) ? resolvedField(objects, itemObject, 'setID') : emptyResolvedValue();
+    const songId = isArchiveDict(itemObject) ? resolvedField(objects, itemObject, 'songID') : emptyResolvedValue();
+    const song = isArchiveDict(itemObject) ? resolvedField(objects, itemObject, 'song') : emptyResolvedValue();
+    const orderIndex = isArchiveDict(itemObject) ? resolvedField(objects, itemObject, 'orderIndex') : emptyResolvedValue();
+    const songObject = typeof song.ref === 'number' ? objects[song.ref] : undefined;
+    const referencedSongId = isArchiveDict(songObject) ? resolvedField(objects, songObject, 'ID') : emptyResolvedValue();
+    const itemIdKey = String(itemId.value ?? '');
+    itemIds.set(itemIdKey, (itemIds.get(itemIdKey) || 0) + 1);
+    return {
+      itemObjectIndex,
+      itemId,
+      setId,
+      songId,
+      songObjectIndex: typeof song.ref === 'number' ? song.ref : null,
+      referencedSongId,
+      orderIndex,
+      setIdMatchesParent: parentComparableSetId ? String(setId.value ?? '') === parentComparableSetId : true,
+      songIdMatchesReferencedSong: String(songId.value ?? '') === String(referencedSongId.value ?? ''),
+      uniqueItemId: true,
+      validOrderIndex: typeof orderIndex.value === 'number' && Number.isInteger(orderIndex.value)
+    };
+  });
+  return {
+    songSet,
+    collection,
+    items: items.map((item) => ({
+      ...item,
+      uniqueItemId: (itemIds.get(String(item.itemId.value ?? '')) || 0) === 1
+    }))
+  };
+}
+
+function collectionItemRefs(objects: BinaryPlistValue[], collectionObject: Record<string, BinaryPlistValue>) {
+  const collectionValue = archiveDictValue(collectionObject, 'collection');
+  if (!isBinaryPlistUid(collectionValue)) return [];
+  const arrayObject = objects[collectionValue.$uid];
+  if (!isArchiveDict(arrayObject)) return [];
+  const items = archiveDictValue(arrayObject, 'NS.objects');
+  return Array.isArray(items) ? items.filter(isBinaryPlistUid).map((item) => item.$uid) : [];
+}
+
+function resolvedField(objects: BinaryPlistValue[], object: Record<string, BinaryPlistValue>, key: string): InspectedResolvedValue {
+  const value = archiveDictValue(object, key);
+  return resolveArchiveValue(objects, value);
+}
+
+function resolveArchiveValue(objects: BinaryPlistValue[], value: unknown): InspectedResolvedValue {
+  if (isBinaryPlistUid(value)) {
+    const target = objects[value.$uid];
+    return {
+      value: primitiveArchiveValue(target),
+      type: archiveValueType(value),
+      className: archiveClassNameForObject(objects, value.$uid),
+      ref: value.$uid
+    };
+  }
+  return {
+    value: primitiveArchiveValue(value),
+    type: archiveValueType(value)
+  };
+}
+
+function primitiveArchiveValue(value: unknown): unknown {
+  if (value === '$null') return '$null';
+  if (isBinaryPlistUid(value)) return { $uid: value.$uid };
+  if (isArchiveDict(value) && typeof value['NS.time'] === 'number') return value['NS.time'];
+  if (isArchiveDict(value) && typeof value['NS.string'] === 'string') return value['NS.string'];
+  if (isArchiveDict(value)) return '[object]';
+  if (Array.isArray(value)) return `[array:${value.length}]`;
+  return value;
+}
+
+function comparableSetId(value: InspectedResolvedValue | undefined) {
+  if (!value || value.value === '$null' || value.value === undefined || value.value === null) return '';
+  return String(value.value);
+}
+
+function emptyResolvedValue(): InspectedResolvedValue {
+  return { value: undefined, type: 'missing' };
 }
 
 function roleFor(objects: InspectedPlistObject[], index: number): InspectedRole {

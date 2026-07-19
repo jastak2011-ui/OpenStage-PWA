@@ -63,6 +63,10 @@ const report = {
   roles: {
     genuine: genuine.roles,
     generated: generated.roles
+  },
+  relationships: {
+    genuine: genuine.relationships,
+    generated: generated.relationships
   }
 };
 

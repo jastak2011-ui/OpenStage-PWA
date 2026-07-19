@@ -44,7 +44,7 @@ class OnSongArchiveBuilder {
 
   build(setlist: SavedSetlist, songs: OnSongArchiveExportSong[]) {
     const now = new Date();
-    const setId = toOnSongId(setlist.id || createSongUuid());
+    const setId = createOnSongArchiveId();
     console.info('ONSONG_ARCHIVE_WRITER_INPUT', {
       setlistName: setlist.name,
       setlistSongIdCount: setlist.songIds.length,
@@ -57,7 +57,7 @@ class OnSongArchiveBuilder {
       }))
     });
     const itemUids = songs.map((song, index) => {
-      const songId = toOnSongId(song.songUuid || song.id || createSongUuid());
+      const songId = createOnSongArchiveId();
       const songUid = this.addSong(song, songId, now);
       const itemUid = this.addObject({
         ID: this.addString(JSON.stringify({ setID: setId, songID: songId, orderIndex: index })),
@@ -102,7 +102,7 @@ class OnSongArchiveBuilder {
       summary: this.nullUid,
       songs: collectionUid,
       archived: this.nullUid,
-      providerName: this.addString('OpenStage'),
+      providerName: this.nullUid,
       sceneID: this.nullUid,
       orderDirection: this.addNumber(0),
       datetime: this.addArchiveDate(now),
@@ -111,10 +111,10 @@ class OnSongArchiveBuilder {
       user: this.nullUid,
       providerUri: this.nullUid,
       expires: this.nullUid,
-      ID: this.addString(setId),
+      ID: this.nullUid,
       hasTime: this.nullUid,
-      created: this.addArchiveDate(dateOrNow(setlist.createdAt, now)),
-      orderIndex: this.addNumber(0),
+      created: this.nullUid,
+      orderIndex: this.nullUid,
       $class: this.songSetClassUid
     });
 
@@ -245,13 +245,8 @@ function finiteNumber(value: unknown, fallback: number) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-function dateOrNow(value: string | undefined, fallback: Date) {
-  const date = value ? new Date(value) : fallback;
-  return Number.isFinite(date.getTime()) ? date : fallback;
-}
-
-function toOnSongId(value: string) {
-  return value.trim() || createSongUuid();
+function createOnSongArchiveId() {
+  return createSongUuid().toUpperCase();
 }
 
 function stripChordMarkers(chart: string) {
