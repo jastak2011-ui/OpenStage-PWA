@@ -258,6 +258,7 @@ import {
   supportsPresentationApi,
   type ExternalDisplayPayload
 } from './services/externalDisplay';
+import { compareChartTexts, escapedChartText, visibleChartText } from './lib/chartTextDiagnostics';
 import { clearRenderCache, getRenderCacheSize, preloadSongs, renderSong, type RenderedLine } from './services/rendering/songRenderer';
 import { markStartupError } from './services/startupDiagnostics';
 import { syncLibraryOfflineFirst } from './services/sync/syncEngine';
@@ -3359,6 +3360,7 @@ export default function App() {
         <DiagnosticsView
           diagnostics={diagnostics}
           logs={appLogs}
+          songs={songs}
           syncStatus={syncStatus}
           conflicts={conflicts}
           onClearLogs={clearLogs}
@@ -7628,6 +7630,7 @@ function PwaUpdateBanner({
 function DiagnosticsView({
   diagnostics,
   logs,
+  songs,
   syncStatus,
   conflicts,
   onClearLogs,
@@ -7636,6 +7639,7 @@ function DiagnosticsView({
 }: {
   diagnostics: RenderDiagnostics;
   logs: AppLogEntry[];
+  songs: Song[];
   syncStatus: string;
   conflicts: SyncConflict[];
   onClearLogs: () => void;
@@ -7643,6 +7647,40 @@ function DiagnosticsView({
   onCheckPwaUpdate: () => void;
 }) {
   const memory = getMemoryUsage();
+  const sortedSongs = useMemo(
+    () => [...songs].sort((left, right) => `${left.title} ${left.artist}`.localeCompare(`${right.title} ${right.artist}`)),
+    [songs]
+  );
+  const [newWorkingSongId, setNewWorkingSongId] = useState('');
+  const [oldFailingSongId, setOldFailingSongId] = useState('');
+  const [chartDiffStatus, setChartDiffStatus] = useState('');
+
+  const selectedNewWorkingSong = songs.find((song) => song.id === newWorkingSongId) ?? null;
+  const selectedOldFailingSong = songs.find((song) => song.id === oldFailingSongId) ?? null;
+
+  function exportStoredChartDiff() {
+    if (!selectedNewWorkingSong || !selectedOldFailingSong) {
+      setChartDiffStatus('Choose both songs before exporting the stored chart diff.');
+      return;
+    }
+    const newWorkingChart = getStoredSongChartText(selectedNewWorkingSong);
+    const oldFailingChart = getStoredSongChartText(selectedOldFailingSong);
+    const report = compareChartTexts(
+      { label: songDiagnosticLabel(selectedNewWorkingSong), text: newWorkingChart },
+      { label: songDiagnosticLabel(selectedOldFailingSong), text: oldFailingChart }
+    );
+
+    downloadText(JSON.stringify(report, null, 2), 'chart-diff.json', 'application/json');
+    downloadText(visibleChartText(newWorkingChart), 'new-harmony-visible.txt', 'text/plain');
+    downloadText(escapedChartText(newWorkingChart), 'new-harmony-escaped.txt', 'text/plain');
+    downloadText(visibleChartText(oldFailingChart), 'old-harmony-visible.txt', 'text/plain');
+    downloadText(escapedChartText(oldFailingChart), 'old-harmony-escaped.txt', 'text/plain');
+
+    const firstByte = report.firstDifferingByte
+      ? `${report.firstDifferingByte.index} (${report.firstDifferingByte.newByte} vs ${report.firstDifferingByte.oldByte})`
+      : 'none';
+    setChartDiffStatus(`Stored chart diff exported. First differing byte: ${firstByte}.`);
+  }
 
   return (
     <main className="min-h-[calc(100vh-105px)] p-4">
@@ -7676,6 +7714,57 @@ function DiagnosticsView({
             </button>
           </div>
         </SettingsCard>
+        <SettingsCard title="Stored Chart Text Diff">
+          <div className="grid gap-3 text-sm">
+            <p className="text-slate-600">
+              Compare raw chart text from two saved OpenStage songs before any editor copy/paste. This does not modify songs or export serialization.
+            </p>
+            <label className="grid gap-1">
+              <span className="font-semibold text-slate-700">New working harmony song</span>
+              <select
+                className="input"
+                value={newWorkingSongId}
+                onChange={(event) => {
+                  setNewWorkingSongId(event.target.value);
+                  setChartDiffStatus('');
+                }}
+              >
+                <option value="">Select a song...</option>
+                {sortedSongs.map((song) => (
+                  <option key={song.id} value={song.id}>
+                    {song.title || 'Untitled'}{song.artist ? ` - ${song.artist}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1">
+              <span className="font-semibold text-slate-700">Old failing harmony song</span>
+              <select
+                className="input"
+                value={oldFailingSongId}
+                onChange={(event) => {
+                  setOldFailingSongId(event.target.value);
+                  setChartDiffStatus('');
+                }}
+              >
+                <option value="">Select a song...</option>
+                {sortedSongs.map((song) => (
+                  <option key={song.id} value={song.id}>
+                    {song.title || 'Untitled'}{song.artist ? ` - ${song.artist}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <Metric label="New stored chart length" value={selectedNewWorkingSong ? String(getStoredSongChartText(selectedNewWorkingSong).length) : '-'} />
+              <Metric label="Old stored chart length" value={selectedOldFailingSong ? String(getStoredSongChartText(selectedOldFailingSong).length) : '-'} />
+            </div>
+            <button className="primary-button w-fit" type="button" onClick={exportStoredChartDiff} disabled={songs.length < 2}>
+              Export Stored Chart Diff
+            </button>
+            {chartDiffStatus && <p className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">{chartDiffStatus}</p>}
+          </div>
+        </SettingsCard>
         <section className="rounded-md border border-slate-300 bg-white p-4 md:col-span-2">
           <div className="mb-3 flex items-center gap-3">
             <h2 className="text-lg font-semibold">Application Logs</h2>
@@ -7698,6 +7787,18 @@ function DiagnosticsView({
       </div>
     </main>
   );
+}
+
+function getStoredSongChartText(song: Song) {
+  return typeof song.rawChordPro === 'string' && song.rawChordPro.length > 0
+    ? song.rawChordPro
+    : song.chart ?? '';
+}
+
+function songDiagnosticLabel(song: Song) {
+  const title = song.title?.trim() || 'Untitled';
+  const artist = song.artist?.trim();
+  return `${artist ? `${title} - ${artist}` : title} (${song.id})`;
 }
 
 function StorageErrorView({ message }: { message: string }) {
