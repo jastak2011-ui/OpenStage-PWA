@@ -16,6 +16,7 @@ export const aiDraftDisclaimerText =
   'AI Draft creates a chord chart from AI knowledge. It does not retrieve or verify a published song chart, so lyrics, chords, key, BPM, and song structure may be inaccurate.';
 
 export const aiDraftPreviewBadge = 'AI Generated Draft';
+export const aiDraftMenuLabel = 'AI Draft';
 
 export function normalizeAiDraftSongResponse(imported: AiDraftImportedSong, requested: AiDraftRequestedIdentity) {
   const title = requested.title.trim();

@@ -11,9 +11,9 @@ import {
   autoscrollSpeedQuickPresets,
   shouldOpenAutoscrollSpeedPopover
 } from './autoscrollButton-test-target.mjs';
-import { aiDraftDisclaimerText, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './aiDraft-test-target.mjs';
+import { aiDraftDisclaimerText, aiDraftMenuLabel, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './aiDraft-test-target.mjs';
 import { createMusicBrainzRecordingQuery, createMusicBrainzThrottle, normalizeMusicBrainzSearchText, rankMusicBrainzRecordings, searchMusicBrainzRecordings } from './musicbrainz-test-target.mjs';
-import { createPasteChartPrefillText, createSearchImportPrefill, formatDurationMs, releaseYearFromDate } from './searchImport-test-target.mjs';
+import { createPasteChartPrefillText, createSearchImportPrefill, formatDurationMs, releaseYearFromDate, searchImportConfirmedActions, searchImportConfirmedCopy } from './searchImport-test-target.mjs';
 import { parseDurationInput } from './format-test-target.mjs';
 import { applyPerformanceChordTransform } from './chords-test-target.mjs';
 import {
@@ -100,8 +100,13 @@ assert.equal(aiDraftWithMismatchedIdentity.bpm, 128);
 assert.equal(aiDraftWithMismatchedIdentity.chart, 'Verse 1:\nC\nGenerated text');
 assert.equal(normalizeAiDraftSongResponse({ title: 'Wrong', artist: 'Wrong' }, { title: 'Untitled Draft', artist: '' }).artist, '');
 assert.equal(aiDraftPreviewBadge, 'AI Generated Draft');
+assert.equal(aiDraftMenuLabel, 'AI Draft');
 assert.match(aiDraftDisclaimerText, /does not retrieve or verify/i);
 assert.match(aiDraftDisclaimerText, /may be inaccurate/i);
+assert.deepEqual([...searchImportConfirmedActions], ['Paste Chart', 'Cancel']);
+assert.equal(searchImportConfirmedActions.includes('Create AI Draft'), false);
+assert.match(searchImportConfirmedCopy, /source you provide/i);
+assert.doesNotMatch(searchImportConfirmedCopy, /AI/i);
 
 assert.equal(normalizeMusicBrainzSearchText(" Livin'  On a Prayer! "), 'livin on a prayer');
 assert.equal(createMusicBrainzRecordingQuery({ title: 'Song "A"', artist: 'Artist A' }), 'recording:"Song \\"A\\"" AND artist:"Artist A"');

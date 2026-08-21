@@ -23,6 +23,9 @@ export type SearchImportPrefill = {
   releaseDate?: string;
 };
 
+export const searchImportConfirmedCopy = 'Song identity verified. Add chart content from a source you provide.';
+export const searchImportConfirmedActions = ['Paste Chart', 'Cancel'] as const;
+
 export function createSearchImportPrefill(candidate: SearchImportCandidate): SearchImportPrefill {
   return {
     id: `${candidate.recordingMbid || candidate.title}-${Date.now()}`,

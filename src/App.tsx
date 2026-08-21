@@ -88,12 +88,14 @@ import { getEffectivePrompterCapo, getPrompterCapoTransposeOffset, normalizeProm
 import { createId, createSongUuid } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
-import { aiDraftDisclaimerText, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './lib/aiDraft';
+import { aiDraftDisclaimerText, aiDraftMenuLabel, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './lib/aiDraft';
 import {
   createPasteChartPrefillText,
   createSearchImportPrefill,
   formatDurationMs,
   releaseYearFromDate,
+  searchImportConfirmedActions,
+  searchImportConfirmedCopy,
   type SearchImportCandidate,
   type SearchImportPrefill
 } from './lib/searchImport';
@@ -3209,7 +3211,7 @@ export default function App() {
                     <Plus size={18} /> Create From Scratch
                   </button>
                   <button className="stage-menu-button justify-start" type="button" onClick={() => { setMobileNavOpen(false); openAiImport(); }}>
-                    <Sparkles size={18} /> AI Draft
+                    <Sparkles size={18} /> {aiDraftMenuLabel}
                   </button>
                   <button className="stage-menu-button justify-start" type="button" onClick={() => openPasteImport()}>
                     <Upload size={18} /> Paste / Webpage Chart
@@ -3580,7 +3582,6 @@ export default function App() {
         <SearchImportModal
           onClose={() => setSearchImportOpen(false)}
           onPasteChart={(prefill) => openPasteImport(prefill)}
-          onAiDraft={(prefill) => openAiImport(prefill)}
         />
       )}
       {receiveSongOpen && (
@@ -7900,7 +7901,7 @@ function NewSongMenu({ align, onSelect }: { align: 'left' | 'right'; onSelect: (
       <button className="flex w-full items-start gap-3 border-t border-slate-800 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('ai')}>
         <Sparkles size={16} className="mt-0.5 shrink-0" />
         <span>
-          <span className="block font-semibold">AI Draft</span>
+          <span className="block font-semibold">{aiDraftMenuLabel}</span>
           <span className="block text-xs leading-5 text-slate-400">Generate an editable starting point with AI. May be inaccurate.</span>
         </span>
       </button>
@@ -7986,12 +7987,10 @@ function ReceiveSongModal({ onClose, onReceive }: { onClose: () => void; onRecei
 
 function SearchImportModal({
   onClose,
-  onPasteChart,
-  onAiDraft
+  onPasteChart
 }: {
   onClose: () => void;
   onPasteChart: (prefill: SearchImportPrefill) => void;
-  onAiDraft: (prefill: SearchImportPrefill) => void;
 }) {
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
@@ -8022,7 +8021,7 @@ function SearchImportModal({
       setResults(body.results);
     } catch {
       setResults([]);
-      setError('Song search failed. Try again, use AI Draft, or paste a chart from a source you provide.');
+      setError('Song search failed. Try again or paste a chart from a source you provide.');
     } finally {
       setLoading(false);
     }
@@ -8086,9 +8085,6 @@ function SearchImportModal({
                     <button className="rounded-md border border-amber-200/40 px-3 py-2 font-semibold hover:bg-white/10" type="button" onClick={() => setSearched(false)}>
                       Edit Search
                     </button>
-                    <button className="rounded-md border border-amber-200/40 px-3 py-2 font-semibold hover:bg-white/10" type="button" onClick={() => onAiDraft({ id: `manual-${Date.now()}`, title: title.trim(), artist: artist.trim() })}>
-                      Try AI Draft
-                    </button>
                     <button className="rounded-md border border-amber-200/40 px-3 py-2 font-semibold hover:bg-white/10" type="button" onClick={() => onPasteChart({ id: `manual-${Date.now()}`, title: title.trim(), artist: artist.trim() })}>
                       Paste / Webpage Chart
                     </button>
@@ -8134,17 +8130,14 @@ function SearchImportModal({
               </section>
               <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
                 <h3 className="text-lg font-semibold">How would you like to add the chart?</h3>
-                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <p className="mt-1 text-sm text-slate-300">{searchImportConfirmedCopy}</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   <button className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onPasteChart(selectedPrefill)}>
-                    <span className="block font-semibold">Paste Chart</span>
+                    <span className="block font-semibold">{searchImportConfirmedActions[0]}</span>
                     <span className="mt-1 block text-xs leading-5 text-slate-400">Use chart text from a source you provide.</span>
                   </button>
-                  <button className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onAiDraft(selectedPrefill)}>
-                    <span className="block font-semibold">Create AI Draft</span>
-                    <span className="mt-1 block text-xs leading-5 text-slate-400">Still unverified and AI-generated.</span>
-                  </button>
                   <button className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={onClose}>
-                    <span className="block font-semibold">Cancel</span>
+                    <span className="block font-semibold">{searchImportConfirmedActions[1]}</span>
                     <span className="mt-1 block text-xs leading-5 text-slate-400">Return without creating a song.</span>
                   </button>
                 </div>
