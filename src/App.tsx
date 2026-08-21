@@ -88,6 +88,7 @@ import { getEffectivePrompterCapo, getPrompterCapoTransposeOffset, normalizeProm
 import { createId, createSongUuid } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
+import { aiDraftDisclaimerText, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './lib/aiDraft';
 import { createOnSongSetlistArchive, createOnSongSetlistArchiveFileName } from './lib/onsongArchiveWriter';
 import { validateOnSongArchive } from './lib/onsongArchiveValidator';
 import { parseBinaryPlist } from './lib/binaryPlist';
@@ -332,7 +333,7 @@ type WrappedAnchoredLine = {
 type SetlistSortMode = 'manual' | 'title' | 'artist' | 'key' | 'bpm' | 'duration';
 type StagePopoverName = 'library' | 'setlists' | 'format' | 'more';
 type StageFormatTab = 'document' | 'format' | 'chords' | 'harmony' | 'sections' | 'display' | 'autoscroll' | 'external';
-type NewSongAction = 'scratch' | 'ai' | 'receive';
+type NewSongAction = 'scratch' | 'ai' | 'paste' | 'receive';
 type StageSelectionAction = {
   start: number;
   end: number;
@@ -868,29 +869,24 @@ async function fetchSharedSong(shareId: string) {
   return songFromSharedSong(body.song, shareId);
 }
 
-function songFromAiImport(imported: AiImportedSong): Song {
-  const title = imported.title?.trim() || 'AI Imported Song';
-  const artist = imported.artist?.trim() || 'Unknown artist';
-  const key = imported.key?.trim() || '';
-  const capo = Math.max(0, Math.round(Number(imported.capo ?? 0) || 0));
-  const bpm = Number.isFinite(Number(imported.bpm)) && Number(imported.bpm) > 0 ? Math.round(Number(imported.bpm)) : 0;
-  const chart = imported.chart || '';
+function songFromAiImport(imported: AiImportedSong, requested: { title: string; artist: string }): Song {
+  const draft = normalizeAiDraftSongResponse(imported, requested);
 
   return {
     ...emptySong(),
     songUuid: imported.songUuid?.trim() || createSongUuid(),
     version: normalizeSongVersion(imported.version),
-    title,
-    artist,
-    key,
-    originalKey: key,
-    performanceKey: key,
-    capo,
-    bpm,
-    chart,
-    rawChordPro: chart,
+    title: draft.title || 'AI Draft',
+    artist: draft.artist,
+    key: draft.key,
+    originalKey: draft.key,
+    performanceKey: draft.key,
+    capo: draft.capo,
+    bpm: draft.bpm,
+    chart: draft.chart,
+    rawChordPro: draft.chart,
     displayPreference: 'chords-over',
-    parsedChordPro: parseChordPro(chart),
+    parsedChordPro: parseChordPro(draft.chart),
     updatedAt: new Date().toISOString()
   };
 }
@@ -1656,6 +1652,12 @@ export default function App() {
     setAiImportOpen(true);
   }
 
+  function openPasteImport() {
+    setNewSongMenuOpen(false);
+    setMobileNavOpen(false);
+    setActiveMode('import');
+  }
+
   function openReceiveSong() {
     setNewSongMenuOpen(false);
     setReceiveSongOpen(true);
@@ -1673,7 +1675,7 @@ export default function App() {
     setEditorReturnMode(activeMode);
     setActiveMode('editor');
     setAiImportOpen(false);
-    setToast({ message: 'AI song imported', type: 'success' });
+    setToast({ message: 'AI draft saved', type: 'success' });
   }
 
   async function markSongShared(songId: string) {
@@ -3094,6 +3096,7 @@ export default function App() {
                   onSelect={(action) => {
                     if (action === 'scratch') void createSongFromScratch('library');
                     if (action === 'ai') openAiImport();
+                    if (action === 'paste') openPasteImport();
                     if (action === 'receive') openReceiveSong();
                   }}
                 />
@@ -3183,7 +3186,10 @@ export default function App() {
                     <Plus size={18} /> Create From Scratch
                   </button>
                   <button className="stage-menu-button justify-start" type="button" onClick={() => { setMobileNavOpen(false); openAiImport(); }}>
-                    <Sparkles size={18} /> AI Import
+                    <Sparkles size={18} /> AI Draft
+                  </button>
+                  <button className="stage-menu-button justify-start" type="button" onClick={openPasteImport}>
+                    <Upload size={18} /> Paste / Webpage Chart
                   </button>
                   <button className="stage-menu-button justify-start" type="button" onClick={() => setTopLevelMode('import')}>
                     <Upload size={18} /> Import
@@ -3222,6 +3228,7 @@ export default function App() {
           onNewSongAction={(action) => {
             if (action === 'scratch') void createSongFromScratch('library');
             if (action === 'ai') openAiImport();
+            if (action === 'paste') openPasteImport();
             if (action === 'receive') openReceiveSong();
           }}
           onSelect={(id) => {
@@ -3411,6 +3418,7 @@ export default function App() {
           onNewSongAction={(action) => {
             if (action === 'scratch') void createSongFromScratch('perform');
             if (action === 'ai') openAiImport();
+            if (action === 'paste') openPasteImport();
             if (action === 'receive') openReceiveSong();
           }}
           onToggleFavorite={toggleSongFavorite}
@@ -3479,6 +3487,7 @@ export default function App() {
           onNewSongAction={(action) => {
             if (action === 'scratch') void createSongFromScratch('stage');
             if (action === 'ai') openAiImport();
+            if (action === 'paste') openPasteImport();
             if (action === 'receive') openReceiveSong();
           }}
           onToggleFavorite={toggleSongFavorite}
@@ -7822,15 +7831,41 @@ function StorageErrorView({ message }: { message: string }) {
 
 function NewSongMenu({ align, onSelect }: { align: 'left' | 'right'; onSelect: (action: NewSongAction) => void }) {
   return (
-    <div className={`absolute top-full z-50 mt-2 w-56 overflow-hidden rounded-md border border-slate-700 bg-slate-950 text-sm text-white shadow-2xl ${align === 'right' ? 'right-0' : 'left-0'}`}>
-      <button className="flex w-full items-center gap-2 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('scratch')}>
-        <Pencil size={16} /> Create From Scratch
+    <div className={`absolute top-full z-50 mt-2 w-80 overflow-hidden rounded-md border border-slate-700 bg-slate-950 text-sm text-white shadow-2xl ${align === 'right' ? 'right-0' : 'left-0'}`}>
+      <button className="flex w-full items-start gap-3 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('scratch')}>
+        <Pencil size={16} className="mt-0.5 shrink-0" />
+        <span>
+          <span className="block font-semibold">Create From Scratch</span>
+          <span className="block text-xs leading-5 text-slate-400">Start with a blank editable song.</span>
+        </span>
       </button>
-      <button className="flex w-full items-center gap-2 border-t border-slate-800 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('ai')}>
-        <Sparkles size={16} /> AI Import
+      <button className="flex w-full items-start gap-3 border-t border-slate-800 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('ai')}>
+        <Sparkles size={16} className="mt-0.5 shrink-0" />
+        <span>
+          <span className="block font-semibold">AI Draft</span>
+          <span className="block text-xs leading-5 text-slate-400">Generate an editable starting point with AI. May be inaccurate.</span>
+        </span>
       </button>
-      <button className="flex w-full items-center gap-2 border-t border-slate-800 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('receive')}>
-        <Download size={16} /> Receive Song
+      <button className="flex w-full items-start gap-3 border-t border-slate-800 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('paste')}>
+        <Upload size={16} className="mt-0.5 shrink-0" />
+        <span>
+          <span className="block font-semibold">Paste / Webpage Chart</span>
+          <span className="block text-xs leading-5 text-slate-400">Import and format chart text from a source you provide.</span>
+        </span>
+      </button>
+      <button className="flex w-full cursor-not-allowed items-start gap-3 border-t border-slate-800 px-3 py-3 text-left opacity-60" type="button" disabled>
+        <Search size={16} className="mt-0.5 shrink-0" />
+        <span>
+          <span className="block font-semibold">Search Import</span>
+          <span className="block text-xs leading-5 text-slate-400">Find and verify a song from an external source. Coming Soon.</span>
+        </span>
+      </button>
+      <button className="flex w-full items-start gap-3 border-t border-slate-800 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('receive')}>
+        <Download size={16} className="mt-0.5 shrink-0" />
+        <span>
+          <span className="block font-semibold">Receive Song</span>
+          <span className="block text-xs leading-5 text-slate-400">Use a share code from another OpenStage user.</span>
+        </span>
       </button>
     </div>
   );
@@ -7904,8 +7939,8 @@ function AiImportSongModal({ onClose, onImport }: { onClose: () => void; onImpor
   const generate = async () => {
     const requestTitle = title.trim();
     const requestArtist = artist.trim();
-    if (!requestTitle || !requestArtist) {
-      setError('Song title and artist are required.');
+    if (!requestTitle) {
+      setError('Song title is required.');
       return;
     }
 
@@ -7923,15 +7958,15 @@ function AiImportSongModal({ onClose, onImport }: { onClose: () => void; onImpor
         })
       });
       const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.ok || !data.song) throw new Error('AI import failed');
-      const nextSong = songFromAiImport(data.song);
+      if (!response.ok || !data?.ok || !data.song) throw new Error('AI draft failed');
+      const nextSong = songFromAiImport(data.song, { title: requestTitle, artist: requestArtist });
       setPreview(nextSong);
       setTitle(nextSong.title);
       setArtist(nextSong.artist);
       setPreferredKey(nextSong.key);
       setCapo(String(nextSong.capo ?? 0));
     } catch {
-      setError('AI Import failed. Try again or use Paste Webpage Chart.');
+      setError('AI Draft failed. Try again or use Paste Webpage Chart.');
     } finally {
       setLoading(false);
     }
@@ -7955,7 +7990,7 @@ function AiImportSongModal({ onClose, onImport }: { onClose: () => void; onImpor
         updatedAt: new Date().toISOString()
       });
     } catch {
-      setError('AI Import failed. Try again or use Paste Webpage Chart.');
+      setError('AI Draft failed. Try again or use Paste Webpage Chart.');
     } finally {
       setSaving(false);
     }
@@ -7966,22 +8001,25 @@ function AiImportSongModal({ onClose, onImport }: { onClose: () => void; onImpor
       <div className="max-h-[min(92vh,760px)] w-[min(56rem,100%)] overflow-hidden rounded-xl border border-slate-700 bg-slate-950 text-slate-100 shadow-2xl">
         <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
           <div>
-            <h2 className="text-lg font-semibold">AI Import Song</h2>
-            <p className="text-xs text-slate-400">Generate a draft chart through OpenStage-API, then preview before saving.</p>
+            <h2 className="text-lg font-semibold">Create Song Draft with AI</h2>
+            <p className="text-xs text-slate-400">Generate an editable starting point, then review every detail before saving.</p>
           </div>
-          <button className="icon-button" type="button" aria-label="Close AI Import" onClick={onClose}>
+          <button className="icon-button" type="button" aria-label="Close AI Draft" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
 
         <div className="max-h-[calc(min(92vh,760px)-4rem)] overflow-y-auto p-4">
+          <div className="mb-4 rounded-md border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-sm leading-6 text-amber-50">
+            {aiDraftDisclaimerText}
+          </div>
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1 text-sm font-semibold">
               Song Title <span className="text-red-300">*</span>
               <input className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-teal-400" value={title} onChange={(event) => setTitle(event.target.value)} />
             </label>
             <label className="grid gap-1 text-sm font-semibold">
-              Artist <span className="text-red-300">*</span>
+              Artist <span className="text-slate-500">optional</span>
               <input className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-teal-400" value={artist} onChange={(event) => setArtist(event.target.value)} />
             </label>
             <label className="grid gap-1 text-sm font-semibold">
@@ -7995,8 +8033,8 @@ function AiImportSongModal({ onClose, onImport }: { onClose: () => void; onImpor
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-60" type="button" disabled={loading || !title.trim() || !artist.trim()} onClick={generate}>
-              {loading ? 'Generating chart...' : preview ? 'Regenerate' : 'Generate Chart'}
+            <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-60" type="button" disabled={loading || !title.trim()} onClick={generate}>
+              {loading ? 'Creating draft...' : preview ? 'Regenerate Draft' : 'Create AI Draft'}
             </button>
             <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-white/10" type="button" onClick={onClose}>
               Cancel
@@ -8006,7 +8044,12 @@ function AiImportSongModal({ onClose, onImport }: { onClose: () => void; onImpor
 
           {preview && (
             <div className="mt-5 grid gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3">
-              <h3 className="font-semibold">Preview Before Saving</h3>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-semibold">Preview Before Saving</h3>
+                <span className="rounded-full border border-amber-300/40 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-100">
+                  {aiDraftPreviewBadge}
+                </span>
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-1 text-sm font-semibold">
                   Title
@@ -8035,10 +8078,10 @@ function AiImportSongModal({ onClose, onImport }: { onClose: () => void; onImpor
               </label>
               <div className="flex flex-wrap gap-2">
                 <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-60" type="button" disabled={saving} onClick={importPreview}>
-                  {saving ? 'Importing...' : 'Import Song'}
+                  {saving ? 'Saving draft...' : 'Save Draft to Library'}
                 </button>
                 <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-white/10 disabled:cursor-wait disabled:opacity-60" type="button" disabled={loading} onClick={generate}>
-                  Regenerate
+                  Regenerate Draft
                 </button>
                 <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-white/10" type="button" onClick={onClose}>
                   Cancel

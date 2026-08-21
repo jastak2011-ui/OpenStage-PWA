@@ -74,8 +74,8 @@ function parseClaudeJson(text) {
 
 function normalizeImportedSong(song, fallback) {
   return {
-    title: typeof song?.title === 'string' && song.title.trim() ? song.title.trim() : fallback.title,
-    artist: typeof song?.artist === 'string' && song.artist.trim() ? song.artist.trim() : fallback.artist,
+    title: fallback.title,
+    artist: fallback.artist,
     key: typeof song?.key === 'string' ? song.key.trim() : '',
     capo: Number.isFinite(Number(song?.capo)) ? Math.max(0, Math.round(Number(song.capo))) : 0,
     bpm: Number.isFinite(Number(song?.bpm)) && Number(song.bpm) > 0 ? Math.round(Number(song.bpm)) : null,
@@ -564,10 +564,10 @@ app.post('/api/ai-import-song', async (request, response) => {
   const key = typeof request.body?.key === 'string' ? request.body.key.trim() : '';
   const capo = request.body?.capo ?? '';
 
-  if (!title || !artist) {
+  if (!title) {
     response.status(400).json({
       ok: false,
-      error: 'Title and artist are required.'
+      error: 'Title is required.'
     });
     return;
   }
@@ -575,7 +575,7 @@ app.post('/api/ai-import-song', async (request, response) => {
   if (!process.env.ANTHROPIC_API_KEY) {
     response.status(500).json({
       ok: false,
-      error: 'AI import failed.'
+      error: 'AI draft failed.'
     });
     return;
   }
@@ -587,7 +587,8 @@ app.post('/api/ai-import-song', async (request, response) => {
       apiKey: process.env.ANTHROPIC_API_KEY
     });
     const prompt = [
-      'Return ONLY valid JSON for an OpenStage song import. Do not include markdown, explanations, or code fences.',
+      'Return ONLY valid JSON for an OpenStage AI draft. Do not include markdown, explanations, or code fences.',
+      'This is an unverified draft. Do not claim that the chart is authoritative or sourced from a published chart.',
       'The JSON object must use exactly these fields:',
       '{"title":"","artist":"","key":"","capo":0,"bpm":null,"chart":""}',
       'Chart requirements:',
@@ -599,7 +600,7 @@ app.post('/api/ai-import-song', async (request, response) => {
       '- no code fences',
       '',
       `Song title: ${title}`,
-      `Artist: ${artist}`,
+      `Artist: ${artist || 'optional/unknown'}`,
       `Key: ${key || 'optional/unknown'}`,
       `Capo: ${capo === '' ? 'optional/unknown' : capo}`
     ].join('\n');
@@ -621,10 +622,10 @@ app.post('/api/ai-import-song', async (request, response) => {
       song
     });
   } catch (error) {
-    getAnthropicErrorDetails(error, 'AI import');
+    getAnthropicErrorDetails(error, 'AI draft');
     response.status(500).json({
       ok: false,
-      error: 'AI import failed.'
+      error: 'AI draft failed.'
     });
   }
 });

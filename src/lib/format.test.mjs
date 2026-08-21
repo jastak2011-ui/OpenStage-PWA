@@ -11,6 +11,7 @@ import {
   autoscrollSpeedQuickPresets,
   shouldOpenAutoscrollSpeedPopover
 } from './autoscrollButton-test-target.mjs';
+import { aiDraftDisclaimerText, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './aiDraft-test-target.mjs';
 import { parseDurationInput } from './format-test-target.mjs';
 import { applyPerformanceChordTransform } from './chords-test-target.mjs';
 import {
@@ -77,6 +78,28 @@ assert.equal(parseDurationInput('3:45'), 225);
 assert.equal(parseDurationInput('03:45'), 225);
 assert.equal(parseDurationInput('1:02:30'), 3750);
 assert.equal(parseDurationInput('3:99'), undefined);
+
+const aiDraftWithMismatchedIdentity = normalizeAiDraftSongResponse(
+  {
+    title: 'Wrong Song',
+    artist: 'Wrong Artist',
+    key: ' E ',
+    capo: '2',
+    bpm: '128',
+    chart: 'Verse 1:\nC\nGenerated text'
+  },
+  { title: 'Requested Song', artist: 'Requested Artist' }
+);
+assert.equal(aiDraftWithMismatchedIdentity.title, 'Requested Song');
+assert.equal(aiDraftWithMismatchedIdentity.artist, 'Requested Artist');
+assert.equal(aiDraftWithMismatchedIdentity.key, 'E');
+assert.equal(aiDraftWithMismatchedIdentity.capo, 2);
+assert.equal(aiDraftWithMismatchedIdentity.bpm, 128);
+assert.equal(aiDraftWithMismatchedIdentity.chart, 'Verse 1:\nC\nGenerated text');
+assert.equal(normalizeAiDraftSongResponse({ title: 'Wrong', artist: 'Wrong' }, { title: 'Untitled Draft', artist: '' }).artist, '');
+assert.equal(aiDraftPreviewBadge, 'AI Generated Draft');
+assert.match(aiDraftDisclaimerText, /does not retrieve or verify/i);
+assert.match(aiDraftDisclaimerText, /may be inaccurate/i);
 
 assert.equal(normalizeTempoBpm(120), 120);
 assert.equal(normalizeTempoBpm('90'), 90);
