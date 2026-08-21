@@ -11543,17 +11543,15 @@ function StageControlPopover({
   }
 
   const isFormatPopover = active === 'format';
-  const formatPopoverStyle = isFormatPopover
-    ? {
-        '--stage-header-height': `${stageHeaderHeight}px`
-      } as CSSProperties
-    : undefined;
+  const stagePopoverStyle = {
+    '--stage-header-height': `${stageHeaderHeight}px`
+  } as CSSProperties;
 
   return (
     <aside
-      className={`stage-popover fixed ${popoverPosition} top-20 z-50 w-[min(24rem,calc(100vw-1.5rem))] rounded-lg border shadow-2xl backdrop-blur-md ${menuSurface} ${isFormatPopover ? 'stage-format-popover flex flex-col overflow-hidden p-0' : 'p-3'}`}
+      className={`stage-popover fixed ${popoverPosition} z-50 w-[min(24rem,calc(100vw-1.5rem))] rounded-lg border shadow-2xl backdrop-blur-md ${menuSurface} ${isFormatPopover ? 'stage-format-popover flex flex-col overflow-hidden p-0' : 'p-3'}`}
       data-stage-popover={active}
-      style={formatPopoverStyle}
+      style={stagePopoverStyle}
       onClick={(event) => event.stopPropagation()}
     >
       {active === 'library' && (
