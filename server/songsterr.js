@@ -96,8 +96,11 @@ export async function resolveSongsterrSong({ title, artist, fetchImpl = fetch } 
     throw error;
   }
 
-  const params = new URLSearchParams({ pattern: `${requestedTitle} ${requestedArtist}` });
-  const response = await fetchImpl(`${songsterrApiBaseUrl}/a/ra/songs.json?${params.toString()}`, {
+  const params = new URLSearchParams({
+    pattern: `${requestedTitle} ${requestedArtist}`,
+    size: '10'
+  });
+  const response = await fetchImpl(`${songsterrApiBaseUrl}/api/songs?${params.toString()}`, {
     headers: {
       Accept: 'application/json',
       'User-Agent': songsterrUserAgent

@@ -209,23 +209,23 @@ assert.equal(chartSourceDomainFromUrl('https://www.ultimate-guitar.com/search.ph
 
 assert.equal(normalizeSongsterrMatchText("Don't Stop Believin' (feat. Someone)"), 'dont stop believin');
 const songsterrCandidates = [
-  { id: 101, title: 'Lights', artist: 'Journey', extraTabContent: 'must never be returned' },
-  { id: 202, title: 'Lights', artist: 'Styx' },
-  { id: 303, title: 'Lights - Live', artist: 'Styx' }
+  { songId: 101, title: 'Lights', artist: 'Journey', tracks: [{ hash: 'journey-tab-data-must-not-return' }] },
+  { songId: 4053236, title: 'Lights', artist: 'Styx', tracks: [{ hash: 'styx-tab-data-must-not-return' }] },
+  { songId: 303, title: 'Lights - Live', artist: 'Styx', tracks: [{ hash: 'live-tab-data-must-not-return' }] }
 ];
 const rankedSongsterr = rankSongsterrCandidates(songsterrCandidates, { title: 'Lights', artist: 'Styx' });
-assert.equal(rankedSongsterr[0].songsterrId, '202');
+assert.equal(rankedSongsterr[0].songsterrId, '4053236');
 assert.equal(rankedSongsterr[0].titleMatch, true);
 assert.equal(rankedSongsterr[0].artistMatch, true);
 assert.equal(rankedSongsterr.find((candidate) => candidate.artist === 'Journey')?.artistMatch, false);
-assert.match(rankedSongsterr[0].directUrl, /^https:\/\/www\.songsterr\.com\/a\/wsa\/styx-lights-tab-s202$/);
-assert.equal(Object.prototype.hasOwnProperty.call(rankedSongsterr[0], 'extraTabContent'), false);
+assert.match(rankedSongsterr[0].directUrl, /^https:\/\/www\.songsterr\.com\/a\/wsa\/styx-lights-tab-s4053236$/);
+assert.equal(Object.prototype.hasOwnProperty.call(rankedSongsterr[0], 'tracks'), false);
 assert.equal(createSongsterrDirectUrl({ songsterrId: 4053236, title: 'Lights', artist: 'Styx' }), 'https://www.songsterr.com/a/wsa/styx-lights-tab-s4053236');
 const resolvedSongsterr = await resolveSongsterrSong({
   title: 'Lights',
   artist: 'Styx',
   fetchImpl: async (url) => {
-    assert.equal(String(url), 'https://www.songsterr.com/a/ra/songs.json?pattern=Lights+Styx');
+    assert.equal(String(url), 'https://www.songsterr.com/api/songs?pattern=Lights+Styx&size=10');
     return {
       ok: true,
       json: async () => songsterrCandidates
@@ -233,14 +233,15 @@ const resolvedSongsterr = await resolveSongsterrSong({
   }
 });
 assert.equal(resolvedSongsterr.noExactMatch, false);
-assert.equal(resolvedSongsterr.match.songsterrId, '202');
-assert.equal(Object.prototype.hasOwnProperty.call(resolvedSongsterr.match, 'extraTabContent'), false);
+assert.equal(resolvedSongsterr.match.songsterrId, '4053236');
+assert.equal(resolvedSongsterr.match.directUrl, 'https://www.songsterr.com/a/wsa/styx-lights-tab-s4053236');
+assert.equal(Object.prototype.hasOwnProperty.call(resolvedSongsterr.match, 'tracks'), false);
 const unresolvedSongsterr = await resolveSongsterrSong({
   title: 'Lights',
   artist: 'Styx',
   fetchImpl: async () => ({
     ok: true,
-    json: async () => [{ id: 101, title: 'Lights', artist: 'Journey' }]
+    json: async () => [{ songId: 101, title: 'Lights', artist: 'Journey', tracks: [{ hash: 'wrong-artist-tab-data' }] }]
   })
 });
 assert.equal(unresolvedSongsterr.noExactMatch, true);
