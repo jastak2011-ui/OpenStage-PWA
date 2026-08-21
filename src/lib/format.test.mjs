@@ -45,8 +45,8 @@ import {
   getEffectiveChordVerticalOffset,
   getEffectiveHarmonyUnderline,
   getEffectiveLineSpacing,
-  getEffectiveShowArtistInChart,
   getEffectiveShowChords,
+  getEffectiveShowSongTitleAndArtistInChart,
   getEffectiveShowSongTitleInChart,
   getEffectiveSongArtistBold,
   getEffectiveSongArtistFontSize,
@@ -54,8 +54,8 @@ import {
   getEffectiveSongTitleFontSize,
   harmonyUnderlineUpdate,
   lineSpacingUpdate,
-  showArtistInChartUpdate,
   showChordsUpdate,
+  showSongTitleAndArtistInChartUpdate,
   showSongTitleInChartUpdate,
   songArtistBoldUpdate,
   songArtistFontSizeUpdate,
@@ -546,6 +546,11 @@ const displayState = {
     desktop: 56,
     tablet: 64
   },
+  showSongTitleAndArtistInChart: true,
+  showSongTitleAndArtistInChartByProfile: {
+    desktop: true,
+    tablet: false
+  },
   showSongTitleInChart: true,
   showSongTitleInChartByProfile: {
     desktop: true,
@@ -619,9 +624,38 @@ assert.deepEqual(songTitleFontSizeUpdate(displayState, 72), {
 });
 assert.equal(getEffectiveShowSongTitleInChart(displayState), true);
 assert.equal(getEffectiveShowSongTitleInChart({ ...displayState, activeProfile: 'tablet' }), false);
-assert.deepEqual(showSongTitleInChartUpdate(displayState, false), {
+assert.equal(getEffectiveShowSongTitleAndArtistInChart(displayState), true);
+assert.equal(getEffectiveShowSongTitleAndArtistInChart({ ...displayState, activeProfile: 'tablet' }), false);
+assert.deepEqual(showSongTitleAndArtistInChartUpdate(displayState, false), {
+  showSongTitleAndArtistInChart: false,
+  showSongTitleAndArtistInChartByProfile: {
+    desktop: false,
+    tablet: false
+  },
   showSongTitleInChart: false,
   showSongTitleInChartByProfile: {
+    desktop: false,
+    tablet: false
+  },
+  showArtistInChart: false,
+  showArtistInChartByProfile: {
+    desktop: false,
+    tablet: false
+  }
+});
+assert.deepEqual(showSongTitleInChartUpdate(displayState, false), {
+  showSongTitleAndArtistInChart: false,
+  showSongTitleAndArtistInChartByProfile: {
+    desktop: false,
+    tablet: false
+  },
+  showSongTitleInChart: false,
+  showSongTitleInChartByProfile: {
+    desktop: false,
+    tablet: false
+  },
+  showArtistInChart: false,
+  showArtistInChartByProfile: {
     desktop: false,
     tablet: false
   }
@@ -642,15 +676,7 @@ assert.deepEqual(songArtistFontSizeUpdate(displayState, 44), {
     tablet: 40
   }
 });
-assert.equal(getEffectiveShowArtistInChart(displayState), true);
-assert.equal(getEffectiveShowArtistInChart({ ...displayState, activeProfile: 'tablet' }), false);
-assert.deepEqual(showArtistInChartUpdate(displayState, false), {
-  showArtistInChart: false,
-  showArtistInChartByProfile: {
-    desktop: false,
-    tablet: false
-  }
-});
+assert.equal(getEffectiveShowSongTitleAndArtistInChart({ ...displayState, showSongTitleAndArtistInChart: undefined, showSongTitleAndArtistInChartByProfile: {}, showArtistInChart: false, showArtistInChartByProfile: {} }), false);
 assert.equal(getEffectiveSongArtistBold({ ...displayState, activeProfile: 'tablet' }), true);
 assert.deepEqual(songArtistBoldUpdate(displayState, true), {
   songArtistBold: true,
@@ -793,7 +819,7 @@ assert.equal(sanitizeChartForOnSong('Keep\u200C other zero width and \uE001 priv
 
 const capoSong = {
   id: 'capo-test-song',
-  title: 'Capo Test',
+  title: '',
   artist: '',
   key: 'G',
   capo: 3,
@@ -844,13 +870,13 @@ assert.equal(chordProMetadataRendered.lines[1].type, 'song-artist');
 assert.equal(chordProMetadataRendered.lines[1].value, 'a-ha');
 const chordProTitleHiddenRendered = renderSong(chordProMetadataSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', showSongTitleInChart: false });
 assert.equal(chordProTitleHiddenRendered.lines.some((line) => line.type === 'song-title'), false);
-assert.equal(chordProTitleHiddenRendered.lines[0].type, 'song-artist');
-assert.equal(chordProTitleHiddenRendered.lines[1].type, 'lyrics');
-assert.equal(chordProTitleHiddenRendered.lines[1].tokens.map((token) => token.display).join(''), 'GTalking away');
+assert.equal(chordProTitleHiddenRendered.lines.some((line) => line.type === 'song-artist'), false);
+assert.equal(chordProTitleHiddenRendered.lines[0].type, 'lyrics');
+assert.equal(chordProTitleHiddenRendered.lines[0].tokens.map((token) => token.display).join(''), 'GTalking away');
 const chordProArtistHiddenRendered = renderSong(chordProMetadataSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'G', showArtistInChart: false });
-assert.equal(chordProArtistHiddenRendered.lines[0].type, 'song-title');
+assert.equal(chordProArtistHiddenRendered.lines.some((line) => line.type === 'song-title'), false);
 assert.equal(chordProArtistHiddenRendered.lines.some((line) => line.type === 'song-artist'), false);
-assert.equal(chordProArtistHiddenRendered.lines[1].type, 'lyrics');
+assert.equal(chordProArtistHiddenRendered.lines[0].type, 'lyrics');
 
 const shorthandMetadataSong = {
   ...capoSong,
@@ -940,7 +966,7 @@ assert.equal(onsongPlainMetadataRendered.lines[0].type, 'song-title');
 assert.equal(onsongPlainMetadataRendered.lines[0].value, 'Take On Me');
 assert.equal(onsongPlainMetadataRendered.lines[1].type, 'song-artist');
 assert.equal(onsongPlainMetadataRendered.lines[1].value, 'a-ha');
-assert.equal(onsongPlainMetadataRendered.lines.filter((line) => line.type === 'lyrics' && line.tokens.map((token) => token.display).join('').trim().toLowerCase() === 'take on me').length, 0);
+assert.equal(onsongPlainMetadataRendered.lines.filter((line) => line.type === 'lyrics' && line.tokens.map((token) => token.display).join('').trim().toLowerCase() === 'take on me').length, 1);
 assert.equal(onsongPlainMetadataRendered.lines.filter((line) => line.type === 'song-title').length, 1);
 
 const plainOnSongHeaderSong = {
@@ -958,7 +984,7 @@ assert.equal(plainOnSongHeaderRendered.lines[0].type, 'song-title');
 assert.equal(plainOnSongHeaderRendered.lines[0].value, 'Stuck In The Middle With You');
 assert.equal(plainOnSongHeaderRendered.lines[1].type, 'song-artist');
 assert.equal(plainOnSongHeaderRendered.lines[1].value, 'Stealers Wheel');
-assert.equal(plainOnSongHeaderRendered.lines.filter((line) => line.type === 'lyrics' && line.tokens.map((token) => token.display).join('').trim() === 'Stealers Wheel').length, 0);
+assert.equal(plainOnSongHeaderRendered.lines.filter((line) => line.type === 'lyrics' && line.tokens.map((token) => token.display).join('').trim() === 'Stealers Wheel').length, 1);
 
 const renderedLineText = (line) => {
   if (line.type === 'lyrics') return line.tokens.map((token) => token.display).join('');
@@ -981,13 +1007,15 @@ const twilightIntroSong = {
   updatedAt: '2026-05-27T00:00:18.000Z'
 };
 const twilightIntroRendered = renderSong(twilightIntroSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'Bm' });
-assert.equal(twilightIntroRendered.lines.some((line) => line.type === 'song-title'), false);
-assert.equal(twilightIntroRendered.lines.some((line) => line.type === 'song-artist'), false);
-assert.equal(renderedLineText(twilightIntroRendered.lines[0]), 'Intro:');
-assert.equal(renderedLineText(twilightIntroRendered.lines[2]), 'Somewhere in a lonely hotel room');
-assert.equal(renderedLineText(twilightIntroRendered.lines[3]), "There's a guy startin to realize");
-assert.equal(renderedLineText(twilightIntroRendered.lines[4]), 'That eternal fate has turned its back on him');
-assert.equal(renderedLineText(twilightIntroRendered.lines[5]), "It's 2am");
+assert.equal(twilightIntroRendered.lines[0].type, 'song-title');
+assert.equal(renderedLineText(twilightIntroRendered.lines[0]), 'Twilight Zone');
+assert.equal(twilightIntroRendered.lines[1].type, 'song-artist');
+assert.equal(renderedLineText(twilightIntroRendered.lines[1]), 'Golden Earring');
+assert.equal(renderedLineText(twilightIntroRendered.lines[2]), 'Intro:');
+assert.equal(renderedLineText(twilightIntroRendered.lines[4]), 'Somewhere in a lonely hotel room');
+assert.equal(renderedLineText(twilightIntroRendered.lines[5]), "There's a guy startin to realize");
+assert.equal(renderedLineText(twilightIntroRendered.lines[6]), 'That eternal fate has turned its back on him');
+assert.equal(renderedLineText(twilightIntroRendered.lines[7]), "It's 2am");
 const twilightIntroHiddenMetadataRendered = renderSong(twilightIntroSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'Bm', showSongTitleInChart: false, showArtistInChart: false });
 assert.equal(renderedLineText(twilightIntroHiddenMetadataRendered.lines[0]), 'Intro:');
 assert.equal(renderedLineText(twilightIntroHiddenMetadataRendered.lines[2]), 'Somewhere in a lonely hotel room');
@@ -1002,8 +1030,10 @@ const duplicateTitleSong = {
 };
 const duplicateTitleRendered = renderSong(duplicateTitleSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'Bm' });
 assert.equal(duplicateTitleRendered.lines[0].type, 'song-title');
-assert.equal(renderedLineText(duplicateTitleRendered.lines[1]), 'Intro:');
-assert.equal(renderedLineText(duplicateTitleRendered.lines[2]), 'Somewhere in a lonely hotel room');
+assert.equal(duplicateTitleRendered.lines[1].type, 'song-artist');
+assert.equal(renderedLineText(duplicateTitleRendered.lines[2]), 'Twilight Zone');
+assert.equal(renderedLineText(duplicateTitleRendered.lines[3]), 'Intro:');
+assert.equal(renderedLineText(duplicateTitleRendered.lines[4]), 'Somewhere in a lonely hotel room');
 
 const duplicateHeaderChart = 'Twilight Zone\nGolden Earring\nIntro:\nSomewhere in a lonely hotel room';
 const duplicateHeaderSong = {
@@ -1016,18 +1046,24 @@ const duplicateHeaderSong = {
 const duplicateHeaderRendered = renderSong(duplicateHeaderSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'Bm', songTitleFontSize: 60 });
 assert.equal(duplicateHeaderRendered.lines[0].type, 'song-title');
 assert.equal(duplicateHeaderRendered.lines[1].type, 'song-artist');
-assert.equal(renderedLineText(duplicateHeaderRendered.lines[2]), 'Intro:');
-assert.equal(duplicateHeaderRendered.lines.filter((line) => line.type === 'lyrics' && renderedLineText(line).trim() === 'Golden Earring').length, 0);
+assert.equal(renderedLineText(duplicateHeaderRendered.lines[2]), 'Twilight Zone');
+assert.equal(renderedLineText(duplicateHeaderRendered.lines[3]), 'Golden Earring');
+assert.equal(renderedLineText(duplicateHeaderRendered.lines[4]), 'Intro:');
+assert.equal(duplicateHeaderRendered.lines.filter((line) => line.type === 'lyrics' && renderedLineText(line).trim() === 'Golden Earring').length, 1);
 
 const titleHiddenRendered = renderSong(duplicateHeaderSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'Bm', showSongTitleInChart: false });
 assert.equal(titleHiddenRendered.lines.some((line) => line.type === 'song-title'), false);
-assert.equal(titleHiddenRendered.lines[0].type, 'song-artist');
-assert.equal(renderedLineText(titleHiddenRendered.lines[1]), 'Intro:');
+assert.equal(titleHiddenRendered.lines.some((line) => line.type === 'song-artist'), false);
+assert.equal(renderedLineText(titleHiddenRendered.lines[0]), 'Twilight Zone');
+assert.equal(renderedLineText(titleHiddenRendered.lines[1]), 'Golden Earring');
+assert.equal(renderedLineText(titleHiddenRendered.lines[2]), 'Intro:');
 
 const artistHiddenRendered = renderSong(duplicateHeaderSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'Bm', showArtistInChart: false });
-assert.equal(artistHiddenRendered.lines[0].type, 'song-title');
+assert.equal(artistHiddenRendered.lines.some((line) => line.type === 'song-title'), false);
 assert.equal(artistHiddenRendered.lines.some((line) => line.type === 'song-artist'), false);
-assert.equal(renderedLineText(artistHiddenRendered.lines[1]), 'Intro:');
+assert.equal(renderedLineText(artistHiddenRendered.lines[0]), 'Twilight Zone');
+assert.equal(renderedLineText(artistHiddenRendered.lines[1]), 'Golden Earring');
+assert.equal(renderedLineText(artistHiddenRendered.lines[2]), 'Intro:');
 
 const metadataSizeRendered = renderSong(duplicateHeaderSong, { transpose: 0, capo: 0, showNashvilleNumbers: false, songKey: 'Bm', headerFontSize: 12, songTitleFontSize: 64 });
 assert.equal(metadataSizeRendered.lines[0].type, 'song-title');

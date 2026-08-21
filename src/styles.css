@@ -323,7 +323,8 @@ label,
 
 .stage-popover[data-stage-popover="format"],
 .stage-format-popover {
-  max-height: 85vh;
+  top: calc(var(--stage-header-height, 5rem) + 0.5rem);
+  max-height: min(85vh, calc(100dvh - var(--stage-header-height, 5rem) - max(1rem, env(safe-area-inset-bottom)) - 0.75rem));
 }
 
 .stage-format-panel {
@@ -844,7 +845,8 @@ label,
   }
 
   .stage-popover[data-stage-popover="format"] {
-    max-height: calc(100dvh - max(1rem, env(safe-area-inset-top)) - max(1rem, env(safe-area-inset-bottom))) !important;
+    top: calc(var(--stage-header-height, 5rem) + 0.35rem);
+    max-height: calc(100dvh - var(--stage-header-height, 5rem) - max(0.75rem, env(safe-area-inset-bottom)) - 0.5rem) !important;
     overflow: hidden;
     padding: 0 !important;
   }

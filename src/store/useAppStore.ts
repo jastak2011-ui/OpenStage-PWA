@@ -56,6 +56,17 @@ export const defaultPerformanceState: PerformanceState = {
     tablet: 52,
     'portrait-prompter': 52
   },
+  showSongTitleAndArtistInChart: true,
+  showSongTitleAndArtistInChartByProfile: {
+    desktop: true,
+    'ipad-portrait': true,
+    'ipad-landscape': true,
+    iphone: true,
+    'prompter-display': true,
+    'stage-device': true,
+    tablet: true,
+    'portrait-prompter': true
+  },
   showSongTitleInChart: true,
   showSongTitleInChartByProfile: {
     desktop: true,
@@ -428,6 +439,7 @@ export const useAppStore = create<AppStore>()(
           const currentLyricSizes = state.performance.fontSizesByProfile ?? {};
           const currentHeaderSizes = state.performance.headerFontSizesByProfile ?? {};
           const currentSongTitleSizes = state.performance.songTitleFontSizesByProfile ?? {};
+          const currentShowSongTitleAndArtistInChart = state.performance.showSongTitleAndArtistInChartByProfile ?? {};
           const currentShowSongTitleInChart = state.performance.showSongTitleInChartByProfile ?? {};
           const currentSongTitleColors = state.performance.songTitleColorsByProfile ?? {};
           const currentSongTitleBold = state.performance.songTitleBoldByProfile ?? {};
@@ -478,11 +490,19 @@ export const useAppStore = create<AppStore>()(
             currentSongTitleSizes[activeProfile] ??
             state.performance.songTitleFontSize ??
             defaultPerformanceState.songTitleFontSize;
-          const nextShowSongTitleInChart =
-            next.showSongTitleInChart ??
+          const legacyShowSongTitleInChart =
             currentShowSongTitleInChart[activeProfile] ??
             state.performance.showSongTitleInChart ??
             defaultPerformanceState.showSongTitleInChart;
+          const legacyShowArtistInChart =
+            currentShowArtistInChart[activeProfile] ??
+            state.performance.showArtistInChart ??
+            defaultPerformanceState.showArtistInChart;
+          const nextShowSongTitleAndArtistInChart =
+            next.showSongTitleAndArtistInChart ??
+            currentShowSongTitleAndArtistInChart[activeProfile] ??
+            state.performance.showSongTitleAndArtistInChart ??
+            (legacyShowSongTitleInChart && legacyShowArtistInChart);
           const nextSongTitleColor =
             next.songTitleColor ??
             currentSongTitleColors[activeProfile] ??
@@ -503,11 +523,6 @@ export const useAppStore = create<AppStore>()(
             currentSongArtistSizes[activeProfile] ??
             state.performance.songArtistFontSize ??
             defaultPerformanceState.songArtistFontSize;
-          const nextShowArtistInChart =
-            next.showArtistInChart ??
-            currentShowArtistInChart[activeProfile] ??
-            state.performance.showArtistInChart ??
-            defaultPerformanceState.showArtistInChart;
           const nextSongArtistColor =
             next.songArtistColor ??
             currentSongArtistColors[activeProfile] ??
@@ -676,11 +691,17 @@ export const useAppStore = create<AppStore>()(
                 ...(next.songTitleFontSizesByProfile ?? {}),
                 [activeProfile]: nextSongTitleFontSize
               },
-              showSongTitleInChart: nextShowSongTitleInChart,
+              showSongTitleAndArtistInChart: nextShowSongTitleAndArtistInChart,
+              showSongTitleAndArtistInChartByProfile: {
+                ...currentShowSongTitleAndArtistInChart,
+                ...(next.showSongTitleAndArtistInChartByProfile ?? {}),
+                [activeProfile]: nextShowSongTitleAndArtistInChart
+              },
+              showSongTitleInChart: nextShowSongTitleAndArtistInChart,
               showSongTitleInChartByProfile: {
                 ...currentShowSongTitleInChart,
                 ...(next.showSongTitleInChartByProfile ?? {}),
-                [activeProfile]: nextShowSongTitleInChart
+                [activeProfile]: nextShowSongTitleAndArtistInChart
               },
               songTitleColor: nextSongTitleColor,
               songTitleColorsByProfile: {
@@ -706,11 +727,11 @@ export const useAppStore = create<AppStore>()(
                 ...(next.songArtistFontSizesByProfile ?? {}),
                 [activeProfile]: nextSongArtistFontSize
               },
-              showArtistInChart: nextShowArtistInChart,
+              showArtistInChart: nextShowSongTitleAndArtistInChart,
               showArtistInChartByProfile: {
                 ...currentShowArtistInChart,
                 ...(next.showArtistInChartByProfile ?? {}),
-                [activeProfile]: nextShowArtistInChart
+                [activeProfile]: nextShowSongTitleAndArtistInChart
               },
               songArtistColor: nextSongArtistColor,
               songArtistColorsByProfile: {

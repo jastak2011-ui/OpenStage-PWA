@@ -99,6 +99,7 @@ function renderSong(song, options) {
     options.headerFontSize ?? "",
     options.songTitleFontSize ?? "",
     options.songArtistFontSize ?? "",
+    options.showSongTitleAndArtistInChart ?? "",
     options.showSongTitleInChart ?? true,
     options.showArtistInChart ?? true,
     options.sectionFontSize ?? "",
@@ -168,74 +169,27 @@ function classifySongMetadataLines(song, lines, options) {
   const title = song.title?.trim() ?? "";
   const artist = song.artist?.trim() ?? "";
   const subtitle = song.subtitle?.trim() ?? "";
-  const hasTitleDirective = lines.some((line) => line.type === "directive" && line.name === "title" && line.value.trim().length > 0);
   const hasArtistDirective = lines.some((line) => line.type === "directive" && line.name === "artist" && line.value.trim().length > 0);
-  const showTitle = options.showSongTitleInChart !== false;
-  const showArtist = options.showArtistInChart !== false;
-  let titleRendered = false;
-  let artistRendered = false;
-  let titleMetadataSeen = false;
-  let artistMetadataSeen = false;
-  let leadingMetadataRegion = true;
-  let leadingPlainHeaderLineCount = 0;
+  const showTitleAndArtist = options.showSongTitleAndArtistInChart ?? ((options.showSongTitleInChart ?? true) && (options.showArtistInChart ?? true));
+  if (showTitleAndArtist && title) {
+    result.push({ type: "song-title", raw: "", value: title });
+  }
+  if (showTitleAndArtist && (artist || subtitle)) {
+    result.push({ type: "song-artist", raw: "", value: artist || subtitle });
+  }
   lines.forEach((line) => {
     if (line.type === "directive" && line.name === "title") {
-      titleMetadataSeen = true;
-      if (showTitle && !titleRendered && (title || line.value)) {
-        result.push({ type: "song-title", raw: line.raw, value: title || line.value, sourceStart: line.sourceStart });
-        titleRendered = true;
-      }
       return;
     }
     if (line.type === "directive" && line.name === "artist") {
-      artistMetadataSeen = true;
-      if (showArtist && !artistRendered && (artist || line.value)) {
-        result.push({ type: "song-artist", raw: line.raw, value: artist || line.value, sourceStart: line.sourceStart });
-        artistRendered = true;
-      }
       return;
     }
     if (line.type === "directive" && line.name === "subtitle" && !hasArtistDirective) {
-      artistMetadataSeen = true;
-      if (showArtist && !artistRendered && (artist || line.value)) {
-        result.push({ type: "song-artist", raw: line.raw, value: artist || line.value, sourceStart: line.sourceStart });
-        artistRendered = true;
-      }
       return;
-    }
-    if (leadingMetadataRegion && line.type === "lyrics" && !line.tokens.some((token) => token.type === "chord")) {
-      const text = plainText(line).trim();
-      const isChordOnlyHeaderCandidate = isStandaloneChordLine(text);
-      if (text && !isChordOnlyHeaderCandidate && !isStageMetadataLabelText(text)) {
-        leadingPlainHeaderLineCount += 1;
-        if (!titleMetadataSeen && !hasTitleDirective && leadingPlainHeaderLineCount === 1 && sameMetadataText(text, title)) {
-          titleMetadataSeen = true;
-          if (showTitle && !titleRendered) {
-            result.push({ type: "song-title", raw: line.raw, value: title || text, sourceStart: line.sourceStart });
-            titleRendered = true;
-          }
-          return;
-        }
-        if (titleMetadataSeen && !artistMetadataSeen && leadingPlainHeaderLineCount === 2 && !hasArtistDirective && (sameMetadataText(text, artist) || sameMetadataText(text, subtitle))) {
-          artistMetadataSeen = true;
-          if (showArtist && !artistRendered) {
-            result.push({ type: "song-artist", raw: line.raw, value: artist || subtitle || text, sourceStart: line.sourceStart });
-            artistRendered = true;
-          }
-          return;
-        }
-      }
-    }
-    if (leadingMetadataRegion && line.type !== "blank" && line.type !== "comment") {
-      const isVisibleMetadataDirective = line.type === "directive" && ["subtitle", "album"].includes(line.name);
-      if (!isVisibleMetadataDirective) leadingMetadataRegion = false;
     }
     result.push(line);
   });
   return result;
-}
-function isStageMetadataLabelText(text) {
-  return /^(?:midi(?:-index)?|key|capo|source file|tempo|bpm)\s*:/i.test(text.trim());
 }
 function preloadSongs(songs, options) {
   const startedAt = performance.now();
@@ -362,13 +316,6 @@ function isChordStructureToken(value) {
 }
 function isChordSymbol(value) {
   return /^[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*?(?:\/[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus|add|\d|[#b()+-])*)?$/i.test(value);
-}
-function sameMetadataText(left, right) {
-  if (!left.trim() || !right.trim()) return false;
-  return normalizeMetadataText(left) === normalizeMetadataText(right);
-}
-function normalizeMetadataText(value) {
-  return stripHarmonyMarkup(value).replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 function hashString(value) {
   let hash = 0;

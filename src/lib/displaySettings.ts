@@ -124,15 +124,35 @@ export function songTitleFontSizeUpdate(state: PerformanceState, songTitleFontSi
 }
 
 export function getEffectiveShowSongTitleInChart(state: PerformanceState) {
-  return state.showSongTitleInChartByProfile?.[state.activeProfile] ?? state.showSongTitleInChart ?? true;
+  return getEffectiveShowSongTitleAndArtistInChart(state);
 }
 
 export function showSongTitleInChartUpdate(state: PerformanceState, showSongTitleInChart: boolean): Partial<PerformanceState> {
+  return showSongTitleAndArtistInChartUpdate(state, showSongTitleInChart);
+}
+
+export function getEffectiveShowSongTitleAndArtistInChart(state: PerformanceState) {
+  const legacyTitle = state.showSongTitleInChartByProfile?.[state.activeProfile] ?? state.showSongTitleInChart ?? true;
+  const legacyArtist = state.showArtistInChartByProfile?.[state.activeProfile] ?? state.showArtistInChart ?? true;
+  return state.showSongTitleAndArtistInChartByProfile?.[state.activeProfile] ?? state.showSongTitleAndArtistInChart ?? (legacyTitle && legacyArtist);
+}
+
+export function showSongTitleAndArtistInChartUpdate(state: PerformanceState, showSongTitleAndArtistInChart: boolean): Partial<PerformanceState> {
   return {
-    showSongTitleInChart,
+    showSongTitleAndArtistInChart,
+    showSongTitleAndArtistInChartByProfile: {
+      ...(state.showSongTitleAndArtistInChartByProfile ?? {}),
+      [state.activeProfile]: showSongTitleAndArtistInChart
+    },
+    showSongTitleInChart: showSongTitleAndArtistInChart,
     showSongTitleInChartByProfile: {
       ...(state.showSongTitleInChartByProfile ?? {}),
-      [state.activeProfile]: showSongTitleInChart
+      [state.activeProfile]: showSongTitleAndArtistInChart
+    },
+    showArtistInChart: showSongTitleAndArtistInChart,
+    showArtistInChartByProfile: {
+      ...(state.showArtistInChartByProfile ?? {}),
+      [state.activeProfile]: showSongTitleAndArtistInChart
     }
   };
 }
@@ -196,17 +216,11 @@ export function songArtistFontSizeUpdate(state: PerformanceState, songArtistFont
 }
 
 export function getEffectiveShowArtistInChart(state: PerformanceState) {
-  return state.showArtistInChartByProfile?.[state.activeProfile] ?? state.showArtistInChart ?? true;
+  return getEffectiveShowSongTitleAndArtistInChart(state);
 }
 
 export function showArtistInChartUpdate(state: PerformanceState, showArtistInChart: boolean): Partial<PerformanceState> {
-  return {
-    showArtistInChart,
-    showArtistInChartByProfile: {
-      ...(state.showArtistInChartByProfile ?? {}),
-      [state.activeProfile]: showArtistInChart
-    }
-  };
+  return showSongTitleAndArtistInChartUpdate(state, showArtistInChart);
 }
 
 export function getEffectiveSongArtistColor(state: PerformanceState) {

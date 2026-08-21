@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
@@ -172,9 +172,10 @@ import {
   getEffectiveSectionSpacingAfter,
   getEffectiveSectionSpacingBefore,
   getEffectiveSectionUppercase,
-  getEffectiveShowArtistInChart,
   getEffectiveShowChords,
   getEffectiveShowHarmonyCues,
+  getEffectiveShowSongTitleAndArtistInChart,
+  getEffectiveShowArtistInChart,
   getEffectiveShowSongTitleInChart,
   getEffectiveSongArtistBold,
   getEffectiveSongArtistColor,
@@ -210,9 +211,8 @@ import {
   sectionSpacingBeforeUpdate,
   sectionUppercaseUpdate,
   showHarmonyCuesUpdate,
-  showArtistInChartUpdate,
   showChordsUpdate,
-  showSongTitleInChartUpdate,
+  showSongTitleAndArtistInChartUpdate,
   songArtistBoldUpdate,
   songArtistColorUpdate,
   songArtistFontSizeUpdate,
@@ -1458,8 +1458,8 @@ export default function App() {
       headerFontSize: getEffectiveHeaderFontSize(performanceState),
       songTitleFontSize: getEffectiveSongTitleFontSize(performanceState),
       songArtistFontSize: getEffectiveSongArtistFontSize(performanceState),
-      showSongTitleInChart: getEffectiveShowSongTitleInChart(performanceState),
-      showArtistInChart: getEffectiveShowArtistInChart(performanceState),
+      showSongTitleInChart: getEffectiveShowSongTitleAndArtistInChart(performanceState),
+      showArtistInChart: getEffectiveShowSongTitleAndArtistInChart(performanceState),
       sectionFontSize: getEffectiveSectionFontSize(performanceState),
       sectionSpacingBefore: getEffectiveSectionSpacingBefore(performanceState),
       sectionSpacingAfter: getEffectiveSectionSpacingAfter(performanceState),
@@ -9475,6 +9475,8 @@ function PerformanceView({
   const lineSpacing = getEffectiveLineSpacing(state);
   const headerFontSize = getEffectiveHeaderFontSize(state);
   const chordFontSize = getEffectiveChordFontSize(state);
+  const stageToolbarRef = useRef<HTMLElement | null>(null);
+  const [stageToolbarHeight, setStageToolbarHeight] = useState(80);
   const isPhoneWidth = typeof window !== 'undefined' && window.innerWidth < 600;
   const mobileReflowMode = (state.inlineChordsOnPhone ?? true) && (state.activeProfile === 'iphone' || isPhoneWidth);
   const rendered = renderSong(song, {
@@ -9489,8 +9491,8 @@ function PerformanceView({
     headerFontSize,
     songTitleFontSize: getEffectiveSongTitleFontSize(state),
     songArtistFontSize: getEffectiveSongArtistFontSize(state),
-    showSongTitleInChart: getEffectiveShowSongTitleInChart(state),
-    showArtistInChart: getEffectiveShowArtistInChart(state),
+    showSongTitleInChart: getEffectiveShowSongTitleAndArtistInChart(state),
+    showArtistInChart: getEffectiveShowSongTitleAndArtistInChart(state),
     sectionFontSize: getEffectiveSectionFontSize(state),
     sectionSpacingBefore: getEffectiveSectionSpacingBefore(state),
     sectionSpacingAfter: getEffectiveSectionSpacingAfter(state),
@@ -9518,6 +9520,22 @@ function PerformanceView({
   useEffect(() => {
     useAppStore.getState().updateDiagnostics({ ...rendered.diagnostics, renderCacheSize: getRenderCacheSize() });
   }, [rendered.diagnostics.lastRenderMs, rendered.diagnostics.parsedLineCount]);
+  useLayoutEffect(() => {
+    const toolbar = stageToolbarRef.current;
+    if (!toolbar) return;
+    const updateHeight = () => {
+      const nextHeight = Math.ceil(toolbar.getBoundingClientRect().height);
+      setStageToolbarHeight((current) => (Math.abs(current - nextHeight) <= 1 ? current : nextHeight));
+    };
+    updateHeight();
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateHeight) : null;
+    resizeObserver?.observe(toolbar);
+    window.addEventListener('resize', updateHeight);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', updateHeight);
+    };
+  }, [headerFontSize, state.activeProfile]);
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     const scrollElement = stageRef.current;
@@ -10009,12 +10027,18 @@ function PerformanceView({
       data-stage-profile={state.activeProfile}
       data-mobile-reflow={mobileReflowMode ? 'true' : 'false'}
       data-controls-visible={toolbarVisible || activePopover || speedPopoverOpen || tempoPanelOpen || selectionAction ? 'true' : 'false'}
-      style={{ background: documentTheme.background, color: documentTheme.text, fontFamily: stageFontFamily }}
+      style={{
+        background: documentTheme.background,
+        color: documentTheme.text,
+        fontFamily: stageFontFamily,
+        '--stage-header-height': `${stageToolbarHeight}px`
+      } as CSSProperties}
       onPointerMove={revealMenu}
       onPointerDown={revealMenu}
       onMouseUp={handleStageSelectionCommit}
     >
       <header
+        ref={stageToolbarRef}
         className={`stage-top-toolbar fixed left-0 right-0 top-0 z-40 transition-opacity duration-300 ${toolbarVisible || activePopover ? 'opacity-100' : 'pointer-events-none opacity-0'} ${state.minimalStageMode ? 'opacity-0' : ''}`}
         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
       >
@@ -10154,6 +10178,7 @@ function PerformanceView({
             onSync={() => void leaveStageWithShareCheck(onSync)}
             onSendReceiver={onSendReceiver}
             onSendReceiverTestPattern={onSendReceiverTestPattern}
+            stageHeaderHeight={stageToolbarHeight}
           />
         </div>
       )}
@@ -10375,8 +10400,8 @@ function PerformanceView({
               sectionSpacingAfter={sectionSpacingAfter}
               songTitleStyle={songTitleStyle}
               songArtistStyle={songArtistStyle}
-              showSongTitleInChart={getEffectiveShowSongTitleInChart(state)}
-              showArtistInChart={getEffectiveShowArtistInChart(state)}
+              showSongTitleInChart={getEffectiveShowSongTitleAndArtistInChart(state)}
+              showArtistInChart={getEffectiveShowSongTitleAndArtistInChart(state)}
               showHarmonyCues={showHarmonyCues}
               harmonyTextColor={harmonyTextColor}
               harmonyIconColor={harmonyIconColor}
@@ -11409,7 +11434,8 @@ function StageControlPopover({
   onImportExport,
   onSync,
   onSendReceiver,
-  onSendReceiverTestPattern
+  onSendReceiverTestPattern,
+  stageHeaderHeight
 }: {
   active: StagePopoverName;
   formatTab: StageFormatTab;
@@ -11451,6 +11477,7 @@ function StageControlPopover({
   onSync: () => void;
   onSendReceiver: () => boolean;
   onSendReceiverTestPattern: () => boolean;
+  stageHeaderHeight: number;
 }) {
   const [libraryQuery, setLibraryQuery] = useState('');
   const [libraryScope, setLibraryScope] = useState<'setlist' | 'all'>(activeSetlistSongs.length > 0 ? 'setlist' : 'all');
@@ -11516,11 +11543,17 @@ function StageControlPopover({
   }
 
   const isFormatPopover = active === 'format';
+  const formatPopoverStyle = isFormatPopover
+    ? {
+        '--stage-header-height': `${stageHeaderHeight}px`
+      } as CSSProperties
+    : undefined;
 
   return (
     <aside
       className={`stage-popover fixed ${popoverPosition} top-20 z-50 w-[min(24rem,calc(100vw-1.5rem))] rounded-lg border shadow-2xl backdrop-blur-md ${menuSurface} ${isFormatPopover ? 'stage-format-popover flex flex-col overflow-hidden p-0' : 'p-3'}`}
       data-stage-popover={active}
+      style={formatPopoverStyle}
       onClick={(event) => event.stopPropagation()}
     >
       {active === 'library' && (
@@ -11779,11 +11812,11 @@ function StageControlPopover({
               <div className="grid gap-3">
                 <Stepper label="Lyric Font Size" value={getEffectiveLyricFontSize(state)} min={24} max={76} onChange={(fontSize) => setState(lyricFontSizeUpdate(state, fontSize))} />
                 <Stepper label="Header Font Size" value={getEffectiveHeaderFontSize(state)} min={12} max={34} onChange={(fontSize) => setState(headerFontSizeUpdate(state, fontSize))} />
+                <button className="stage-menu-button" type="button" onClick={() => setState(showSongTitleAndArtistInChartUpdate(state, !getEffectiveShowSongTitleAndArtistInChart(state)))}>
+                  Show Song Title &amp; Artist in Chart {getEffectiveShowSongTitleAndArtistInChart(state) ? 'On' : 'Off'}
+                </button>
                 <div className="grid gap-2 rounded-md border border-slate-700/70 bg-black/20 p-3">
                   <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Song Title</div>
-                  <button className="stage-menu-button" type="button" onClick={() => setState(showSongTitleInChartUpdate(state, !getEffectiveShowSongTitleInChart(state)))}>
-                    Show Song Title in Chart {getEffectiveShowSongTitleInChart(state) ? 'On' : 'Off'}
-                  </button>
                   <Stepper label="Title Font Size" value={getEffectiveSongTitleFontSize(state)} min={20} max={96} onChange={(fontSize) => setState(songTitleFontSizeUpdate(state, fontSize))} />
                   <ColorSwatchGroup
                     title="Title Color"
@@ -11802,9 +11835,6 @@ function StageControlPopover({
                 </div>
                 <div className="grid gap-2 rounded-md border border-slate-700/70 bg-black/20 p-3">
                   <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Artist</div>
-                  <button className="stage-menu-button" type="button" onClick={() => setState(showArtistInChartUpdate(state, !getEffectiveShowArtistInChart(state)))}>
-                    Show Artist in Chart {getEffectiveShowArtistInChart(state) ? 'On' : 'Off'}
-                  </button>
                   <Stepper label="Artist Font Size" value={getEffectiveSongArtistFontSize(state)} min={14} max={72} onChange={(fontSize) => setState(songArtistFontSizeUpdate(state, fontSize))} />
                   <ColorSwatchGroup
                     title="Artist Color"

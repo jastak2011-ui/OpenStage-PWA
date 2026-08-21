@@ -199,6 +199,8 @@ export type PerformanceState = {
   headerFontSizesByProfile: Partial<Record<DeviceProfile, number>>;
   songTitleFontSize: number;
   songTitleFontSizesByProfile: Partial<Record<DeviceProfile, number>>;
+  showSongTitleAndArtistInChart: boolean;
+  showSongTitleAndArtistInChartByProfile: Partial<Record<DeviceProfile, boolean>>;
   showSongTitleInChart: boolean;
   showSongTitleInChartByProfile: Partial<Record<DeviceProfile, boolean>>;
   songTitleColor: string;
