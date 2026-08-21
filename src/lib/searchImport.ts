@@ -21,6 +21,7 @@ export type SearchImportPrefill = {
   releaseMbid?: string;
   releaseTitle?: string;
   releaseDate?: string;
+  initialChartText?: string;
 };
 
 export type SearchImportSessionStep = 'confirmed' | 'find-chart';
@@ -37,6 +38,9 @@ export type SearchImportSession = {
 export const searchImportSessionStorageKey = 'openstage.searchImportSession';
 export const searchImportConfirmedCopy = 'Song identity verified. Add chart content from a source you provide.';
 export const searchImportConfirmedActions = ['Find Chart', 'Paste Chart', 'Cancel'] as const;
+export const clipboardUnavailableMessage = 'Clipboard access is not available in this browser. Use Paste Manually.';
+export const clipboardRejectedMessage = 'Clipboard access was not granted. Use Paste Manually.';
+export const clipboardEmptyMessage = 'Clipboard does not contain chart text.';
 
 export function createSearchImportPrefill(candidate: SearchImportCandidate): SearchImportPrefill {
   return {
@@ -52,7 +56,44 @@ export function createSearchImportPrefill(candidate: SearchImportCandidate): Sea
 }
 
 export function createPasteChartPrefillText(prefill: SearchImportPrefill) {
+  if (typeof prefill.initialChartText === 'string') return prefill.initialChartText;
   return [prefill.title.trim(), prefill.artist.trim(), ''].filter((line, index) => index < 2 ? Boolean(line) : true).join('\n');
+}
+
+export function createClipboardPastePrefill(prefill: SearchImportPrefill, clipboardText: string): SearchImportPrefill {
+  return {
+    ...prefill,
+    id: `${prefill.id}-clipboard-${Date.now()}`,
+    initialChartText: clipboardText
+  };
+}
+
+export async function readSearchImportClipboardText(clipboard?: { readText?: () => Promise<string> }) {
+  if (!clipboard?.readText) {
+    return {
+      ok: false as const,
+      error: clipboardUnavailableMessage
+    };
+  }
+
+  try {
+    const text = await clipboard.readText();
+    if (!String(text || '').trim()) {
+      return {
+        ok: false as const,
+        error: clipboardEmptyMessage
+      };
+    }
+    return {
+      ok: true as const,
+      text
+    };
+  } catch {
+    return {
+      ok: false as const,
+      error: clipboardRejectedMessage
+    };
+  }
 }
 
 export function createSearchImportSession(prefill: SearchImportPrefill, selectedCandidate: SearchImportCandidate | undefined, step: SearchImportSessionStep): SearchImportSession {

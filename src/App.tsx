@@ -91,10 +91,12 @@ import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/web
 import { aiDraftDisclaimerText, aiDraftMenuLabel, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './lib/aiDraft';
 import { chartSourceChoices, domainFromUrl, type ChartSourceChoice } from './lib/chartSourceSearch';
 import {
+  createClipboardPastePrefill,
   createSearchImportSession,
   createPasteChartPrefillText,
   createSearchImportPrefill,
   formatDurationMs,
+  readSearchImportClipboardText,
   releaseYearFromDate,
   searchImportConfirmedActions,
   searchImportConfirmedCopy,
@@ -8008,6 +8010,7 @@ function SearchImportModal({
   const [linkedSourcesError, setLinkedSourcesError] = useState('');
   const [songsterrResolving, setSongsterrResolving] = useState(false);
   const [songsterrMessage, setSongsterrMessage] = useState('');
+  const [clipboardPasteMessage, setClipboardPasteMessage] = useState('');
 
   useEffect(() => {
     try {
@@ -8065,8 +8068,21 @@ function SearchImportModal({
   }
 
   function pasteConfirmedChart() {
+    setClipboardPasteMessage('');
     saveSearchImportSession(chartStep);
     if (selectedPrefill) onPasteChart(selectedPrefill);
+  }
+
+  async function pasteConfirmedChartFromClipboard() {
+    if (!selectedPrefill) return;
+    setClipboardPasteMessage('');
+    const result = await readSearchImportClipboardText(navigator.clipboard);
+    if (!result.ok) {
+      setClipboardPasteMessage(result.error);
+      return;
+    }
+    saveSearchImportSession(chartStep);
+    onPasteChart(createClipboardPastePrefill(selectedPrefill, result.text));
   }
 
   useEffect(() => {
@@ -8115,6 +8131,7 @@ function SearchImportModal({
     setSelected(null);
     setChartStep('confirmed');
     setSongsterrMessage('');
+    setClipboardPasteMessage('');
     window.localStorage.removeItem(searchImportSessionStorageKey);
     setError('');
     try {
@@ -8281,8 +8298,35 @@ function SearchImportModal({
                   <li>Open a chart source.</li>
                   <li>Copy the chart you want.</li>
                   <li>Return to OpenStage.</li>
-                  <li>Choose Paste Chart.</li>
+                  <li>Tap Paste from Clipboard.</li>
                 </ol>
+
+                <div className="mt-4 rounded-md border border-teal-300/40 bg-teal-400/10 p-4">
+                  <div className="text-sm font-semibold uppercase tracking-normal text-teal-200">Ready to add chart for</div>
+                  <div className="mt-1 text-lg font-semibold text-white">
+                    {selectedPrefill.title}{selectedPrefill.artist ? ` — ${selectedPrefill.artist}` : ''}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500"
+                      type="button"
+                      onClick={() => void pasteConfirmedChartFromClipboard()}
+                    >
+                      Paste from Clipboard
+                    </button>
+                    <button className="rounded-md border border-teal-200/40 px-4 py-2 text-sm font-semibold hover:bg-white/10" type="button" onClick={pasteConfirmedChart}>
+                      Paste Manually
+                    </button>
+                    <button className="rounded-md border border-teal-200/40 px-4 py-2 text-sm font-semibold hover:bg-white/10" type="button" onClick={onClose}>
+                      Dismiss
+                    </button>
+                  </div>
+                  {clipboardPasteMessage && (
+                    <div className="mt-3 rounded border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-50">
+                      {clipboardPasteMessage}
+                    </div>
+                  )}
+                </div>
 
                 {(linkedSourcesLoading || linkedSources.length > 0 || linkedSourcesError) && (
                   <div className="mt-4 rounded-md border border-slate-700 bg-black/20 p-3">
@@ -8348,7 +8392,7 @@ function SearchImportModal({
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500" type="button" onClick={pasteConfirmedChart}>
-                    Paste Chart
+                    Paste Manually
                   </button>
                   <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-white/10" type="button" onClick={() => setChartStep('confirmed')}>
                     Back

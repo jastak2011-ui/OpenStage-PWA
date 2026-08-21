@@ -14,7 +14,20 @@ import {
 import { aiDraftDisclaimerText, aiDraftMenuLabel, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './aiDraft-test-target.mjs';
 import { chartSourceChoices, chartSourceProviderRequiresApiKey, chartSourceQuery, domainFromUrl as chartSourceDomainFromUrl, quotedChartSourceQuery, webSearchUrl } from './chartSourceSearch-test-target.mjs';
 import { createMusicBrainzRecordingQuery, createMusicBrainzThrottle, lookupMusicBrainzChartSourceLinks, normalizeMusicBrainzSearchText, rankMusicBrainzRecordings, searchMusicBrainzRecordings } from './musicbrainz-test-target.mjs';
-import { createPasteChartPrefillText, createSearchImportPrefill, createSearchImportSession, formatDurationMs, releaseYearFromDate, searchImportConfirmedActions, searchImportConfirmedCopy } from './searchImport-test-target.mjs';
+import {
+  clipboardEmptyMessage,
+  clipboardRejectedMessage,
+  clipboardUnavailableMessage,
+  createClipboardPastePrefill,
+  createPasteChartPrefillText,
+  createSearchImportPrefill,
+  createSearchImportSession,
+  formatDurationMs,
+  readSearchImportClipboardText,
+  releaseYearFromDate,
+  searchImportConfirmedActions,
+  searchImportConfirmedCopy
+} from './searchImport-test-target.mjs';
 import { createSongsterrDirectUrl, normalizeSongsterrMatchText, rankSongsterrCandidates, resolveSongsterrSong } from './songsterr-test-target.mjs';
 import { parseDurationInput } from './format-test-target.mjs';
 import { applyPerformanceChordTransform } from './chords-test-target.mjs';
@@ -191,7 +204,28 @@ assert.equal(searchPrefill.recordingMbid, 'exact');
 assert.equal(createPasteChartPrefillText(searchPrefill), "Livin' on a Prayer\nBon Jovi\n");
 assert.equal(releaseYearFromDate('1986-08-18'), '1986');
 assert.equal(formatDurationMs(250000), '4:10');
-assert.equal(createSearchImportSession(searchPrefill, rankedMusicBrainzResults[0], 'find-chart').recordingMbid, 'exact');
+const clipboardChartText = "Intro:\nC G Am F\nClipboard chart line";
+const clipboardPrefill = createClipboardPastePrefill(searchPrefill, clipboardChartText);
+assert.equal(createPasteChartPrefillText(clipboardPrefill), clipboardChartText);
+assert.equal(clipboardPrefill.title, searchPrefill.title);
+assert.equal(clipboardPrefill.artist, searchPrefill.artist);
+assert.equal(clipboardPrefill.recordingMbid, searchPrefill.recordingMbid);
+const searchSessionWithClipboardPrefill = createSearchImportSession(clipboardPrefill, rankedMusicBrainzResults[0], 'find-chart');
+assert.equal(searchSessionWithClipboardPrefill.recordingMbid, 'exact');
+assert.equal(Object.prototype.hasOwnProperty.call(searchSessionWithClipboardPrefill, 'initialChartText'), false);
+assert.equal(JSON.stringify(searchSessionWithClipboardPrefill).includes('Clipboard chart line'), false);
+assert.deepEqual(await readSearchImportClipboardText(), { ok: false, error: clipboardUnavailableMessage });
+assert.deepEqual(await readSearchImportClipboardText({ readText: async () => '   \n\t' }), { ok: false, error: clipboardEmptyMessage });
+assert.deepEqual(await readSearchImportClipboardText({ readText: async () => { throw new Error('denied'); } }), { ok: false, error: clipboardRejectedMessage });
+const clipboardReadCalls = [];
+const successfulClipboardRead = await readSearchImportClipboardText({
+  readText: async () => {
+    clipboardReadCalls.push('read');
+    return clipboardChartText;
+  }
+});
+assert.deepEqual(successfulClipboardRead, { ok: true, text: clipboardChartText });
+assert.deepEqual(clipboardReadCalls, ['read']);
 assert.equal(chartSourceProviderRequiresApiKey(), false);
 const lightsStyxPrefill = { id: 'lights-styx', title: 'Lights', artist: 'Styx', recordingMbid: 'mbid-lights-styx' };
 assert.equal(chartSourceQuery(lightsStyxPrefill), 'Lights Styx chords');
