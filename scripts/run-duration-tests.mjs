@@ -37,6 +37,22 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/lib/searchImport.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/searchImport-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'server/musicbrainz.js')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/musicbrainz-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/lib/chords.ts')],
   bundle: true,
   platform: 'node',

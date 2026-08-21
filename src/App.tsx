@@ -89,6 +89,14 @@ import { createId, createSongUuid } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
 import { aiDraftDisclaimerText, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './lib/aiDraft';
+import {
+  createPasteChartPrefillText,
+  createSearchImportPrefill,
+  formatDurationMs,
+  releaseYearFromDate,
+  type SearchImportCandidate,
+  type SearchImportPrefill
+} from './lib/searchImport';
 import { createOnSongSetlistArchive, createOnSongSetlistArchiveFileName } from './lib/onsongArchiveWriter';
 import { validateOnSongArchive } from './lib/onsongArchiveValidator';
 import { parseBinaryPlist } from './lib/binaryPlist';
@@ -333,7 +341,7 @@ type WrappedAnchoredLine = {
 type SetlistSortMode = 'manual' | 'title' | 'artist' | 'key' | 'bpm' | 'duration';
 type StagePopoverName = 'library' | 'setlists' | 'format' | 'more';
 type StageFormatTab = 'document' | 'format' | 'chords' | 'harmony' | 'sections' | 'display' | 'autoscroll' | 'external';
-type NewSongAction = 'scratch' | 'ai' | 'paste' | 'receive';
+type NewSongAction = 'scratch' | 'ai' | 'paste' | 'search' | 'receive';
 type StageSelectionAction = {
   start: number;
   end: number;
@@ -1033,6 +1041,9 @@ export default function App() {
   const [sharedImportLandingBypassed, setSharedImportLandingBypassed] = useState(false);
   const [newSongMenuOpen, setNewSongMenuOpen] = useState(false);
   const [aiImportOpen, setAiImportOpen] = useState(false);
+  const [aiDraftPrefill, setAiDraftPrefill] = useState<SearchImportPrefill | null>(null);
+  const [searchImportOpen, setSearchImportOpen] = useState(false);
+  const [pasteImportPrefill, setPasteImportPrefill] = useState<SearchImportPrefill | null>(null);
   const [receiveSongOpen, setReceiveSongOpen] = useState(false);
   const [editorHasUnsavedChanges, setEditorHasUnsavedChanges] = useState(false);
   const [query, setQuery] = useState('');
@@ -1647,15 +1658,26 @@ export default function App() {
     setActiveMode('editor');
   }
 
-  function openAiImport() {
+  function openAiImport(prefill?: SearchImportPrefill) {
     setNewSongMenuOpen(false);
+    setMobileNavOpen(false);
+    setSearchImportOpen(false);
+    setAiDraftPrefill(prefill ?? null);
     setAiImportOpen(true);
   }
 
-  function openPasteImport() {
+  function openPasteImport(prefill?: SearchImportPrefill) {
     setNewSongMenuOpen(false);
     setMobileNavOpen(false);
+    setSearchImportOpen(false);
+    if (prefill) setPasteImportPrefill(prefill);
     setActiveMode('import');
+  }
+
+  function openSearchImport() {
+    setNewSongMenuOpen(false);
+    setMobileNavOpen(false);
+    setSearchImportOpen(true);
   }
 
   function openReceiveSong() {
@@ -3097,6 +3119,7 @@ export default function App() {
                     if (action === 'scratch') void createSongFromScratch('library');
                     if (action === 'ai') openAiImport();
                     if (action === 'paste') openPasteImport();
+                    if (action === 'search') openSearchImport();
                     if (action === 'receive') openReceiveSong();
                   }}
                 />
@@ -3188,7 +3211,7 @@ export default function App() {
                   <button className="stage-menu-button justify-start" type="button" onClick={() => { setMobileNavOpen(false); openAiImport(); }}>
                     <Sparkles size={18} /> AI Draft
                   </button>
-                  <button className="stage-menu-button justify-start" type="button" onClick={openPasteImport}>
+                  <button className="stage-menu-button justify-start" type="button" onClick={() => openPasteImport()}>
                     <Upload size={18} /> Paste / Webpage Chart
                   </button>
                   <button className="stage-menu-button justify-start" type="button" onClick={() => setTopLevelMode('import')}>
@@ -3229,6 +3252,7 @@ export default function App() {
             if (action === 'scratch') void createSongFromScratch('library');
             if (action === 'ai') openAiImport();
             if (action === 'paste') openPasteImport();
+            if (action === 'search') openSearchImport();
             if (action === 'receive') openReceiveSong();
           }}
           onSelect={(id) => {
@@ -3266,6 +3290,7 @@ export default function App() {
       {activeMode === 'import' && (
         <ImportSongsView
           songs={songs}
+          pastePrefill={pasteImportPrefill}
           onImport={async (files, strategy) => {
             const summary = await importChordProCandidates(files, strategy);
             await loadData();
@@ -3274,6 +3299,7 @@ export default function App() {
           onJsonCsvImport={importSongs}
           onWebpageChartImport={async (song) => {
             await saveSong(song);
+            setPasteImportPrefill(null);
             setToast({ message: 'Webpage chart imported', type: 'success' });
           }}
           onSharedSongCodeImport={(shareId) => {
@@ -3419,6 +3445,7 @@ export default function App() {
             if (action === 'scratch') void createSongFromScratch('perform');
             if (action === 'ai') openAiImport();
             if (action === 'paste') openPasteImport();
+            if (action === 'search') openSearchImport();
             if (action === 'receive') openReceiveSong();
           }}
           onToggleFavorite={toggleSongFavorite}
@@ -3488,6 +3515,7 @@ export default function App() {
             if (action === 'scratch') void createSongFromScratch('stage');
             if (action === 'ai') openAiImport();
             if (action === 'paste') openPasteImport();
+            if (action === 'search') openSearchImport();
             if (action === 'receive') openReceiveSong();
           }}
           onToggleFavorite={toggleSongFavorite}
@@ -3543,8 +3571,16 @@ export default function App() {
       </footer>}
       {aiImportOpen && (
         <AiImportSongModal
+          prefill={aiDraftPrefill}
           onClose={() => setAiImportOpen(false)}
           onImport={importAiSong}
+        />
+      )}
+      {searchImportOpen && (
+        <SearchImportModal
+          onClose={() => setSearchImportOpen(false)}
+          onPasteChart={(prefill) => openPasteImport(prefill)}
+          onAiDraft={(prefill) => openAiImport(prefill)}
         />
       )}
       {receiveSongOpen && (
@@ -5812,12 +5848,14 @@ function ReceiverDiagnosticsOverlay({
 
 function ImportSongsView({
   songs,
+  pastePrefill,
   onImport,
   onJsonCsvImport,
   onWebpageChartImport,
   onSharedSongCodeImport
 }: {
   songs: Song[];
+  pastePrefill?: SearchImportPrefill | null;
   onImport: (files: ImportCandidate[], strategy: DuplicateStrategy) => Promise<ImportSummary>;
   onJsonCsvImport: (file: File) => Promise<void>;
   onWebpageChartImport: (song: Song) => Promise<void>;
@@ -5833,6 +5871,12 @@ function ImportSongsView({
   const [isSavingPaste, setIsSavingPaste] = useState(false);
   const [sharedSongCode, setSharedSongCode] = useState('');
   const [sharedSongCodeError, setSharedSongCodeError] = useState('');
+
+  useEffect(() => {
+    if (!pastePrefill) return;
+    setWebpagePasteText(createPasteChartPrefillText(pastePrefill));
+    setWebpagePreview(null);
+  }, [pastePrefill?.id]);
 
   async function addFiles(files: File[]) {
     const accepted = files.filter((file) => isSupportedSongImportFileName(file.name));
@@ -5873,7 +5917,15 @@ function ImportSongsView({
     if (!webpagePreview || webpagePreview.warnings.length > 0) return;
     setIsSavingPaste(true);
     try {
-      await onWebpageChartImport(webpagePreview.song);
+      const year = releaseYearFromDate(pastePrefill?.releaseDate);
+      await onWebpageChartImport({
+        ...webpagePreview.song,
+        title: webpagePreview.song.title || pastePrefill?.title || '',
+        artist: webpagePreview.song.artist || pastePrefill?.artist || '',
+        album: webpagePreview.song.album || pastePrefill?.releaseTitle || '',
+        year: webpagePreview.song.year || (year ? Number(year) : undefined),
+        musicBrainzRecordingId: pastePrefill?.recordingMbid || webpagePreview.song.musicBrainzRecordingId
+      });
       setWebpagePasteText('');
       setWebpagePreview(null);
     } finally {
@@ -5944,6 +5996,12 @@ function ImportSongsView({
                 Clear
               </button>
             </div>
+            {pastePrefill && (
+              <div className="mt-3 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-950">
+                <div className="font-semibold">Confirmed MusicBrainz identity</div>
+                <div>{pastePrefill.title}{pastePrefill.artist ? ` by ${pastePrefill.artist}` : ''}</div>
+              </div>
+            )}
             <textarea
               className="input mt-3 min-h-72 w-full font-mono text-sm leading-relaxed"
               placeholder={"Paste webpage song/chord text here...\n\nExample:\n3AM\nMatchbox 20\nCapo 1\nKey G\nBPM 108\n\nG        C\nShe says it's cold outside"}
@@ -7853,11 +7911,11 @@ function NewSongMenu({ align, onSelect }: { align: 'left' | 'right'; onSelect: (
           <span className="block text-xs leading-5 text-slate-400">Import and format chart text from a source you provide.</span>
         </span>
       </button>
-      <button className="flex w-full cursor-not-allowed items-start gap-3 border-t border-slate-800 px-3 py-3 text-left opacity-60" type="button" disabled>
+      <button className="flex w-full items-start gap-3 border-t border-slate-800 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('search')}>
         <Search size={16} className="mt-0.5 shrink-0" />
         <span>
           <span className="block font-semibold">Search Import</span>
-          <span className="block text-xs leading-5 text-slate-400">Find and verify a song from an external source. Coming Soon.</span>
+          <span className="block text-xs leading-5 text-slate-400">Find and verify song identity from MusicBrainz.</span>
         </span>
       </button>
       <button className="flex w-full items-start gap-3 border-t border-slate-800 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onSelect('receive')}>
@@ -7926,9 +7984,185 @@ function ReceiveSongModal({ onClose, onReceive }: { onClose: () => void; onRecei
   );
 }
 
-function AiImportSongModal({ onClose, onImport }: { onClose: () => void; onImport: (song: Song) => Promise<void> }) {
+function SearchImportModal({
+  onClose,
+  onPasteChart,
+  onAiDraft
+}: {
+  onClose: () => void;
+  onPasteChart: (prefill: SearchImportPrefill) => void;
+  onAiDraft: (prefill: SearchImportPrefill) => void;
+}) {
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
+  const [results, setResults] = useState<SearchImportCandidate[]>([]);
+  const [selected, setSelected] = useState<SearchImportCandidate | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [error, setError] = useState('');
+
+  async function searchSongs() {
+    const requestTitle = title.trim();
+    const requestArtist = artist.trim();
+    if (!requestTitle) {
+      setError('Song title is required.');
+      return;
+    }
+
+    setLoading(true);
+    setSearched(true);
+    setSelected(null);
+    setError('');
+    try {
+      const params = new URLSearchParams({ title: requestTitle });
+      if (requestArtist) params.set('artist', requestArtist);
+      const response = await fetch(`${openStageApiBaseUrl}/api/song-search?${params.toString()}`);
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body?.ok || !Array.isArray(body.results)) throw new Error('Song search failed');
+      setResults(body.results);
+    } catch {
+      setResults([]);
+      setError('Song search failed. Try again, use AI Draft, or paste a chart from a source you provide.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const selectedPrefill = selected ? createSearchImportPrefill(selected) : null;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-3">
+      <div className="max-h-[min(92vh,760px)] w-[min(54rem,100%)] overflow-hidden rounded-xl border border-slate-700 bg-slate-950 text-slate-100 shadow-2xl">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+          <div>
+            <h2 className="text-lg font-semibold">Search Import</h2>
+            <p className="text-xs text-slate-400">Verify song identity with MusicBrainz before choosing how to add chart text.</p>
+          </div>
+          <button className="icon-button" type="button" aria-label="Close Search Import" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(min(92vh,760px)-4rem)] overflow-y-auto p-4">
+          {!selected && (
+            <>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="grid gap-1 text-sm font-semibold">
+                  Song Title <span className="text-red-300">*</span>
+                  <input
+                    className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-teal-400"
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') void searchSongs();
+                    }}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold">
+                  Artist <span className="text-slate-500">optional</span>
+                  <input
+                    className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 outline-none focus:border-teal-400"
+                    value={artist}
+                    onChange={(event) => setArtist(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') void searchSongs();
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-60" type="button" disabled={loading || !title.trim()} onClick={() => void searchSongs()}>
+                  {loading ? 'Searching...' : 'Search'}
+                </button>
+                <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-white/10" type="button" onClick={onClose}>
+                  Cancel
+                </button>
+              </div>
+              {error && <div className="mt-3 rounded-md border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</div>}
+              {searched && !loading && !error && results.length === 0 && (
+                <div className="mt-5 rounded-lg border border-amber-300/30 bg-amber-400/10 p-4 text-sm text-amber-50">
+                  <div className="font-semibold">No confident matches found.</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button className="rounded-md border border-amber-200/40 px-3 py-2 font-semibold hover:bg-white/10" type="button" onClick={() => setSearched(false)}>
+                      Edit Search
+                    </button>
+                    <button className="rounded-md border border-amber-200/40 px-3 py-2 font-semibold hover:bg-white/10" type="button" onClick={() => onAiDraft({ id: `manual-${Date.now()}`, title: title.trim(), artist: artist.trim() })}>
+                      Try AI Draft
+                    </button>
+                    <button className="rounded-md border border-amber-200/40 px-3 py-2 font-semibold hover:bg-white/10" type="button" onClick={() => onPasteChart({ id: `manual-${Date.now()}`, title: title.trim(), artist: artist.trim() })}>
+                      Paste / Webpage Chart
+                    </button>
+                  </div>
+                </div>
+              )}
+              {results.length > 0 && (
+                <div className="mt-5 grid gap-2">
+                  {results.map((candidate) => (
+                    <div key={candidate.recordingMbid} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-base font-semibold">{candidate.title}</div>
+                          <div className="text-sm text-slate-300">{candidate.artist || 'Unknown artist'}</div>
+                          <div className="mt-1 text-xs text-slate-400">
+                            {[candidate.releaseTitle, releaseYearFromDate(candidate.releaseDate), formatDurationMs(candidate.durationMs)].filter(Boolean).join(' · ') || 'Recording metadata'}
+                          </div>
+                          {candidate.disambiguation && <div className="mt-1 text-xs text-slate-400">{candidate.disambiguation}</div>}
+                          <div className="mt-2 text-xs font-semibold text-teal-200">{candidate.matchSummary || `MusicBrainz score ${candidate.score ?? '-'}`}</div>
+                        </div>
+                        <button className="rounded-md bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-500" type="button" onClick={() => setSelected(candidate)}>
+                          Select
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {selected && selectedPrefill && (
+            <div className="grid gap-4">
+              <section className="rounded-lg border border-teal-300/30 bg-teal-400/10 p-4">
+                <div className="text-sm font-semibold uppercase tracking-normal text-teal-200">Song Confirmed</div>
+                <h3 className="mt-1 text-2xl font-semibold">{selected.title}</h3>
+                <div className="text-lg text-slate-200">{selected.artist || 'Unknown artist'}</div>
+                <div className="mt-3 grid gap-2 text-sm text-slate-300 sm:grid-cols-3">
+                  <div><span className="font-semibold text-slate-100">Release:</span> {selected.releaseTitle || '-'}</div>
+                  <div><span className="font-semibold text-slate-100">Year:</span> {releaseYearFromDate(selected.releaseDate) || '-'}</div>
+                  <div><span className="font-semibold text-slate-100">Duration:</span> {formatDurationMs(selected.durationMs) || '-'}</div>
+                </div>
+              </section>
+              <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+                <h3 className="text-lg font-semibold">How would you like to add the chart?</h3>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <button className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onPasteChart(selectedPrefill)}>
+                    <span className="block font-semibold">Paste Chart</span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-400">Use chart text from a source you provide.</span>
+                  </button>
+                  <button className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onAiDraft(selectedPrefill)}>
+                    <span className="block font-semibold">Create AI Draft</span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-400">Still unverified and AI-generated.</span>
+                  </button>
+                  <button className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={onClose}>
+                    <span className="block font-semibold">Cancel</span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-400">Return without creating a song.</span>
+                  </button>
+                </div>
+                <button className="mt-3 text-sm font-semibold text-teal-200 hover:text-teal-100" type="button" onClick={() => setSelected(null)}>
+                  Back to results
+                </button>
+              </section>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AiImportSongModal({ prefill, onClose, onImport }: { prefill?: SearchImportPrefill | null; onClose: () => void; onImport: (song: Song) => Promise<void> }) {
+  const [title, setTitle] = useState(prefill?.title ?? '');
+  const [artist, setArtist] = useState(prefill?.artist ?? '');
   const [preferredKey, setPreferredKey] = useState('');
   const [capo, setCapo] = useState('0');
   const [preview, setPreview] = useState<Song | null>(null);
@@ -7959,7 +8193,12 @@ function AiImportSongModal({ onClose, onImport }: { onClose: () => void; onImpor
       });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data?.ok || !data.song) throw new Error('AI draft failed');
-      const nextSong = songFromAiImport(data.song, { title: requestTitle, artist: requestArtist });
+      const nextSong = {
+        ...songFromAiImport(data.song, { title: requestTitle, artist: requestArtist }),
+        musicBrainzRecordingId: prefill?.recordingMbid,
+        album: prefill?.releaseTitle,
+        year: releaseYearFromDate(prefill?.releaseDate) ? Number(releaseYearFromDate(prefill?.releaseDate)) : undefined
+      };
       setPreview(nextSong);
       setTitle(nextSong.title);
       setArtist(nextSong.artist);
@@ -8013,6 +8252,12 @@ function AiImportSongModal({ onClose, onImport }: { onClose: () => void; onImpor
           <div className="mb-4 rounded-md border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-sm leading-6 text-amber-50">
             {aiDraftDisclaimerText}
           </div>
+          {prefill?.recordingMbid && (
+            <div className="mb-4 rounded-md border border-teal-300/30 bg-teal-400/10 px-3 py-2 text-sm text-teal-50">
+              <div className="font-semibold">Confirmed MusicBrainz identity</div>
+              <div>{prefill.title}{prefill.artist ? ` by ${prefill.artist}` : ''}</div>
+            </div>
+          )}
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1 text-sm font-semibold">
               Song Title <span className="text-red-300">*</span>

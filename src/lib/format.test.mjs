@@ -12,6 +12,8 @@ import {
   shouldOpenAutoscrollSpeedPopover
 } from './autoscrollButton-test-target.mjs';
 import { aiDraftDisclaimerText, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './aiDraft-test-target.mjs';
+import { createMusicBrainzRecordingQuery, createMusicBrainzThrottle, normalizeMusicBrainzSearchText, rankMusicBrainzRecordings, searchMusicBrainzRecordings } from './musicbrainz-test-target.mjs';
+import { createPasteChartPrefillText, createSearchImportPrefill, formatDurationMs, releaseYearFromDate } from './searchImport-test-target.mjs';
 import { parseDurationInput } from './format-test-target.mjs';
 import { applyPerformanceChordTransform } from './chords-test-target.mjs';
 import {
@@ -100,6 +102,88 @@ assert.equal(normalizeAiDraftSongResponse({ title: 'Wrong', artist: 'Wrong' }, {
 assert.equal(aiDraftPreviewBadge, 'AI Generated Draft');
 assert.match(aiDraftDisclaimerText, /does not retrieve or verify/i);
 assert.match(aiDraftDisclaimerText, /may be inaccurate/i);
+
+assert.equal(normalizeMusicBrainzSearchText(" Livin'  On a Prayer! "), 'livin on a prayer');
+assert.equal(createMusicBrainzRecordingQuery({ title: 'Song "A"', artist: 'Artist A' }), 'recording:"Song \\"A\\"" AND artist:"Artist A"');
+
+const musicBrainzFixture = [
+  {
+    id: 'wrong-artist',
+    title: "Livin' on a Prayer",
+    score: 99,
+    length: 244000,
+    'artist-credit': [{ name: 'Cover Band', artist: { id: 'artist-cover' } }],
+    releases: [{ id: 'release-cover', title: 'Cover Hits', date: '1990-01-01', status: 'Official' }]
+  },
+  {
+    id: 'exact',
+    title: "Livin' on a Prayer",
+    score: 92,
+    length: 250000,
+    'artist-credit': [{ name: 'Bon Jovi', artist: { id: 'artist-bon-jovi' } }],
+    releases: [{ id: 'release-slippery', title: 'Slippery When Wet', date: '1986-08-18', status: 'Official' }]
+  },
+  {
+    id: 'punctuation',
+    title: 'LIVIN ON A PRAYER',
+    score: 91,
+    'artist-credit': [{ name: 'Bon Jovi', artist: { id: 'artist-bon-jovi' } }],
+    releases: [{ id: 'release-other', title: 'Greatest Hits', date: '2010' }]
+  }
+];
+const rankedMusicBrainzResults = rankMusicBrainzRecordings(musicBrainzFixture, { title: "livin on a prayer", artist: 'bon jovi' });
+assert.equal(rankedMusicBrainzResults[0].recordingMbid, 'exact');
+assert.equal(rankedMusicBrainzResults[0].artistMbid, 'artist-bon-jovi');
+assert.equal(rankedMusicBrainzResults[0].releaseMbid, 'release-slippery');
+assert.equal(rankedMusicBrainzResults[0].durationMs, 250000);
+assert.equal(rankedMusicBrainzResults[1].recordingMbid, 'punctuation');
+assert.equal(rankMusicBrainzRecordings(musicBrainzFixture, { title: "Livin' on a Prayer", artist: '' })[0].recordingMbid, 'wrong-artist');
+assert.deepEqual(rankMusicBrainzRecordings([], { title: 'Missing', artist: 'Nobody' }), []);
+
+let mockSearchUrl = '';
+const mockSearchResults = await searchMusicBrainzRecordings({
+  title: 'Same Song',
+  artist: '',
+  fetchImpl: async (url, options) => {
+    mockSearchUrl = String(url);
+    assert.match(options.headers['User-Agent'], /OpenStage/);
+    return {
+      ok: true,
+      json: async () => ({ recordings: musicBrainzFixture })
+    };
+  }
+});
+assert.match(mockSearchUrl, /recording%3A%22Same\+Song%22/);
+assert.equal(mockSearchResults.length, 3);
+await assert.rejects(
+  () => searchMusicBrainzRecordings({
+    title: 'Failure',
+    fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({}) })
+  }),
+  /MusicBrainz search failed/
+);
+const throttleDelays = [];
+let throttleNow = 1000;
+const throttle = createMusicBrainzThrottle({
+  minIntervalMs: 1000,
+  nowFn: () => throttleNow,
+  waitFn: async (ms) => {
+    throttleDelays.push(ms);
+    throttleNow += ms;
+  }
+});
+await throttle();
+throttleNow += 250;
+await throttle();
+assert.deepEqual(throttleDelays, [750]);
+
+const searchPrefill = createSearchImportPrefill(rankedMusicBrainzResults[0]);
+assert.equal(searchPrefill.title, "Livin' on a Prayer");
+assert.equal(searchPrefill.artist, 'Bon Jovi');
+assert.equal(searchPrefill.recordingMbid, 'exact');
+assert.equal(createPasteChartPrefillText(searchPrefill), "Livin' on a Prayer\nBon Jovi\n");
+assert.equal(releaseYearFromDate('1986-08-18'), '1986');
+assert.equal(formatDurationMs(250000), '4:10');
 
 assert.equal(normalizeTempoBpm(120), 120);
 assert.equal(normalizeTempoBpm('90'), 90);

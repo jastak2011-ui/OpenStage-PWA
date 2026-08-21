@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import cors from 'cors';
 import express from 'express';
 import { randomBytes } from 'node:crypto';
+import { searchMusicBrainzRecordings } from './musicbrainz.js';
 
 const app = express();
 const port = Number(process.env.PORT) || 10000;
@@ -626,6 +627,36 @@ app.post('/api/ai-import-song', async (request, response) => {
     response.status(500).json({
       ok: false,
       error: 'AI draft failed.'
+    });
+  }
+});
+
+app.get('/api/song-search', async (request, response) => {
+  const title = typeof request.query?.title === 'string' ? request.query.title.trim() : '';
+  const artist = typeof request.query?.artist === 'string' ? request.query.artist.trim() : '';
+
+  if (!title) {
+    response.status(400).json({
+      ok: false,
+      error: 'Song title is required.'
+    });
+    return;
+  }
+
+  try {
+    const results = await searchMusicBrainzRecordings({ title, artist });
+    response.json({
+      ok: true,
+      results
+    });
+  } catch (error) {
+    console.error('MusicBrainz song search failed:', {
+      status: error?.status,
+      message: error?.message
+    });
+    response.status(502).json({
+      ok: false,
+      error: 'Song search failed.'
     });
   }
 });
