@@ -122,6 +122,89 @@ export function rankMusicBrainzRecordings(recordings, requested, limit = 5) {
     .map(({ rankScore, releaseYear: _releaseYear, ...candidate }) => candidate);
 }
 
+function domainFromUrl(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function usableChartRelation(relation) {
+  const type = String(relation?.type || '').toLowerCase();
+  return /lyric|score|sheet|tablature|chord/.test(type);
+}
+
+function sourceLinksFromRelations(relations, sourceType) {
+  return (Array.isArray(relations) ? relations : [])
+    .filter((relation) => relation?.['target-type'] === 'url' && relation?.url?.resource && usableChartRelation(relation))
+    .map((relation) => ({
+      url: relation.url.resource,
+      domain: domainFromUrl(relation.url.resource),
+      relationshipType: relation.type || '',
+      sourceType
+    }))
+    .filter((source) => source.url && source.domain);
+}
+
+function workIdsFromRelations(relations) {
+  return Array.from(new Set(
+    (Array.isArray(relations) ? relations : [])
+      .filter((relation) => relation?.['target-type'] === 'work' && relation?.work?.id)
+      .map((relation) => relation.work.id)
+  ));
+}
+
+async function musicBrainzLookup(path, fetchImpl) {
+  await throttleMusicBrainzRequest();
+  const response = await fetchImpl(`${musicBrainzApiBaseUrl}${path}`, {
+    headers: {
+      'User-Agent': musicBrainzUserAgent,
+      Accept: 'application/json'
+    }
+  });
+  if (!response.ok) {
+    const error = new Error(`MusicBrainz lookup failed with HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
+
+export async function lookupMusicBrainzChartSourceLinks({ recordingMbid, fetchImpl = fetch } = {}) {
+  const mbid = String(recordingMbid || '').trim();
+  if (!mbid) {
+    const error = new Error('Recording MBID is required.');
+    error.status = 400;
+    throw error;
+  }
+
+  const recording = await musicBrainzLookup(`/recording/${encodeURIComponent(mbid)}?inc=url-rels+work-rels&fmt=json`, fetchImpl);
+  const sources = sourceLinksFromRelations(recording?.relations, 'recording');
+  const workIds = workIdsFromRelations(recording?.relations).slice(0, 3);
+
+  for (const workId of workIds) {
+    try {
+      const work = await musicBrainzLookup(`/work/${encodeURIComponent(workId)}?inc=url-rels&fmt=json`, fetchImpl);
+      sources.push(...sourceLinksFromRelations(work?.relations, 'work'));
+    } catch (error) {
+      console.error('MusicBrainz work URL lookup failed:', {
+        workId,
+        status: error?.status,
+        message: error?.message
+      });
+    }
+  }
+
+  const seen = new Set();
+  return sources.filter((source) => {
+    const key = source.url.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export async function searchMusicBrainzRecordings({ title, artist, fetchImpl = fetch, nowFn = Date.now } = {}) {
   const requestedTitle = String(title || '').trim();
   const requestedArtist = String(artist || '').trim();

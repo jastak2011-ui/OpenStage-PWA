@@ -89,13 +89,16 @@ import { createId, createSongUuid } from './lib/ids';
 import { castStateFromSong, publishCastState } from './services/castState';
 import { parseWebpageChartText, type WebpageChartImportPreview } from './lib/webpageChartImport';
 import { aiDraftDisclaimerText, aiDraftMenuLabel, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './lib/aiDraft';
+import { chartSourceChoices, domainFromUrl, type ChartSourceChoice } from './lib/chartSourceSearch';
 import {
+  createSearchImportSession,
   createPasteChartPrefillText,
   createSearchImportPrefill,
   formatDurationMs,
   releaseYearFromDate,
   searchImportConfirmedActions,
   searchImportConfirmedCopy,
+  searchImportSessionStorageKey,
   type SearchImportCandidate,
   type SearchImportPrefill
 } from './lib/searchImport';
@@ -7999,6 +8002,78 @@ function SearchImportModal({
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
+  const [chartStep, setChartStep] = useState<'confirmed' | 'find-chart'>('confirmed');
+  const [linkedSources, setLinkedSources] = useState<Array<{ url: string; domain: string; relationshipType: string; sourceType: string }>>([]);
+  const [linkedSourcesLoading, setLinkedSourcesLoading] = useState(false);
+  const [linkedSourcesError, setLinkedSourcesError] = useState('');
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(searchImportSessionStorageKey);
+      if (!raw) return;
+      const session = JSON.parse(raw);
+      if (!session?.selectedCandidate) return;
+      setTitle(typeof session.title === 'string' ? session.title : '');
+      setArtist(typeof session.artist === 'string' ? session.artist : '');
+      setSelected(session.selectedCandidate);
+      setChartStep(session.step === 'find-chart' ? 'find-chart' : 'confirmed');
+    } catch {
+      // Ignore malformed local resume data.
+    }
+  }, []);
+
+  const selectedPrefill = useMemo(() => selected ? createSearchImportPrefill(selected) : null, [selected]);
+
+  function saveSearchImportSession(step: 'confirmed' | 'find-chart') {
+    if (!selectedPrefill) return;
+    window.localStorage.setItem(
+      searchImportSessionStorageKey,
+      JSON.stringify(createSearchImportSession(selectedPrefill, selected ?? undefined, step))
+    );
+  }
+
+  function openChartSource(url: string) {
+    saveSearchImportSession('find-chart');
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  function pasteConfirmedChart() {
+    saveSearchImportSession(chartStep);
+    if (selectedPrefill) onPasteChart(selectedPrefill);
+  }
+
+  useEffect(() => {
+    if (chartStep !== 'find-chart' || !selectedPrefill?.recordingMbid) {
+      setLinkedSources([]);
+      setLinkedSourcesError('');
+      return;
+    }
+
+    let cancelled = false;
+    async function loadLinkedSources() {
+      setLinkedSourcesLoading(true);
+      setLinkedSourcesError('');
+      try {
+        const params = new URLSearchParams({ recordingMbid: selectedPrefill?.recordingMbid || '' });
+        const response = await fetch(`${openStageApiBaseUrl}/api/musicbrainz-source-links?${params.toString()}`);
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body?.ok || !Array.isArray(body.sources)) throw new Error('MusicBrainz source lookup failed');
+        if (!cancelled) setLinkedSources(body.sources);
+      } catch {
+        if (!cancelled) {
+          setLinkedSources([]);
+          setLinkedSourcesError('No MusicBrainz linked chart sources found.');
+        }
+      } finally {
+        if (!cancelled) setLinkedSourcesLoading(false);
+      }
+    }
+
+    void loadLinkedSources();
+    return () => {
+      cancelled = true;
+    };
+  }, [chartStep, selectedPrefill?.recordingMbid]);
 
   async function searchSongs() {
     const requestTitle = title.trim();
@@ -8011,6 +8086,8 @@ function SearchImportModal({
     setLoading(true);
     setSearched(true);
     setSelected(null);
+    setChartStep('confirmed');
+    window.localStorage.removeItem(searchImportSessionStorageKey);
     setError('');
     try {
       const params = new URLSearchParams({ title: requestTitle });
@@ -8026,8 +8103,6 @@ function SearchImportModal({
       setLoading(false);
     }
   }
-
-  const selectedPrefill = selected ? createSearchImportPrefill(selected) : null;
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-3">
@@ -8105,7 +8180,14 @@ function SearchImportModal({
                           {candidate.disambiguation && <div className="mt-1 text-xs text-slate-400">{candidate.disambiguation}</div>}
                           <div className="mt-2 text-xs font-semibold text-teal-200">{candidate.matchSummary || `MusicBrainz score ${candidate.score ?? '-'}`}</div>
                         </div>
-                        <button className="rounded-md bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-500" type="button" onClick={() => setSelected(candidate)}>
+                        <button
+                          className="rounded-md bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-500"
+                          type="button"
+                          onClick={() => {
+                            setSelected(candidate);
+                            setChartStep('confirmed');
+                          }}
+                        >
                           Select
                         </button>
                       </div>
@@ -8116,7 +8198,7 @@ function SearchImportModal({
             </>
           )}
 
-          {selected && selectedPrefill && (
+          {selected && selectedPrefill && chartStep === 'confirmed' && (
             <div className="grid gap-4">
               <section className="rounded-lg border border-teal-300/30 bg-teal-400/10 p-4">
                 <div className="text-sm font-semibold uppercase tracking-normal text-teal-200">Song Confirmed</div>
@@ -8131,19 +8213,93 @@ function SearchImportModal({
               <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
                 <h3 className="text-lg font-semibold">How would you like to add the chart?</h3>
                 <p className="mt-1 text-sm text-slate-300">{searchImportConfirmedCopy}</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <button className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => onPasteChart(selectedPrefill)}>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <button className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => { saveSearchImportSession('find-chart'); setChartStep('find-chart'); }}>
                     <span className="block font-semibold">{searchImportConfirmedActions[0]}</span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-400">Open likely chart-source searches.</span>
+                  </button>
+                  <button className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={pasteConfirmedChart}>
+                    <span className="block font-semibold">{searchImportConfirmedActions[1]}</span>
                     <span className="mt-1 block text-xs leading-5 text-slate-400">Use chart text from a source you provide.</span>
                   </button>
                   <button className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={onClose}>
-                    <span className="block font-semibold">{searchImportConfirmedActions[1]}</span>
+                    <span className="block font-semibold">{searchImportConfirmedActions[2]}</span>
                     <span className="mt-1 block text-xs leading-5 text-slate-400">Return without creating a song.</span>
                   </button>
                 </div>
                 <button className="mt-3 text-sm font-semibold text-teal-200 hover:text-teal-100" type="button" onClick={() => setSelected(null)}>
                   Back to results
                 </button>
+              </section>
+            </div>
+          )}
+
+          {selected && selectedPrefill && chartStep === 'find-chart' && (
+            <div className="grid gap-4">
+              <section className="rounded-lg border border-teal-300/30 bg-teal-400/10 p-4">
+                <div className="text-sm font-semibold uppercase tracking-normal text-teal-200">Find Chart</div>
+                <h3 className="mt-1 text-2xl font-semibold">{selected.title}</h3>
+                <div className="text-lg text-slate-200">{selected.artist || 'Unknown artist'}</div>
+                <div className="mt-2 text-sm text-slate-300">
+                  {[selected.releaseTitle, releaseYearFromDate(selected.releaseDate)].filter(Boolean).join(' · ')}
+                </div>
+              </section>
+              <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+                <h3 className="text-lg font-semibold">Find a chart for this song</h3>
+                <p className="mt-1 text-sm text-slate-300">
+                  These are candidate chart sources for the verified song. Review the source before importing.
+                </p>
+                <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-slate-300">
+                  <li>Open a chart source.</li>
+                  <li>Copy the chart you want.</li>
+                  <li>Return to OpenStage.</li>
+                  <li>Choose Paste Chart.</li>
+                </ol>
+
+                {(linkedSourcesLoading || linkedSources.length > 0 || linkedSourcesError) && (
+                  <div className="mt-4 rounded-md border border-slate-700 bg-black/20 p-3">
+                    <div className="text-sm font-semibold text-slate-100">Linked Source</div>
+                    {linkedSourcesLoading && <div className="mt-2 text-sm text-slate-400">Checking MusicBrainz relationships...</div>}
+                    {!linkedSourcesLoading && linkedSourcesError && <div className="mt-2 text-sm text-slate-400">{linkedSourcesError}</div>}
+                    {!linkedSourcesLoading && linkedSources.length > 0 && (
+                      <div className="mt-2 grid gap-2">
+                        {linkedSources.map((source) => (
+                          <div key={source.url} className="flex flex-wrap items-center justify-between gap-3 rounded border border-slate-700 bg-slate-950 px-3 py-2">
+                            <div>
+                              <div className="font-semibold">{source.domain || domainFromUrl(source.url)}</div>
+                              <div className="text-xs text-slate-400">{source.relationshipType} · MusicBrainz {source.sourceType}</div>
+                            </div>
+                            <button className="rounded-md border border-slate-700 px-3 py-2 text-sm font-semibold hover:bg-white/10" type="button" onClick={() => openChartSource(source.url)}>
+                              Open Source
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {chartSourceChoices(selectedPrefill).map((choice: ChartSourceChoice) => (
+                    <button key={choice.id} className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => openChartSource(choice.url)}>
+                      <span className="block font-semibold">{choice.label}</span>
+                      <span className="block text-xs text-slate-400">{choice.domain}</span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-400">{choice.description}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500" type="button" onClick={pasteConfirmedChart}>
+                    Paste Chart
+                  </button>
+                  <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-white/10" type="button" onClick={() => setChartStep('confirmed')}>
+                    Back
+                  </button>
+                  <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-white/10" type="button" onClick={onClose}>
+                    Cancel
+                  </button>
+                </div>
               </section>
             </div>
           )}

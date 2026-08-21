@@ -12,8 +12,9 @@ import {
   shouldOpenAutoscrollSpeedPopover
 } from './autoscrollButton-test-target.mjs';
 import { aiDraftDisclaimerText, aiDraftMenuLabel, aiDraftPreviewBadge, normalizeAiDraftSongResponse } from './aiDraft-test-target.mjs';
-import { createMusicBrainzRecordingQuery, createMusicBrainzThrottle, normalizeMusicBrainzSearchText, rankMusicBrainzRecordings, searchMusicBrainzRecordings } from './musicbrainz-test-target.mjs';
-import { createPasteChartPrefillText, createSearchImportPrefill, formatDurationMs, releaseYearFromDate, searchImportConfirmedActions, searchImportConfirmedCopy } from './searchImport-test-target.mjs';
+import { chartSourceChoices, chartSourceProviderRequiresApiKey, chartSourceQuery, domainFromUrl as chartSourceDomainFromUrl, quotedChartSourceQuery, webSearchUrl } from './chartSourceSearch-test-target.mjs';
+import { createMusicBrainzRecordingQuery, createMusicBrainzThrottle, lookupMusicBrainzChartSourceLinks, normalizeMusicBrainzSearchText, rankMusicBrainzRecordings, searchMusicBrainzRecordings } from './musicbrainz-test-target.mjs';
+import { createPasteChartPrefillText, createSearchImportPrefill, createSearchImportSession, formatDurationMs, releaseYearFromDate, searchImportConfirmedActions, searchImportConfirmedCopy } from './searchImport-test-target.mjs';
 import { parseDurationInput } from './format-test-target.mjs';
 import { applyPerformanceChordTransform } from './chords-test-target.mjs';
 import {
@@ -103,7 +104,7 @@ assert.equal(aiDraftPreviewBadge, 'AI Generated Draft');
 assert.equal(aiDraftMenuLabel, 'AI Draft');
 assert.match(aiDraftDisclaimerText, /does not retrieve or verify/i);
 assert.match(aiDraftDisclaimerText, /may be inaccurate/i);
-assert.deepEqual([...searchImportConfirmedActions], ['Paste Chart', 'Cancel']);
+assert.deepEqual([...searchImportConfirmedActions], ['Find Chart', 'Paste Chart', 'Cancel']);
 assert.equal(searchImportConfirmedActions.includes('Create AI Draft'), false);
 assert.match(searchImportConfirmedCopy, /source you provide/i);
 assert.doesNotMatch(searchImportConfirmedCopy, /AI/i);
@@ -189,6 +190,51 @@ assert.equal(searchPrefill.recordingMbid, 'exact');
 assert.equal(createPasteChartPrefillText(searchPrefill), "Livin' on a Prayer\nBon Jovi\n");
 assert.equal(releaseYearFromDate('1986-08-18'), '1986');
 assert.equal(formatDurationMs(250000), '4:10');
+assert.equal(createSearchImportSession(searchPrefill, rankedMusicBrainzResults[0], 'find-chart').recordingMbid, 'exact');
+assert.equal(chartSourceProviderRequiresApiKey(), false);
+const lightsStyxPrefill = { id: 'lights-styx', title: 'Lights', artist: 'Styx', recordingMbid: 'mbid-lights-styx' };
+assert.equal(chartSourceQuery(lightsStyxPrefill), 'Lights Styx chords');
+assert.equal(quotedChartSourceQuery(lightsStyxPrefill), '"Lights" "Styx" chords');
+const lightsStyxChoices = chartSourceChoices(lightsStyxPrefill);
+assert.equal(lightsStyxChoices.length, 4);
+assert.ok(lightsStyxChoices.every((choice) => decodeURIComponent(choice.url).includes('Styx')));
+assert.ok(lightsStyxChoices.every((choice) => !decodeURIComponent(choice.url).includes('Journey')));
+assert.match(lightsStyxChoices.find((choice) => choice.id === 'ultimate-guitar')?.url || '', /^https:\/\/www\.ultimate-guitar\.com\/search\.php\?search_type=title&value=Lights%20Styx%20chords$/);
+assert.match(decodeURIComponent(lightsStyxChoices.find((choice) => choice.id === 'chordify')?.url || ''), /site:chordify\.net/);
+assert.match(lightsStyxChoices.find((choice) => choice.id === 'songsterr')?.url || '', /^https:\/\/www\.songsterr\.com\/\?pattern=Lights%20Styx%20chords$/);
+assert.equal(lightsStyxChoices.find((choice) => choice.id === 'web')?.url, webSearchUrl('"Lights" "Styx" chords'));
+assert.equal(chartSourceDomainFromUrl('https://www.ultimate-guitar.com/search.php?x=1'), 'ultimate-guitar.com');
+
+let musicBrainzLookupCalls = [];
+const linkedSources = await lookupMusicBrainzChartSourceLinks({
+  recordingMbid: 'recording-1',
+  fetchImpl: async (url) => {
+    musicBrainzLookupCalls.push(String(url));
+    if (String(url).includes('/recording/')) {
+      return {
+        ok: true,
+        json: async () => ({
+          relations: [
+            { 'target-type': 'url', type: 'lyrics', url: { resource: 'https://example.com/lyrics/lights' } },
+            { 'target-type': 'url', type: 'wikidata', url: { resource: 'https://www.wikidata.org/wiki/Q1' } },
+            { 'target-type': 'work', type: 'performance', work: { id: 'work-1' } }
+          ]
+        })
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        relations: [
+          { 'target-type': 'url', type: 'score', url: { resource: 'https://scores.example.org/lights' } }
+        ]
+      })
+    };
+  }
+});
+assert.deepEqual(linkedSources.map((source) => source.relationshipType), ['lyrics', 'score']);
+assert.equal(linkedSources[0].domain, 'example.com');
+assert.ok(musicBrainzLookupCalls.some((url) => url.includes('/work/work-1')));
 
 assert.equal(normalizeTempoBpm(120), 120);
 assert.equal(normalizeTempoBpm('90'), 90);

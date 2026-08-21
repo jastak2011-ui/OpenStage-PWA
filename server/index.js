@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import cors from 'cors';
 import express from 'express';
 import { randomBytes } from 'node:crypto';
-import { searchMusicBrainzRecordings } from './musicbrainz.js';
+import { lookupMusicBrainzChartSourceLinks, searchMusicBrainzRecordings } from './musicbrainz.js';
 
 const app = express();
 const port = Number(process.env.PORT) || 10000;
@@ -657,6 +657,35 @@ app.get('/api/song-search', async (request, response) => {
     response.status(502).json({
       ok: false,
       error: 'Song search failed.'
+    });
+  }
+});
+
+app.get('/api/musicbrainz-source-links', async (request, response) => {
+  const recordingMbid = typeof request.query?.recordingMbid === 'string' ? request.query.recordingMbid.trim() : '';
+
+  if (!recordingMbid) {
+    response.status(400).json({
+      ok: false,
+      error: 'Recording MBID is required.'
+    });
+    return;
+  }
+
+  try {
+    const sources = await lookupMusicBrainzChartSourceLinks({ recordingMbid });
+    response.json({
+      ok: true,
+      sources
+    });
+  } catch (error) {
+    console.error('MusicBrainz source link lookup failed:', {
+      status: error?.status,
+      message: error?.message
+    });
+    response.status(502).json({
+      ok: false,
+      error: 'MusicBrainz source links failed.'
     });
   }
 });

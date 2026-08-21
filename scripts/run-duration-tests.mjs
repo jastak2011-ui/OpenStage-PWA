@@ -45,6 +45,14 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/lib/chartSourceSearch.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/chartSourceSearch-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'server/musicbrainz.js')],
   bundle: true,
   platform: 'node',

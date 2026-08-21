@@ -23,8 +23,20 @@ export type SearchImportPrefill = {
   releaseDate?: string;
 };
 
+export type SearchImportSessionStep = 'confirmed' | 'find-chart';
+
+export type SearchImportSession = {
+  title: string;
+  artist: string;
+  recordingMbid?: string;
+  selectedCandidate?: SearchImportCandidate;
+  step: SearchImportSessionStep;
+  updatedAt: string;
+};
+
+export const searchImportSessionStorageKey = 'openstage.searchImportSession';
 export const searchImportConfirmedCopy = 'Song identity verified. Add chart content from a source you provide.';
-export const searchImportConfirmedActions = ['Paste Chart', 'Cancel'] as const;
+export const searchImportConfirmedActions = ['Find Chart', 'Paste Chart', 'Cancel'] as const;
 
 export function createSearchImportPrefill(candidate: SearchImportCandidate): SearchImportPrefill {
   return {
@@ -41,6 +53,17 @@ export function createSearchImportPrefill(candidate: SearchImportCandidate): Sea
 
 export function createPasteChartPrefillText(prefill: SearchImportPrefill) {
   return [prefill.title.trim(), prefill.artist.trim(), ''].filter((line, index) => index < 2 ? Boolean(line) : true).join('\n');
+}
+
+export function createSearchImportSession(prefill: SearchImportPrefill, selectedCandidate: SearchImportCandidate | undefined, step: SearchImportSessionStep): SearchImportSession {
+  return {
+    title: prefill.title,
+    artist: prefill.artist,
+    recordingMbid: prefill.recordingMbid,
+    selectedCandidate,
+    step,
+    updatedAt: new Date().toISOString()
+  };
 }
 
 export function releaseYearFromDate(date?: string) {
