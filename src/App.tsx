@@ -8006,6 +8006,8 @@ function SearchImportModal({
   const [linkedSources, setLinkedSources] = useState<Array<{ url: string; domain: string; relationshipType: string; sourceType: string }>>([]);
   const [linkedSourcesLoading, setLinkedSourcesLoading] = useState(false);
   const [linkedSourcesError, setLinkedSourcesError] = useState('');
+  const [songsterrResolving, setSongsterrResolving] = useState(false);
+  const [songsterrMessage, setSongsterrMessage] = useState('');
 
   useEffect(() => {
     try {
@@ -8035,6 +8037,31 @@ function SearchImportModal({
   function openChartSource(url: string) {
     saveSearchImportSession('find-chart');
     window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  async function openSongsterrDirect(fallbackUrl: string) {
+    if (!selectedPrefill) return;
+    setSongsterrResolving(true);
+    setSongsterrMessage('Finding Songsterr chart...');
+    try {
+      const params = new URLSearchParams({
+        title: selectedPrefill.title,
+        artist: selectedPrefill.artist
+      });
+      const response = await fetch(`${openStageApiBaseUrl}/api/songsterr-resolve?${params.toString()}`);
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body?.ok) throw new Error('Songsterr lookup failed');
+      if (body.noExactMatch || !body.match?.directUrl) {
+        setSongsterrMessage('No exact Songsterr match found.');
+        return;
+      }
+      setSongsterrMessage('');
+      openChartSource(body.match.directUrl);
+    } catch {
+      setSongsterrMessage('Songsterr direct lookup is temporarily unavailable.');
+    } finally {
+      setSongsterrResolving(false);
+    }
   }
 
   function pasteConfirmedChart() {
@@ -8087,6 +8114,7 @@ function SearchImportModal({
     setSearched(true);
     setSelected(null);
     setChartStep('confirmed');
+    setSongsterrMessage('');
     window.localStorage.removeItem(searchImportSessionStorageKey);
     setError('');
     try {
@@ -8281,13 +8309,42 @@ function SearchImportModal({
 
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
                   {chartSourceChoices(selectedPrefill).map((choice: ChartSourceChoice) => (
-                    <button key={choice.id} className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10" type="button" onClick={() => openChartSource(choice.url)}>
+                    <button
+                      key={choice.id}
+                      className="rounded-md border border-slate-700 px-3 py-3 text-left hover:bg-white/10 disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={choice.id === 'songsterr' && songsterrResolving}
+                      onClick={() => choice.id === 'songsterr' ? void openSongsterrDirect(choice.url) : openChartSource(choice.url)}
+                    >
                       <span className="block font-semibold">{choice.label}</span>
                       <span className="block text-xs text-slate-400">{choice.domain}</span>
                       <span className="mt-1 block text-xs leading-5 text-slate-400">{choice.description}</span>
                     </button>
                   ))}
                 </div>
+
+                {songsterrMessage && (
+                  <div className="mt-3 rounded-md border border-amber-300/30 bg-amber-400/10 p-3 text-sm text-amber-50">
+                    <div className="font-semibold">{songsterrMessage}</div>
+                    {!songsterrResolving && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          className="rounded-md border border-amber-200/40 px-3 py-2 font-semibold hover:bg-white/10"
+                          type="button"
+                          onClick={() => {
+                            const fallback = chartSourceChoices(selectedPrefill).find((choice) => choice.id === 'songsterr');
+                            if (fallback) openChartSource(fallback.url);
+                          }}
+                        >
+                          Search Songsterr
+                        </button>
+                        <button className="rounded-md border border-amber-200/40 px-3 py-2 font-semibold hover:bg-white/10" type="button" onClick={() => setSongsterrMessage('')}>
+                          Back
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500" type="button" onClick={pasteConfirmedChart}>

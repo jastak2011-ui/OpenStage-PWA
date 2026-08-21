@@ -15,6 +15,7 @@ import { aiDraftDisclaimerText, aiDraftMenuLabel, aiDraftPreviewBadge, normalize
 import { chartSourceChoices, chartSourceProviderRequiresApiKey, chartSourceQuery, domainFromUrl as chartSourceDomainFromUrl, quotedChartSourceQuery, webSearchUrl } from './chartSourceSearch-test-target.mjs';
 import { createMusicBrainzRecordingQuery, createMusicBrainzThrottle, lookupMusicBrainzChartSourceLinks, normalizeMusicBrainzSearchText, rankMusicBrainzRecordings, searchMusicBrainzRecordings } from './musicbrainz-test-target.mjs';
 import { createPasteChartPrefillText, createSearchImportPrefill, createSearchImportSession, formatDurationMs, releaseYearFromDate, searchImportConfirmedActions, searchImportConfirmedCopy } from './searchImport-test-target.mjs';
+import { createSongsterrDirectUrl, normalizeSongsterrMatchText, rankSongsterrCandidates, resolveSongsterrSong } from './songsterr-test-target.mjs';
 import { parseDurationInput } from './format-test-target.mjs';
 import { applyPerformanceChordTransform } from './chords-test-target.mjs';
 import {
@@ -201,9 +202,49 @@ assert.ok(lightsStyxChoices.every((choice) => decodeURIComponent(choice.url).inc
 assert.ok(lightsStyxChoices.every((choice) => !decodeURIComponent(choice.url).includes('Journey')));
 assert.match(lightsStyxChoices.find((choice) => choice.id === 'ultimate-guitar')?.url || '', /^https:\/\/www\.ultimate-guitar\.com\/search\.php\?search_type=title&value=Lights%20Styx%20chords$/);
 assert.match(decodeURIComponent(lightsStyxChoices.find((choice) => choice.id === 'chordify')?.url || ''), /site:chordify\.net/);
+assert.equal(lightsStyxChoices.find((choice) => choice.id === 'songsterr')?.label, 'Open Songsterr Chart');
 assert.match(lightsStyxChoices.find((choice) => choice.id === 'songsterr')?.url || '', /^https:\/\/www\.songsterr\.com\/\?pattern=Lights%20Styx%20chords$/);
 assert.equal(lightsStyxChoices.find((choice) => choice.id === 'web')?.url, webSearchUrl('"Lights" "Styx" chords'));
 assert.equal(chartSourceDomainFromUrl('https://www.ultimate-guitar.com/search.php?x=1'), 'ultimate-guitar.com');
+
+assert.equal(normalizeSongsterrMatchText("Don't Stop Believin' (feat. Someone)"), 'dont stop believin');
+const songsterrCandidates = [
+  { id: 101, title: 'Lights', artist: 'Journey', extraTabContent: 'must never be returned' },
+  { id: 202, title: 'Lights', artist: 'Styx' },
+  { id: 303, title: 'Lights - Live', artist: 'Styx' }
+];
+const rankedSongsterr = rankSongsterrCandidates(songsterrCandidates, { title: 'Lights', artist: 'Styx' });
+assert.equal(rankedSongsterr[0].songsterrId, '202');
+assert.equal(rankedSongsterr[0].titleMatch, true);
+assert.equal(rankedSongsterr[0].artistMatch, true);
+assert.equal(rankedSongsterr.find((candidate) => candidate.artist === 'Journey')?.artistMatch, false);
+assert.match(rankedSongsterr[0].directUrl, /^https:\/\/www\.songsterr\.com\/a\/wsa\/styx-lights-tab-s202$/);
+assert.equal(Object.prototype.hasOwnProperty.call(rankedSongsterr[0], 'extraTabContent'), false);
+assert.equal(createSongsterrDirectUrl({ songsterrId: 4053236, title: 'Lights', artist: 'Styx' }), 'https://www.songsterr.com/a/wsa/styx-lights-tab-s4053236');
+const resolvedSongsterr = await resolveSongsterrSong({
+  title: 'Lights',
+  artist: 'Styx',
+  fetchImpl: async (url) => {
+    assert.equal(String(url), 'https://www.songsterr.com/a/ra/songs.json?pattern=Lights+Styx');
+    return {
+      ok: true,
+      json: async () => songsterrCandidates
+    };
+  }
+});
+assert.equal(resolvedSongsterr.noExactMatch, false);
+assert.equal(resolvedSongsterr.match.songsterrId, '202');
+assert.equal(Object.prototype.hasOwnProperty.call(resolvedSongsterr.match, 'extraTabContent'), false);
+const unresolvedSongsterr = await resolveSongsterrSong({
+  title: 'Lights',
+  artist: 'Styx',
+  fetchImpl: async () => ({
+    ok: true,
+    json: async () => [{ id: 101, title: 'Lights', artist: 'Journey' }]
+  })
+});
+assert.equal(unresolvedSongsterr.noExactMatch, true);
+assert.equal(unresolvedSongsterr.match, undefined);
 
 let musicBrainzLookupCalls = [];
 const linkedSources = await lookupMusicBrainzChartSourceLinks({

@@ -47,9 +47,9 @@ export function chartSourceChoices(prefill: SearchImportPrefill): ChartSourceCho
     },
     {
       id: 'songsterr',
-      label: 'Search Songsterr',
+      label: 'Open Songsterr Chart',
       domain: 'songsterr.com',
-      description: 'Open Songsterr search for the verified title and artist.',
+      description: 'Resolve an exact Songsterr metadata match, then open the public page.',
       url: `https://www.songsterr.com/?pattern=${encodeURIComponent(query)}`
     },
     {

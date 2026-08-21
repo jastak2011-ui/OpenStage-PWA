@@ -4,6 +4,7 @@ import cors from 'cors';
 import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { lookupMusicBrainzChartSourceLinks, searchMusicBrainzRecordings } from './musicbrainz.js';
+import { resolveSongsterrSong } from './songsterr.js';
 
 const app = express();
 const port = Number(process.env.PORT) || 10000;
@@ -686,6 +687,36 @@ app.get('/api/musicbrainz-source-links', async (request, response) => {
     response.status(502).json({
       ok: false,
       error: 'MusicBrainz source links failed.'
+    });
+  }
+});
+
+app.get('/api/songsterr-resolve', async (request, response) => {
+  const title = typeof request.query?.title === 'string' ? request.query.title.trim() : '';
+  const artist = typeof request.query?.artist === 'string' ? request.query.artist.trim() : '';
+
+  if (!title || !artist) {
+    response.status(400).json({
+      ok: false,
+      error: 'Song title and artist are required.'
+    });
+    return;
+  }
+
+  try {
+    const result = await resolveSongsterrSong({ title, artist });
+    response.json({
+      ok: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('Songsterr resolve failed:', {
+      status: error?.status,
+      message: error?.message
+    });
+    response.status(error?.status === 400 ? 400 : 502).json({
+      ok: false,
+      error: 'Songsterr direct lookup failed.'
     });
   }
 });
