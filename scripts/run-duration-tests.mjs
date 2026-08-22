@@ -133,6 +133,14 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/lib/stageToolbar.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/lib/stageToolbar-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/lib/sharedSongImport.ts')],
   bundle: true,
   platform: 'node',

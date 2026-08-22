@@ -84,6 +84,7 @@ import { formatDuration, isValidDurationInput, parseDurationInput } from './lib/
 import { getStageSwipeDirection } from './lib/stageGestures';
 import { findSharedSongDuplicate, sharedDuplicateHasSameSongUuid, type SharedSongDuplicate } from './lib/sharedSongImport';
 import { applyStageHarmonyEdit, type StageHarmonyEditOperation } from './lib/stageHarmonyEdit';
+import { stageToolbarShareSongLabel } from './lib/stageToolbar';
 import { clampTempoBpm, maxTempoBpm, minTempoBpm, nextTempoBeat, nextTempoCountdownSeconds, normalizeTempoBpm, parseTempoBpmInput, shouldShowTempoMeter, shouldToggleTempoOnPointerEnd, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './lib/tempo';
 import { getEffectivePrompterCapo, getPrompterCapoTransposeOffset, normalizePrompterCapoMode, normalizePrompterCapoValue } from './lib/prompterCapo';
 import { createId, createSongUuid } from './lib/ids';
@@ -10686,7 +10687,7 @@ function PerformanceView({
           </div>
 
           <div className="stage-right-actions relative flex items-center gap-1 rounded-full border border-white/10 bg-black/25 p-1 backdrop-blur-md">
-            <StageIconButton icon={<Gauge size={19} />} label="Tempo" tone={toolbarButton} active={tempoRunning} onClick={toggleTempo} />
+            <StageIconButton icon={<Share2 size={19} />} label={stageToolbarShareSongLabel} tone={toolbarButton} disabled={publishingSong} onClick={() => void publishCurrentSong()} />
             <span className="stage-secondary-action inline-flex">
               <StageIconButton icon={<Pencil size={19} />} label="Edit Song" tone={toolbarButton} onClick={() => void leaveStageWithShareCheck(onEdit)} />
             </span>
@@ -10769,8 +10770,6 @@ function PerformanceView({
               setActivePopover(null);
             }}
             onToggleFavorite={onToggleFavorite}
-            onPublishSong={() => void publishCurrentSong()}
-            publishingSong={publishingSong}
             onRunStageSetlist={(setlist) => {
               onRunStageSetlist(setlist);
               setActivePopover(null);
@@ -12040,8 +12039,6 @@ function StageControlPopover({
   onSelectStageSong,
   onNewSongAction,
   onToggleFavorite,
-  onPublishSong,
-  publishingSong,
   onRunStageSetlist,
   onCreateStageSetlist,
   onUpdateStageSetlist,
@@ -12084,8 +12081,6 @@ function StageControlPopover({
   onSelectStageSong: (songId: string, source?: NavigationContext) => void;
   onNewSongAction: (action: NewSongAction) => void;
   onToggleFavorite: (songId: string) => void;
-  onPublishSong: () => void;
-  publishingSong: boolean;
   onRunStageSetlist: (setlist: SavedSetlist) => void;
   onCreateStageSetlist: (name: string, songIds: string[]) => Promise<SavedSetlist>;
   onUpdateStageSetlist: (setlistId: string, name: string, songIds: string[]) => Promise<SavedSetlist>;
@@ -12869,15 +12864,10 @@ function StageControlPopover({
         <div className="grid gap-3">
           <StagePopoverTitle title="More" />
           {currentStageSong && (
-            <>
-              <button className="stage-menu-button" type="button" onClick={() => onToggleFavorite(currentStageSong.id)}>
-                <Star size={18} fill={currentStageSong.favorite ? 'currentColor' : 'none'} />
-                {currentStageSong.favorite ? 'Remove Favorite' : 'Add Favorite'}
-              </button>
-              <button className="stage-menu-button" type="button" onClick={onPublishSong} disabled={publishingSong}>
-                <Share2 size={18} /> {publishingSong ? 'Sharing song...' : 'Share Song'}
-              </button>
-            </>
+            <button className="stage-menu-button" type="button" onClick={() => onToggleFavorite(currentStageSong.id)}>
+              <Star size={18} fill={currentStageSong.favorite ? 'currentColor' : 'none'} />
+              {currentStageSong.favorite ? 'Remove Favorite' : 'Add Favorite'}
+            </button>
           )}
           <button className="stage-menu-button stage-phone-only" type="button" onClick={onEdit}>
             <Pencil size={18} /> Edit Song
