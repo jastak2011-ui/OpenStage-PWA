@@ -93,6 +93,7 @@ import {
   getStageSongAt,
   isSetlistCreationDirty,
   removeSongFromSetlist,
+  setlistDraftChanged,
   setlistCreationCountLabel,
   setlistCreationSongs,
   sortSetlistSongIds,
@@ -1636,7 +1637,15 @@ assert.equal(isSetlistCreationDirty('', []), false);
 assert.equal(isSetlistCreationDirty('  Friday ', []), true);
 assert.equal(isSetlistCreationDirty('', ['song-a']), true);
 assert.equal(findDuplicateSetlistName([namedSetlist], ' friday   night gig ')?.id, namedSetlist.id);
+assert.equal(findDuplicateSetlistName([namedSetlist], 'Friday Night Gig', namedSetlist.id), undefined);
 assert.equal(findDuplicateSetlistName([namedSetlist], 'Saturday Night Gig'), undefined);
+assert.equal(setlistDraftChanged('Friday Night Gig', ['song-a', 'song-b'], ' Friday Night Gig ', ['song-a', 'song-b']), false);
+assert.equal(setlistDraftChanged('Friday Night Gig', ['song-a', 'song-b'], 'Saturday Night Gig', ['song-a', 'song-b']), true);
+assert.equal(setlistDraftChanged('Friday Night Gig', ['song-a', 'song-b'], 'Friday Night Gig', ['song-a']), true);
+assert.equal(setlistDraftChanged('Friday Night Gig', ['song-a', 'song-b'], 'Friday Night Gig', ['song-b', 'song-a']), true);
+const editedSetlistSelection = toggleSetlistCreationSelection(['song-a', 'song-b', 'song-c'], 'song-b');
+assert.deepEqual(editedSetlistSelection, ['song-a', 'song-c']);
+assert.deepEqual(toggleSetlistCreationSelection(editedSetlistSelection, 'song-d'), ['song-a', 'song-c', 'song-d']);
 
 const onsongSetlistReview = createOnSongSetlistReview(onsongImport, onsongImport.setlists[0], [{ ...onsongImport.songs[0].song, id: 'existing-wallflowers' }]);
 assert.equal(onsongSetlistReview.setlist.name, 'Friday Night Set');

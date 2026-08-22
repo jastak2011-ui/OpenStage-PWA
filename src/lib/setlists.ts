@@ -58,10 +58,16 @@ export function isSetlistCreationDirty(name: string, selectedSongIds: string[]) 
   return Boolean(name.trim()) || selectedSongIds.length > 0;
 }
 
-export function findDuplicateSetlistName(setlists: SavedSetlist[], name: string) {
+export function findDuplicateSetlistName(setlists: SavedSetlist[], name: string, excludeSetlistId?: string) {
   const normalizedName = normalizeSetlistName(name);
   if (!normalizedName) return undefined;
-  return setlists.find((setlist) => normalizeSetlistName(setlist.name) === normalizedName);
+  return setlists.find((setlist) => setlist.id !== excludeSetlistId && normalizeSetlistName(setlist.name) === normalizedName);
+}
+
+export function setlistDraftChanged(originalName: string, originalSongIds: string[], draftName: string, draftSongIds: string[]) {
+  if (originalName.trim() !== draftName.trim()) return true;
+  if (originalSongIds.length !== draftSongIds.length) return true;
+  return originalSongIds.some((songId, index) => songId !== draftSongIds[index]);
 }
 
 function compareSongs(left: Song | undefined, right: Song | undefined, sortBy: SetlistSortKey) {
