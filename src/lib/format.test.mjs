@@ -86,7 +86,18 @@ import { inspectOnSongArchive } from './onsongArchiveInspector-test-target.mjs';
 import { validateOnSongArchive } from './onsongArchiveValidator-test-target.mjs';
 import { sanitizeChartForOnSong, sanitizeOnSongExportText } from './onsongSanitize-test-target.mjs';
 import { createOnSongSetlistReview, createSafeSetlistName, findOnSongImportMatch, replaceSongWithOnSongImport } from './onsongSetlistImport-test-target.mjs';
-import { addSongToSetlist, createNamedSetlist, getStageSongAt, removeSongFromSetlist, sortSetlistSongIds } from './setlists-test-target.mjs';
+import {
+  addSongToSetlist,
+  createNamedSetlist,
+  findDuplicateSetlistName,
+  getStageSongAt,
+  isSetlistCreationDirty,
+  removeSongFromSetlist,
+  setlistCreationCountLabel,
+  setlistCreationSongs,
+  sortSetlistSongIds,
+  toggleSetlistCreationSelection
+} from './setlists-test-target.mjs';
 import { clearRenderCache, getRenderCacheSize, renderSong } from '../services/rendering/songRenderer-test-target.mjs';
 
 assert.equal(parseDurationInput('2'), 120);
@@ -1613,6 +1624,19 @@ assert.deepEqual(sortSetlistSongIds(['song-a', 'song-b', 'song-c'], setlistSongs
 assert.equal(getStageSongAt({ ...namedSetlist, songIds: ['song-a', 'song-b', 'song-c'] }, setlistSongs, 'song-b', 1).id, 'song-c');
 assert.equal(getStageSongAt({ ...namedSetlist, songIds: ['song-a', 'song-b', 'song-c'] }, setlistSongs, 'song-b', -1).id, 'song-a');
 assert.equal(getStageSongAt(namedSetlist, setlistSongs, 'song-b', 1), undefined);
+assert.deepEqual(setlistCreationSongs(setlistSongs).map((song) => song.id), ['song-b', 'song-c', 'song-a']);
+assert.deepEqual(setlistCreationSongs(setlistSongs, 'alp').map((song) => song.id), ['song-b', 'song-c']);
+assert.deepEqual(toggleSetlistCreationSelection([], 'song-c'), ['song-c']);
+assert.deepEqual(toggleSetlistCreationSelection(['song-c'], 'song-a'), ['song-c', 'song-a']);
+assert.deepEqual(toggleSetlistCreationSelection(['song-c', 'song-a'], 'song-c'), ['song-a']);
+assert.equal(setlistCreationCountLabel(0), '0 songs selected');
+assert.equal(setlistCreationCountLabel(1), '1 song selected');
+assert.equal(setlistCreationCountLabel(2), '2 songs selected');
+assert.equal(isSetlistCreationDirty('', []), false);
+assert.equal(isSetlistCreationDirty('  Friday ', []), true);
+assert.equal(isSetlistCreationDirty('', ['song-a']), true);
+assert.equal(findDuplicateSetlistName([namedSetlist], ' friday   night gig ')?.id, namedSetlist.id);
+assert.equal(findDuplicateSetlistName([namedSetlist], 'Saturday Night Gig'), undefined);
 
 const onsongSetlistReview = createOnSongSetlistReview(onsongImport, onsongImport.setlists[0], [{ ...onsongImport.songs[0].song, id: 'existing-wallflowers' }]);
 assert.equal(onsongSetlistReview.setlist.name, 'Friday Night Set');

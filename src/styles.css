@@ -332,6 +332,10 @@ label,
   -webkit-overflow-scrolling: touch;
 }
 
+.stage-popover[data-stage-popover="setlists"] {
+  overflow-y: hidden;
+}
+
 .stage-format-panel {
   max-height: inherit;
 }

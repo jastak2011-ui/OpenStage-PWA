@@ -35,6 +35,35 @@ export function getStageSongAt(setlist: SavedSetlist, songs: Song[], currentSong
   return currentIndex >= 0 ? available[currentIndex + direction] : undefined;
 }
 
+export function setlistCreationSongs(songs: Song[], query = '') {
+  const normalizedQuery = query.trim().toLowerCase();
+  const sortedSongs = [...songs].sort((left, right) =>
+    left.title.localeCompare(right.title) || (left.artist || '').localeCompare(right.artist || '')
+  );
+  if (!normalizedQuery) return sortedSongs;
+  return sortedSongs.filter((song) => `${song.title} ${song.artist || ''}`.toLowerCase().includes(normalizedQuery));
+}
+
+export function toggleSetlistCreationSelection(selectedSongIds: string[], songId: string) {
+  return selectedSongIds.includes(songId)
+    ? selectedSongIds.filter((selectedSongId) => selectedSongId !== songId)
+    : [...selectedSongIds, songId];
+}
+
+export function setlistCreationCountLabel(count: number) {
+  return `${count} song${count === 1 ? '' : 's'} selected`;
+}
+
+export function isSetlistCreationDirty(name: string, selectedSongIds: string[]) {
+  return Boolean(name.trim()) || selectedSongIds.length > 0;
+}
+
+export function findDuplicateSetlistName(setlists: SavedSetlist[], name: string) {
+  const normalizedName = normalizeSetlistName(name);
+  if (!normalizedName) return undefined;
+  return setlists.find((setlist) => normalizeSetlistName(setlist.name) === normalizedName);
+}
+
 function compareSongs(left: Song | undefined, right: Song | undefined, sortBy: SetlistSortKey) {
   if (!left && !right) return 0;
   if (!left) return 1;
@@ -45,4 +74,8 @@ function compareSongs(left: Song | undefined, right: Song | undefined, sortBy: S
   if (sortBy === 'bpm') return (left.bpm || 0) - (right.bpm || 0) || left.title.localeCompare(right.title);
   if (sortBy === 'duration') return (left.durationSeconds || 0) - (right.durationSeconds || 0) || left.title.localeCompare(right.title);
   return 0;
+}
+
+function normalizeSetlistName(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }

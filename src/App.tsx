@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   AlertTriangle,
+  BookOpen,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -104,6 +105,13 @@ import {
   type SearchImportCandidate,
   type SearchImportPrefill
 } from './lib/searchImport';
+import {
+  findDuplicateSetlistName,
+  isSetlistCreationDirty,
+  setlistCreationCountLabel,
+  setlistCreationSongs,
+  toggleSetlistCreationSelection
+} from './lib/setlists';
 import { createOnSongSetlistArchive, createOnSongSetlistArchiveFileName } from './lib/onsongArchiveWriter';
 import { validateOnSongArchive } from './lib/onsongArchiveValidator';
 import { parseBinaryPlist } from './lib/binaryPlist';
@@ -1944,6 +1952,30 @@ export default function App() {
     setToast({ message: 'Setlist Saved', type: 'success' });
   }
 
+  async function createStageSetlist(name: string, songIds: string[]) {
+    const trimmedName = name.trim();
+    if (!trimmedName) throw new Error('Setlist name is required.');
+    if (findDuplicateSetlistName(savedSetlists, trimmedName)) throw new Error('A setlist with that name already exists.');
+    const now = new Date().toISOString();
+    const saved: SavedSetlist = {
+      id: createId('setlist'),
+      name: trimmedName,
+      songIds: [...songIds],
+      createdAt: now,
+      updatedAt: now,
+      notes: ''
+    };
+    await db.setlists.put(saved);
+    await db.setlist.clear();
+    if (saved.songIds.length > 0) {
+      await db.setlist.bulkPut(saved.songIds.map((songId, order) => ({ id: `${saved.id}-${order}-${songId}`, songId, order })));
+    }
+    setSavedSetlists((current) => [saved, ...current]);
+    openSavedSetlist(saved);
+    setToast({ message: 'Setlist Created', type: 'success' });
+    return saved;
+  }
+
   async function deleteSavedSetlist(id: string) {
     await db.setlists.delete(id);
     setSavedSetlists((current) => current.filter((saved) => saved.id !== id));
@@ -3457,6 +3489,7 @@ export default function App() {
           }}
           onToggleFavorite={toggleSongFavorite}
           onRunStageSetlist={runSavedSetlist}
+          onCreateStageSetlist={createStageSetlist}
           onDiagnostics={() => setActiveMode('diagnostics')}
           onPedals={() => setActiveMode('pedals')}
           onImportExport={() => setActiveMode('import')}
@@ -3527,6 +3560,7 @@ export default function App() {
           }}
           onToggleFavorite={toggleSongFavorite}
           onRunStageSetlist={runSavedSetlist}
+          onCreateStageSetlist={createStageSetlist}
           onDiagnostics={() => {
             updatePerformanceState({ recoverToStageMode: false });
             setActiveMode('diagnostics');
@@ -9941,6 +9975,7 @@ function PerformanceView({
   onNewSongAction,
   onToggleFavorite,
   onRunStageSetlist,
+  onCreateStageSetlist,
   onDiagnostics,
   onPedals,
   onImportExport,
@@ -9989,6 +10024,7 @@ function PerformanceView({
   onNewSongAction: (action: NewSongAction) => void;
   onToggleFavorite: (songId: string) => void;
   onRunStageSetlist: (setlist: SavedSetlist) => void;
+  onCreateStageSetlist: (name: string, songIds: string[]) => Promise<SavedSetlist>;
   onDiagnostics: () => void;
   onPedals: () => void;
   onImportExport: () => void;
@@ -10583,7 +10619,7 @@ function PerformanceView({
         <div className={`stage-toolbar-inner mx-auto grid max-w-7xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 sm:px-5 ${headerText}`} style={{ fontSize: `${headerFontSize}px`, color: documentTheme.text, fontFamily: stageFontFamily }}>
           <div className="stage-left-actions flex items-center gap-1 rounded-full border border-white/10 bg-black/25 p-1 backdrop-blur-md">
             <StageIconButton icon={<Library size={19} />} label={activeSetlistName ? `${activeSetlistName} ▼` : 'Library'} tone={toolbarButton} active={activePopover === 'library'} onClick={() => togglePopover('library')} />
-            <StageIconButton icon={<ListMusic size={19} />} label="Setlists" tone={toolbarButton} active={activePopover === 'setlists'} onClick={() => togglePopover('setlists')} />
+            <StageIconButton icon={<StageSetlistsIcon size={19} />} label="Setlists" tone={toolbarButton} active={activePopover === 'setlists'} onClick={() => togglePopover('setlists')} />
           </div>
 
           <div className="stage-song-strip grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-full border border-white/10 bg-black/20 px-2 py-1.5 text-center backdrop-blur-md">
@@ -10699,6 +10735,7 @@ function PerformanceView({
               onRunStageSetlist(setlist);
               setActivePopover(null);
             }}
+            onCreateStageSetlist={onCreateStageSetlist}
             effectiveCapo={effectiveCapo}
             onChangeSongCapo={onChangeSongCapo}
             onToggleDisplayPreference={onToggleDisplayPreference}
@@ -11636,6 +11673,15 @@ function ExternalDisplayControls({
   );
 }
 
+function StageSetlistsIcon({ size = 19 }: { size?: number }) {
+  return (
+    <span className="relative inline-grid place-items-center" style={{ width: size, height: size }} aria-hidden="true">
+      <BookOpen size={size} strokeWidth={2.1} />
+      <Music2 className="absolute" size={Math.max(9, Math.round(size * 0.52))} strokeWidth={2.2} style={{ right: -1, bottom: -1 }} />
+    </span>
+  );
+}
+
 function StageIconButton({
   icon,
   label,
@@ -11956,6 +12002,7 @@ function StageControlPopover({
   onPublishSong,
   publishingSong,
   onRunStageSetlist,
+  onCreateStageSetlist,
   effectiveCapo,
   onChangeSongCapo,
   onToggleDisplayPreference,
@@ -11998,6 +12045,7 @@ function StageControlPopover({
   onPublishSong: () => void;
   publishingSong: boolean;
   onRunStageSetlist: (setlist: SavedSetlist) => void;
+  onCreateStageSetlist: (name: string, songIds: string[]) => Promise<SavedSetlist>;
   effectiveCapo: number;
   onChangeSongCapo: (capo: number) => void;
   onToggleDisplayPreference: () => void;
@@ -12019,6 +12067,14 @@ function StageControlPopover({
 }) {
   const [libraryQuery, setLibraryQuery] = useState('');
   const [libraryScope, setLibraryScope] = useState<'setlist' | 'all'>(activeSetlistSongs.length > 0 ? 'setlist' : 'all');
+  const [setlistPanelMode, setSetlistPanelMode] = useState<'list' | 'create'>('list');
+  const [newSetlistName, setNewSetlistName] = useState('');
+  const [newSetlistQuery, setNewSetlistQuery] = useState('');
+  const [newSetlistSongIds, setNewSetlistSongIds] = useState<string[]>([]);
+  const [newSetlistError, setNewSetlistError] = useState('');
+  const [newSetlistSaving, setNewSetlistSaving] = useState(false);
+  const [recentStageSetlistId, setRecentStageSetlistId] = useState<string | null>(null);
+  const [discardNewSetlistConfirmOpen, setDiscardNewSetlistConfirmOpen] = useState(false);
   const [newSongMenuOpen, setNewSongMenuOpen] = useState(false);
   const [selectedDisplayProfile, setSelectedDisplayProfile] = useState<DeviceProfile>(state.activeProfile);
   const [profileMessage, setProfileMessage] = useState('');
@@ -12048,6 +12104,9 @@ function StageControlPopover({
   }, [hasActiveSetlist, libraryQuery, libraryScope, librarySourceSongs]);
   const favoriteStageSongs = libraryScope === 'all' ? filteredStageSongs.filter((song) => song.favorite) : [];
   const regularStageSongs = libraryScope === 'all' ? filteredStageSongs.filter((song) => !song.favorite) : filteredStageSongs;
+  const newSetlistSongs = useMemo(() => setlistCreationSongs(songs, newSetlistQuery), [newSetlistQuery, songs]);
+  const newSetlistDirty = isSetlistCreationDirty(newSetlistName, newSetlistSongIds);
+  const selectedSetlistCountLabel = setlistCreationCountLabel(newSetlistSongIds.length);
   const activeProfileValues = {
     lyric: getEffectiveLyricFontSize(state),
     chord: getEffectiveChordFontSize(state),
@@ -12070,6 +12129,61 @@ function StageControlPopover({
     setLibraryQuery('');
   }, [active, hasActiveSetlist, activeSetlistName]);
 
+  useEffect(() => {
+    if (active !== 'setlists') return;
+    setSetlistPanelMode('list');
+    setNewSetlistName('');
+    setNewSetlistQuery('');
+    setNewSetlistSongIds([]);
+    setNewSetlistError('');
+    setNewSetlistSaving(false);
+    setDiscardNewSetlistConfirmOpen(false);
+  }, [active]);
+
+  function returnToSetlistsList() {
+    setSetlistPanelMode('list');
+    setNewSetlistName('');
+    setNewSetlistQuery('');
+    setNewSetlistSongIds([]);
+    setNewSetlistError('');
+    setNewSetlistSaving(false);
+    setDiscardNewSetlistConfirmOpen(false);
+  }
+
+  function cancelNewSetlist() {
+    if (newSetlistDirty) {
+      setDiscardNewSetlistConfirmOpen(true);
+      return;
+    }
+    returnToSetlistsList();
+  }
+
+  async function createNewStageSetlist() {
+    const trimmedName = newSetlistName.trim();
+    if (!trimmedName) {
+      setNewSetlistError('Setlist name is required.');
+      return;
+    }
+    if (findDuplicateSetlistName(savedSetlists, trimmedName)) {
+      setNewSetlistError('A setlist with that name already exists.');
+      return;
+    }
+    if (newSetlistSongIds.length === 0) {
+      setNewSetlistError('Select at least one song.');
+      return;
+    }
+    setNewSetlistSaving(true);
+    setNewSetlistError('');
+    try {
+      const saved = await onCreateStageSetlist(trimmedName, newSetlistSongIds);
+      setRecentStageSetlistId(saved.id);
+      returnToSetlistsList();
+    } catch (error) {
+      setNewSetlistError(error instanceof Error ? error.message : 'Could not create setlist.');
+      setNewSetlistSaving(false);
+    }
+  }
+
   function applySelectedProfile() {
     setState(applyDisplayProfilePatch(state, selectedDisplayProfile));
     setProfileMessage(`Applied ${displayProfileLabel(selectedDisplayProfile)} profile`);
@@ -12081,13 +12195,15 @@ function StageControlPopover({
   }
 
   const isFormatPopover = active === 'format';
+  const isSetlistsPopover = active === 'setlists';
+  const usesPanelShell = isFormatPopover || isSetlistsPopover;
   const stagePopoverStyle = {
     '--stage-header-height': `${stageHeaderHeight}px`
   } as CSSProperties;
 
   return (
     <aside
-      className={`stage-popover fixed ${popoverPosition} z-50 w-[min(24rem,calc(100vw-1.5rem))] rounded-lg border shadow-2xl backdrop-blur-md ${menuSurface} ${isFormatPopover ? 'stage-format-popover flex flex-col overflow-hidden p-0' : 'p-3'}`}
+      className={`stage-popover fixed ${popoverPosition} z-50 w-[min(24rem,calc(100vw-1.5rem))] rounded-lg border shadow-2xl backdrop-blur-md ${menuSurface} ${usesPanelShell ? `${isFormatPopover ? 'stage-format-popover ' : ''}flex flex-col overflow-hidden p-0` : 'p-3'}`}
       data-stage-popover={active}
       style={stagePopoverStyle}
       onClick={(event) => event.stopPropagation()}
@@ -12184,22 +12300,131 @@ function StageControlPopover({
       )}
 
       {active === 'setlists' && (
-        <div className="grid gap-3">
-          <StagePopoverTitle title="Setlists" />
-          <div className="max-h-[60vh] overflow-auto rounded-md border border-slate-700/70">
-            {savedSetlists.map((setlist) => (
-              <button
-                key={setlist.id}
-                className="grid w-full gap-1 border-b border-slate-700/50 px-3 py-3 text-left text-sm hover:bg-white/10"
-                type="button"
-                onClick={() => onRunStageSetlist(setlist)}
-              >
-                <span className="font-semibold">{setlist.name}</span>
-                <span className="text-xs opacity-70">{setlist.songIds.length} songs / Modified {formatDate(setlist.updatedAt)}</span>
-              </button>
-            ))}
-            {savedSetlists.length === 0 && <div className="p-4 text-center text-sm text-slate-400">No saved setlists yet.</div>}
-          </div>
+        <div className="flex min-h-0 flex-1 flex-col">
+          {setlistPanelMode === 'list' && (
+            <>
+              <div className="shrink-0 border-b border-slate-700/70 px-3 py-3">
+                <StagePopoverTitle title="Setlists" />
+              </div>
+              <div className="shrink-0 px-3 pt-3">
+                <button
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-md bg-teal-600 px-3 text-sm font-semibold text-white hover:bg-teal-500"
+                  type="button"
+                  onClick={() => setSetlistPanelMode('create')}
+                >
+                  <Plus size={17} /> New Setlist
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                <div className="rounded-md border border-slate-700/70">
+                  {savedSetlists.map((setlist) => (
+                    <button
+                      key={setlist.id}
+                      className={`grid w-full gap-1 border-b border-slate-700/50 px-3 py-3 text-left text-sm hover:bg-white/10 ${recentStageSetlistId === setlist.id ? 'bg-teal-400/10 ring-1 ring-inset ring-teal-300/40' : ''}`}
+                      type="button"
+                      onClick={() => onRunStageSetlist(setlist)}
+                    >
+                      <span className="font-semibold">{setlist.name}</span>
+                      <span className="text-xs opacity-70">{setlist.songIds.length} songs / Modified {formatDate(setlist.updatedAt)}</span>
+                    </button>
+                  ))}
+                  {savedSetlists.length === 0 && <div className="p-4 text-center text-sm text-slate-400">No saved setlists yet.</div>}
+                </div>
+              </div>
+            </>
+          )}
+          {setlistPanelMode === 'create' && (
+            <>
+              <div className="shrink-0 border-b border-slate-700/70 px-3 py-3">
+                <button
+                  className="mb-2 inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-normal text-slate-300 hover:text-white"
+                  type="button"
+                  onClick={cancelNewSetlist}
+                >
+                  <ChevronLeft size={15} /> Back
+                </button>
+                <StagePopoverTitle title="New Setlist" />
+              </div>
+              <div className="grid shrink-0 gap-3 px-3 py-3">
+                <label className="grid gap-1 text-xs font-semibold uppercase tracking-normal text-slate-300">
+                  Setlist Name
+                  <input
+                    className="input bg-slate-900 text-base font-semibold text-white"
+                    value={newSetlistName}
+                    onChange={(event) => {
+                      setNewSetlistName(event.target.value);
+                      setNewSetlistError('');
+                    }}
+                    placeholder="Friday Night Set"
+                  />
+                </label>
+                <label className="flex h-11 items-center gap-2 rounded-md border border-slate-700 bg-black/20 px-3">
+                  <Search size={17} />
+                  <input
+                    className="w-full bg-transparent text-sm text-inherit outline-none placeholder:text-slate-400"
+                    placeholder="Search songs by title or artist"
+                    value={newSetlistQuery}
+                    onChange={(event) => setNewSetlistQuery(event.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+                <div className="rounded-md border border-slate-700/70">
+                  {newSetlistSongs.map((song) => {
+                    const selected = newSetlistSongIds.includes(song.id);
+                    return (
+                      <label
+                        key={song.id}
+                        className={`grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-3 border-b border-slate-700/50 px-3 py-3 text-sm hover:bg-white/10 ${selected ? 'bg-teal-300/10' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-5 w-5 accent-teal-400"
+                          checked={selected}
+                          onChange={() => {
+                            setNewSetlistSongIds((current) => toggleSetlistCreationSelection(current, song.id));
+                            setNewSetlistError('');
+                          }}
+                        />
+                        <span className="grid min-w-0 gap-0.5">
+                          <span className="truncate font-semibold">{song.title}</span>
+                          <span className="truncate text-xs opacity-70">{song.artist || 'Unknown artist'}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                  {newSetlistSongs.length === 0 && <div className="p-4 text-center text-sm text-slate-400">No songs found.</div>}
+                </div>
+              </div>
+              <div className="shrink-0 border-t border-slate-700/70 bg-black/20 px-3 py-3">
+                {newSetlistError && <div className="mb-2 rounded-md border border-red-300/30 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-100">{newSetlistError}</div>}
+                <div className="mb-3 text-sm font-semibold text-slate-200">{selectedSetlistCountLabel}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button className="stage-menu-button" type="button" disabled={newSetlistSaving} onClick={cancelNewSetlist}>
+                    Cancel
+                  </button>
+                  <button className="stage-menu-button border-teal-300/50 bg-teal-500/20 text-teal-50" type="button" disabled={newSetlistSaving} onClick={() => void createNewStageSetlist()}>
+                    {newSetlistSaving ? 'Creating...' : 'Create Setlist'}
+                  </button>
+                </div>
+              </div>
+              {discardNewSetlistConfirmOpen && (
+                <div className="absolute inset-0 z-10 grid place-items-center bg-black/60 p-4 backdrop-blur-sm">
+                  <div className="grid w-full gap-3 rounded-lg border border-slate-600 bg-slate-950 p-4 shadow-2xl">
+                    <div className="text-base font-semibold text-white">Discard this new setlist?</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button className="stage-menu-button" type="button" onClick={() => setDiscardNewSetlistConfirmOpen(false)}>
+                        Keep Editing
+                      </button>
+                      <button className="stage-menu-button border-red-300/50 bg-red-500/15 text-red-100" type="button" onClick={returnToSetlistsList}>
+                        Discard
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
