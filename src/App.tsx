@@ -61,6 +61,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { db, ensureSeedData } from './data/db';
 import { lyricTextHarmonyState, renderLyricTextWithHarmony, type LyricTextWithHarmonyOptions } from './components/LyricTextWithHarmony';
+import { getCloudAccessToken } from './cloud/auth';
 import { useCloud } from './cloud/cloud';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './lib/importExport';
 import { chordOverTextToAnchoredLine, chordTokensToAnchoredLine, inlineChordsToChordOverLyrics, type AnchoredChordLine } from './lib/chordLayout';
@@ -781,14 +782,19 @@ async function publishSongToOpenStageApi(song: Song) {
   };
 }
 
-async function backupSongToOpenStageApi(song: Song, userId: string) {
+async function createCloudAuthHeaders() {
+  const accessToken = await getCloudAccessToken();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${accessToken}`
+  };
+}
+
+async function backupSongToOpenStageApi(song: Song) {
   const response = await fetch(`${openStageApiBaseUrl}/api/sync/song`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: await createCloudAuthHeaders(),
     body: JSON.stringify({
-      userId,
       song
     })
   });
@@ -801,18 +807,15 @@ async function backupSongToOpenStageApi(song: Song, userId: string) {
   return body;
 }
 
-async function backupSetlistToOpenStageApi(setlist: SavedSetlist, userId: string) {
+async function backupSetlistToOpenStageApi(setlist: SavedSetlist) {
   const setlistPayload = {
     ...setlist,
     setlistUuid: (setlist as SavedSetlist & { setlistUuid?: string }).setlistUuid || setlist.id
   };
   const response = await fetch(`${openStageApiBaseUrl}/api/sync/setlist`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: await createCloudAuthHeaders(),
     body: JSON.stringify({
-      userId,
       setlist: setlistPayload
     })
   });
@@ -2679,7 +2682,7 @@ export default function App() {
     for (let index = 0; index < songsToBackup.length; index += 1) {
       const song = songsToBackup[index];
       try {
-        await backupSongToOpenStageApi(song, userId);
+        await backupSongToOpenStageApi(song);
       } catch (error) {
         failed.push({ type: 'song', id: song.id, title: song.title || 'Untitled Song', item: song });
         reportError('Cloud song backup failed', error);
@@ -2703,7 +2706,7 @@ export default function App() {
     for (let index = 0; index < setlistsToBackup.length; index += 1) {
       const setlist = setlistsToBackup[index];
       try {
-        await backupSetlistToOpenStageApi(setlist, userId);
+        await backupSetlistToOpenStageApi(setlist);
       } catch (error) {
         failed.push({ type: 'setlist', id: setlist.id, title: setlist.name || 'Untitled Setlist', item: setlist });
         reportError('Cloud setlist backup failed', error);
@@ -2738,9 +2741,11 @@ export default function App() {
     try {
       console.log('RESTORE_PHASE: creating local restore point');
       restorePoint = await createRestorePoint(performanceState);
-      const restoreUrl = `${openStageApiBaseUrl}/api/sync/library?userId=${encodeURIComponent(userId)}&includeFull=true`;
+      const restoreUrl = `${openStageApiBaseUrl}/api/sync/library?includeFull=true`;
       console.log('RESTORE_PHASE: downloading cloud library', restoreUrl);
-      const response = await fetch(restoreUrl);
+      const response = await fetch(restoreUrl, {
+        headers: await createCloudAuthHeaders()
+      });
       const body = await response.json().catch(() => null);
 
       if (!response.ok || !body?.ok) {
@@ -7181,7 +7186,9 @@ function OpenStageCloudSettingsCard({
     setRestoreError('');
     setRestorePhase('Checking cloud backup...');
     try {
-      const response = await fetch(`${openStageApiBaseUrl}/api/sync/library?userId=${encodeURIComponent(cloud.user.id)}`);
+      const response = await fetch(`${openStageApiBaseUrl}/api/sync/library`, {
+        headers: await createCloudAuthHeaders()
+      });
       const body = await response.json().catch(() => null);
 
       if (!response.ok || !body?.ok) {

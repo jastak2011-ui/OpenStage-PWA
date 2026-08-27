@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   advanceVirtualScrollTop,
   applyAutoscrollSpeedMultiplier,
@@ -45,6 +46,9 @@ import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './import
 import { parseWebpageChartText } from './webpageChartImport-test-target.mjs';
 import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
 import { hasStageMoreMenuAction, hasStageTopToolbarAction, isBpmVisualControlAvailable, stageToolbarShareSongLabel } from './stageToolbar-test-target.mjs';
+import { getBearerToken, resolveAuthenticatedUserFromRequest } from '../../server/auth.js';
+import { getDatabaseNameForUser, legacyOpenStageDatabaseName } from '../data/databaseIdentity-test-target.mjs';
+import { appStoreStorageKey, getAppStoreStorageKeyForUser } from '../store/settingsStorageKeys-test-target.mjs';
 import { findSharedSongDuplicate } from './sharedSongImport-test-target.mjs';
 import { applyStageHarmonyEdit } from './stageHarmonyEdit-test-target.mjs';
 import { clampTempoBpm, nextTempoBeat, nextTempoCountdownSeconds, normalizeTempoBpm, parseTempoBpmInput, shouldOpenTempoAdjustmentPanel, shouldShowTempoMeter, shouldToggleTempoOnPointerEnd, stepTempoBpm, tempoDotTone, tempoIntervalMs } from './tempo-test-target.mjs';
@@ -101,6 +105,65 @@ import {
   toggleSetlistCreationSelection
 } from './setlists-test-target.mjs';
 import { clearRenderCache, getRenderCacheSize, renderSong } from '../services/rendering/songRenderer-test-target.mjs';
+
+const serverIndexSource = readFileSync(new URL('../../server/index.js', import.meta.url), 'utf8');
+assert.match(serverIndexSource, /app\.get\('\/api\/sync\/library', requireCloudUser,/);
+assert.match(serverIndexSource, /app\.post\('\/api\/sync\/song', requireCloudUser,/);
+assert.match(serverIndexSource, /app\.post\('\/api\/sync\/setlist', requireCloudUser,/);
+assert.match(serverIndexSource, /\.from\('user_songs'\)[\s\S]*?\.eq\('user_id', userId\)/);
+assert.match(serverIndexSource, /\.from\('user_setlists'\)[\s\S]*?\.eq\('user_id', userId\)/);
+assert.match(serverIndexSource, /user_id: userId/);
+assert.doesNotMatch(serverIndexSource, /const userId = typeof request\.(body|query)\?\.userId/);
+
+assert.equal(getBearerToken({ headers: {} }), '');
+assert.equal(getBearerToken({ headers: { authorization: 'Bearer token-a' } }), 'token-a');
+assert.equal(getBearerToken({ headers: { Authorization: 'bearer token-b' } }), 'token-b');
+await assert.rejects(
+  () => resolveAuthenticatedUserFromRequest({ headers: {} }, () => ({})),
+  /Missing Authorization/
+);
+await assert.rejects(
+  () => resolveAuthenticatedUserFromRequest(
+    { headers: { authorization: 'Bearer expired-token' } },
+    () => ({
+      auth: {
+        getUser: async (token) => {
+          assert.equal(token, 'expired-token');
+          return { data: { user: null }, error: { message: 'expired' } };
+        }
+      }
+    })
+  ),
+  /Invalid or expired/
+);
+const resolvedAuthUser = await resolveAuthenticatedUserFromRequest(
+  {
+    headers: { authorization: 'Bearer valid-token' },
+    body: { userId: 'user-b' },
+    query: { userId: 'user-b' }
+  },
+  () => ({
+    auth: {
+      getUser: async (token) => {
+        assert.equal(token, 'valid-token');
+        return { data: { user: { id: 'user-a', email: 'user-a@example.com' } } };
+      }
+    }
+  })
+);
+assert.deepEqual(resolvedAuthUser, {
+  id: 'user-a',
+  email: 'user-a@example.com',
+  token: 'valid-token'
+});
+assert.equal(legacyOpenStageDatabaseName, 'openstage-pwa');
+assert.equal(getDatabaseNameForUser(), 'openstage-pwa');
+assert.equal(getDatabaseNameForUser('user-a'), 'openstage-pwa-user-a');
+assert.notEqual(getDatabaseNameForUser('user-a'), getDatabaseNameForUser('user-b'));
+assert.equal(appStoreStorageKey, 'openstage-app-store-v1');
+assert.equal(getAppStoreStorageKeyForUser(), 'openstage-app-store-v1');
+assert.equal(getAppStoreStorageKeyForUser('user-a'), 'openstage-app-store-v1:user-a');
+assert.notEqual(getAppStoreStorageKeyForUser('user-a'), getAppStoreStorageKeyForUser('user-b'));
 
 assert.equal(parseDurationInput('2'), 120);
 assert.equal(parseDurationInput('2:00'), 120);

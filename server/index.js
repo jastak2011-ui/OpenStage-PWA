@@ -5,6 +5,7 @@ import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { lookupMusicBrainzChartSourceLinks, searchMusicBrainzRecordings } from './musicbrainz.js';
 import { resolveSongsterrSong } from './songsterr.js';
+import { requireAuthenticatedUser } from './auth.js';
 
 const app = express();
 const port = Number(process.env.PORT) || 10000;
@@ -15,7 +16,6 @@ const roomTtlMs = 12 * 60 * 60 * 1000;
 const roomCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const shareCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const openStageFrontendBaseUrl = 'https://openstage-pwa.onrender.com';
-const cloudBackupTestUserId = '00000000-0000-0000-0000-000000000001';
 
 const allowedOrigins = new Set([
   'https://openstage-pwa.onrender.com',
@@ -130,6 +130,8 @@ function createSupabaseClient() {
     }
   });
 }
+
+const requireCloudUser = requireAuthenticatedUser(createSupabaseClient);
 
 function logSupabaseError(context, error, extra = {}) {
   console.error(`${context}:`, {
@@ -289,9 +291,8 @@ app.get('/api/sync-status', async (_request, response) => {
   }
 });
 
-app.get('/api/sync/library', async (request, response) => {
-  const requestedUserId = typeof request.query?.userId === 'string' ? request.query.userId.trim() : '';
-  const userId = requestedUserId || cloudBackupTestUserId;
+app.get('/api/sync/library', requireCloudUser, async (request, response) => {
+  const userId = request.authUser.id;
   const includeFull = request.query?.includeFull === 'true';
 
   try {
@@ -347,16 +348,16 @@ app.get('/api/sync/library', async (request, response) => {
   }
 });
 
-app.post('/api/sync/song', async (request, response) => {
-  const userId = typeof request.body?.userId === 'string' ? request.body.userId.trim() : '';
+app.post('/api/sync/song', requireCloudUser, async (request, response) => {
+  const userId = request.authUser.id;
   const song = request.body?.song && typeof request.body.song === 'object' ? request.body.song : null;
   const songUuid = typeof song?.songUuid === 'string' ? song.songUuid.trim() : '';
   const title = typeof song?.title === 'string' ? song.title.trim() : '';
 
-  if (!userId || !song || !songUuid || !title) {
+  if (!song || !songUuid || !title) {
     response.status(400).json({
       ok: false,
-      error: 'userId, song, song.songUuid, and song.title are required.'
+      error: 'song, song.songUuid, and song.title are required.'
     });
     return;
   }
@@ -404,8 +405,8 @@ app.post('/api/sync/song', async (request, response) => {
   }
 });
 
-app.post('/api/sync/setlist', async (request, response) => {
-  const userId = typeof request.body?.userId === 'string' ? request.body.userId.trim() : '';
+app.post('/api/sync/setlist', requireCloudUser, async (request, response) => {
+  const userId = request.authUser.id;
   const setlist = request.body?.setlist && typeof request.body.setlist === 'object' ? request.body.setlist : null;
   const setlistUuid = typeof setlist?.setlistUuid === 'string' ? setlist.setlistUuid.trim() : '';
   const name = typeof setlist?.name === 'string' && setlist.name.trim()
@@ -414,10 +415,10 @@ app.post('/api/sync/setlist', async (request, response) => {
       ? setlist.title.trim()
       : '';
 
-  if (!userId || !setlist || !setlistUuid || !name) {
+  if (!setlist || !setlistUuid || !name) {
     response.status(400).json({
       ok: false,
-      error: 'userId, setlist, setlist.setlistUuid, and setlist.name or setlist.title are required.'
+      error: 'setlist, setlist.setlistUuid, and setlist.name or setlist.title are required.'
     });
     return;
   }

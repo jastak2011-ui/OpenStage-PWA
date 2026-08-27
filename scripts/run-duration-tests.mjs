@@ -141,6 +141,22 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/data/databaseIdentity.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/data/databaseIdentity-test-target.mjs')
+});
+
+await build({
+  entryPoints: [resolve(root, 'src/store/settingsStorageKeys.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/store/settingsStorageKeys-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/lib/sharedSongImport.ts')],
   bundle: true,
   platform: 'node',

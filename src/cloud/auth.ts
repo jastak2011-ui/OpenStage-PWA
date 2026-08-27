@@ -59,6 +59,15 @@ export async function getCurrentUser(): Promise<User | null> {
   return data.session?.user ?? null;
 }
 
+export async function getCloudAccessToken(): Promise<string> {
+  const client = requireSupabase();
+  const { data, error } = await client.auth.getSession();
+  if (error) throw error;
+  const token = data.session?.access_token;
+  if (!token) throw new Error('Sign in to use OpenStage Cloud.');
+  return token;
+}
+
 export function onAuthStateChanged(callback: (user: User | null, event: AuthChangeEvent, session: Session | null) => void) {
   if (!supabase) {
     callback(null, 'INITIAL_SESSION', null);

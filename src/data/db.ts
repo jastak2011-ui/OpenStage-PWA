@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import type { PerformanceState, SavedSetlist, SetlistItem, Song } from '../types';
 import { sampleSavedSetlists, sampleSetlist, sampleSongs } from './sampleSongs';
 import { markStartupError } from '../services/startupDiagnostics';
+import { getDatabaseNameForUser, legacyOpenStageDatabaseName } from './databaseIdentity';
 
 export type RestorePoint = {
   id: 'restorePoint';
@@ -13,14 +14,14 @@ export type RestorePoint = {
   expiresAt: string;
 };
 
-class OpenStageDatabase extends Dexie {
+export class OpenStageDatabase extends Dexie {
   songs!: Table<Song, string>;
   setlist!: Table<SetlistItem, string>;
   setlists!: Table<SavedSetlist, string>;
   restorePoints!: Table<RestorePoint, string>;
 
-  constructor() {
-    super('openstage-pwa');
+  constructor(databaseName = legacyOpenStageDatabaseName) {
+    super(databaseName);
     this.version(1).stores({
       songs: 'id, title, artist, key, updatedAt',
       setlist: 'id, songId, order'
@@ -37,6 +38,10 @@ class OpenStageDatabase extends Dexie {
       restorePoints: 'id, timestamp, expiresAt'
     });
   }
+}
+
+export function openUserDatabase(userId?: string | null) {
+  return new OpenStageDatabase(getDatabaseNameForUser(userId));
 }
 
 export let db: OpenStageDatabase;

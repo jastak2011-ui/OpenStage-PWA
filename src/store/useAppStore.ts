@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createId } from '../lib/ids';
+import { appStoreStorageKey } from './settingsStorageKeys';
 import type { AppLogEntry, PerformanceState, RenderDiagnostics, SyncConflict, SyncStatus } from '../types';
 
 export const defaultPedalMappings = {
@@ -932,7 +933,7 @@ export const useAppStore = create<AppStore>()(
         }))
     }),
     {
-      name: 'openstage-app-store-v1',
+      name: appStoreStorageKey,
       partialize: (state) => ({
         performance: state.performance,
         logs: state.logs.slice(0, 25),
