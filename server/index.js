@@ -191,14 +191,6 @@ async function getTableCount(supabase, tableName) {
   return count ?? 0;
 }
 
-async function sendSupabaseInviteEmail(supabase, email, token) {
-  const redirectTo = createInviteUrl(openStageFrontendBaseUrl, token);
-  const { error } = await supabase.auth.admin.inviteUserByEmail(email, {
-    redirectTo
-  });
-  if (error) throw error;
-}
-
 async function activeEnabledAdminCount(supabase) {
   const { count, error } = await supabase
     .from('openstage_profiles')
@@ -418,19 +410,11 @@ app.post('/api/admin/invitations', requireCloudAdmin, async (request, response) 
 
       if (refreshError) throw refreshError;
 
-      let refreshedEmailSent = true;
-      try {
-        await sendSupabaseInviteEmail(supabase, email, token);
-      } catch (inviteEmailError) {
-        refreshedEmailSent = false;
-        logSupabaseError('Supabase invite email failed', inviteEmailError, { email });
-      }
-
       response.json({
         ok: true,
         invitation: publicInvitation(refreshedInvite),
         inviteUrl: createInviteUrl(openStageFrontendBaseUrl, token),
-        emailSent: refreshedEmailSent
+        emailSent: false
       });
       return;
     }
@@ -450,19 +434,11 @@ app.post('/api/admin/invitations', requireCloudAdmin, async (request, response) 
 
     if (error) throw error;
 
-    let emailSent = true;
-    try {
-      await sendSupabaseInviteEmail(supabase, email, token);
-    } catch (inviteEmailError) {
-      emailSent = false;
-      logSupabaseError('Supabase invite email failed', inviteEmailError, { email });
-    }
-
     response.json({
       ok: true,
       invitation: publicInvitation(data),
       inviteUrl: createInviteUrl(openStageFrontendBaseUrl, token),
-      emailSent
+      emailSent: false
     });
   } catch (error) {
     logSupabaseError('Create invitation failed', error, { email, role });
@@ -470,7 +446,7 @@ app.post('/api/admin/invitations', requireCloudAdmin, async (request, response) 
   }
 });
 
-async function rotateInvitationToken(request, response, { sendEmail }) {
+async function rotateInvitationToken(request, response) {
   const invitationId = request.params.id;
 
   try {
@@ -500,21 +476,11 @@ async function rotateInvitationToken(request, response, { sendEmail }) {
 
     if (error) throw error;
 
-    let emailSent = false;
-    if (sendEmail) {
-      try {
-        await sendSupabaseInviteEmail(supabase, invitation.email, token);
-        emailSent = true;
-      } catch (inviteEmailError) {
-        logSupabaseError('Supabase invite resend failed', inviteEmailError, { invitationId });
-      }
-    }
-
     response.json({
       ok: true,
       invitation: publicInvitation(data),
       inviteUrl: createInviteUrl(openStageFrontendBaseUrl, token),
-      emailSent
+      emailSent: false
     });
   } catch (error) {
     const status = error?.status || 500;
@@ -527,11 +493,11 @@ async function rotateInvitationToken(request, response, { sendEmail }) {
 }
 
 app.post('/api/admin/invitations/:id/link', requireCloudAdmin, (request, response) =>
-  rotateInvitationToken(request, response, { sendEmail: false })
+  rotateInvitationToken(request, response)
 );
 
 app.post('/api/admin/invitations/:id/resend', requireCloudAdmin, (request, response) =>
-  rotateInvitationToken(request, response, { sendEmail: true })
+  rotateInvitationToken(request, response)
 );
 
 app.post('/api/admin/invitations/:id/revoke', requireCloudAdmin, async (request, response) => {

@@ -1,5 +1,5 @@
 import { createContext, createElement, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { User } from '@supabase/supabase-js';
+import type { AuthResponse, User } from '@supabase/supabase-js';
 import {
   createAccountWithEmail,
   getCurrentUser,
@@ -18,7 +18,7 @@ type CloudContextValue = {
   loading: boolean;
   configured: boolean;
   signIn: (method: CloudSignInMethod, email?: string, password?: string) => Promise<void>;
-  createAccount: (email: string, password: string) => Promise<void>;
+  createAccount: (email: string, password: string) => Promise<AuthResponse['data']>;
   signOut: () => Promise<void>;
 };
 
@@ -27,7 +27,7 @@ const CloudContext = createContext<CloudContextValue>({
   loading: true,
   configured: cloudConfigured,
   signIn: async () => undefined,
-  createAccount: async () => undefined,
+  createAccount: async () => ({ user: null, session: null }),
   signOut: async () => undefined
 });
 

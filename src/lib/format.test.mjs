@@ -121,20 +121,32 @@ import { clearRenderCache, getRenderCacheSize, renderSong } from '../services/re
 
 const serverIndexSource = readFileSync(new URL('../../server/index.js', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+const cloudAuthSource = readFileSync(new URL('../cloud/auth.ts', import.meta.url), 'utf8');
 assert.match(serverIndexSource, /app\.get\('\/api\/sync\/library', requireCloudUser,/);
 assert.match(serverIndexSource, /app\.post\('\/api\/sync\/song', requireCloudUser,/);
 assert.match(serverIndexSource, /app\.post\('\/api\/sync\/setlist', requireCloudUser,/);
 assert.match(serverIndexSource, /app\.get\('\/api\/admin\/overview', requireCloudAdmin,/);
 assert.match(serverIndexSource, /app\.post\('\/api\/admin\/invitations', requireCloudAdmin,/);
 assert.match(serverIndexSource, /app\.patch\('\/api\/admin\/users\/:userId', requireCloudAdmin,/);
+assert.doesNotMatch(serverIndexSource, /inviteUserByEmail/);
+assert.doesNotMatch(serverIndexSource, /Invitation created and email sent/);
 assert.match(serverIndexSource, /\.from\('user_songs'\)[\s\S]*?\.eq\('user_id', userId\)/);
 assert.match(serverIndexSource, /\.from\('user_setlists'\)[\s\S]*?\.eq\('user_id', userId\)/);
 assert.match(serverIndexSource, /user_id: userId/);
 assert.doesNotMatch(serverIndexSource, /const userId = typeof request\.(body|query)\?\.userId/);
 assert.match(appSource, /activeMode === 'admin' && authProfile\.role === 'admin'/);
 assert.match(appSource, /item\.mode !== 'admin' \|\| authProfile\.role === 'admin'/);
-assert.match(appSource, /Create Invited Account/);
-assert.doesNotMatch(appSource, />\s*Create Account\s*</);
+assert.match(appSource, /Create Your OpenStage Account/);
+assert.match(appSource, /Confirm Password/);
+assert.match(appSource, /password !== confirmPassword/);
+assert.match(appSource, /Sign In and Accept Invitation/);
+assert.match(appSource, /Check Your Email/);
+assert.match(appSource, /Finish Setup/);
+assert.match(appSource, /Refresh Link/);
+assert.match(appSource, /Copy the link and send it to the user/);
+assert.doesNotMatch(appSource, /Sign up/i);
+assert.match(cloudAuthSource, /resetPasswordForEmail[\s\S]*\/reset-password/);
+assert.match(cloudAuthSource, /updateUser\(\{\s*password\s*\}\)/);
 
 assert.equal(getBearerToken({ headers: {} }), '');
 assert.equal(getBearerToken({ headers: { authorization: 'Bearer token-a' } }), 'token-a');

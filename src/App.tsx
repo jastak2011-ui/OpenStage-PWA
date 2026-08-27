@@ -77,6 +77,7 @@ import {
   getOpenStageProfile,
   readCachedProfile,
   sendPasswordResetEmail,
+  updateCloudPassword,
   type OpenStageProfile
 } from './cloud/auth';
 import { useCloud } from './cloud/cloud';
@@ -865,6 +866,43 @@ function getInviteTokenFromPath() {
   return new URLSearchParams(window.location.search).get('token')?.trim() ?? '';
 }
 
+function isPasswordRecoveryRoute() {
+  if (typeof window === 'undefined') return false;
+  const hash = window.location.hash || '';
+  const search = window.location.search || '';
+  return window.location.pathname === '/reset-password' || /(?:^|[&#?])type=recovery(?:&|$)/.test(hash) || /(?:^|[&#?])type=recovery(?:&|$)/.test(search);
+}
+
+const invitePasswordMinLength = 8;
+
+function inviteSetupStorageKey(email: string) {
+  return `openstage.inviteAccountCreated:${encodeURIComponent(email.trim().toLowerCase())}`;
+}
+
+function rememberInviteAccountCreated(email: string) {
+  try {
+    window.localStorage.setItem(inviteSetupStorageKey(email), 'true');
+  } catch {
+    // The invite can still be completed by signing in with the password.
+  }
+}
+
+function forgetInviteAccountCreated(email: string) {
+  try {
+    window.localStorage.removeItem(inviteSetupStorageKey(email));
+  } catch {
+    // Best effort cleanup only.
+  }
+}
+
+function hasRememberedInviteAccountCreated(email: string) {
+  try {
+    return window.localStorage.getItem(inviteSetupStorageKey(email)) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 function isIosBrowserContext() {
   if (typeof navigator === 'undefined') return false;
   const userAgent = navigator.userAgent || '';
@@ -1193,6 +1231,7 @@ export default function App() {
   const sharedImportId = getSharedImportIdFromPath();
   const pendingImportShareId = getPendingImportShareIdFromSearch();
   const inviteToken = getInviteTokenFromPath();
+  const passwordRecoveryActive = isPasswordRecoveryRoute();
   const [songs, setSongs] = useState<Song[]>([]);
   const [setlist, setSetlist] = useState<SetlistItem[]>([]);
   const [savedSetlists, setSavedSetlists] = useState<SavedSetlist[]>([]);
@@ -3443,6 +3482,15 @@ export default function App() {
     );
   }
 
+  if (passwordRecoveryActive) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white">
+        <DebugHudBanner />
+        <PasswordRecoveryView />
+      </div>
+    );
+  }
+
   if (cloud.loading || !authReady) {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
@@ -4232,6 +4280,8 @@ function InviteAcceptanceView({
   const cloud = useCloud();
   const [invitation, setInvitation] = useState<InviteValidation | null>(null);
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [mode, setMode] = useState<'create' | 'existing' | 'confirmation-required'>('create');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -4260,24 +4310,91 @@ function InviteAcceptanceView({
   const signedInEmail = cloud.user?.email?.trim().toLowerCase() || '';
   const invitedEmail = invitation?.email?.trim().toLowerCase() || '';
   const signedInWithInvitedEmail = Boolean(signedInEmail && invitedEmail && signedInEmail === invitedEmail);
+  const canFinishAfterConfirmedSignup = Boolean(invitation?.email && signedInWithInvitedEmail && hasRememberedInviteAccountCreated(invitation.email));
 
-  async function signInInvitedUser(action: 'sign-in' | 'create') {
+  function validateInvitePassword(confirmRequired: boolean, enforceMinimumLength = true) {
     if (!invitation?.email || !password) {
       setError('Password is required.');
-      return;
+      return false;
     }
+    if (enforceMinimumLength && password.length < invitePasswordMinLength) {
+      setError(`Password must be at least ${invitePasswordMinLength} characters.`);
+      return false;
+    }
+    if (confirmRequired && !confirmPassword) {
+      setError('Confirm password is required.');
+      return false;
+    }
+    if (confirmRequired && password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return false;
+    }
+    return true;
+  }
+
+  async function createInvitedAccount() {
+    if (!invitation?.email || !validateInvitePassword(true)) return;
 
     setBusy(true);
     setError('');
     setMessage('');
     try {
-      if (action === 'create') {
-        await cloud.createAccount(invitation.email, password);
-        setMessage('Account created. Please check your email to confirm your account if OpenStage asks for confirmation, then sign in here.');
-      } else {
-        await cloud.signIn('email', invitation.email, password);
-        setMessage('Signed in. You can now accept the invitation.');
+      const refreshedInvite = await validateInvitationToken(token);
+      if (refreshedInvite.email.trim().toLowerCase() !== invitation.email.trim().toLowerCase()) {
+        throw new Error('Invitation email changed. Reload the invitation link and try again.');
       }
+      const result = await cloud.createAccount(invitation.email, password);
+      if (result.user && Array.isArray(result.user.identities) && result.user.identities.length === 0) {
+        setMode('existing');
+        setPassword('');
+        setConfirmPassword('');
+        setError('This email already has an account. Sign in with its password to accept the invitation.');
+        return;
+      }
+      rememberInviteAccountCreated(invitation.email);
+      const createdEmail = result.user?.email?.trim().toLowerCase() || invitation.email.trim().toLowerCase();
+      if (createdEmail !== invitation.email.trim().toLowerCase()) {
+        throw new Error('Created account does not match the invited email address.');
+      }
+      if (!result.session) {
+        setMode('confirmation-required');
+        setPassword('');
+        setConfirmPassword('');
+        setMessage('Your OpenStage account was created. Confirm your email, then return to this invitation link to finish setup.');
+        return;
+      }
+      await acceptInvitationToken(token);
+      forgetInviteAccountCreated(invitation.email);
+      setMessage('Invitation accepted. Preparing your private OpenStage library...');
+      onAccepted();
+    } catch (authError) {
+      const nextMessage = cloudAuthErrorMessage(authError);
+      if (/already registered|already exists|user already|email already/i.test(nextMessage) || /already registered|already exists|user already|email already/i.test(authError instanceof Error ? authError.message : '')) {
+        setMode('existing');
+        setPassword('');
+        setConfirmPassword('');
+        setError('This email already has an account. Sign in with its password to accept the invitation.');
+      } else {
+        setError(nextMessage);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signInExistingAndAccept() {
+    if (!invitation?.email || !validateInvitePassword(false, false)) return;
+
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      await validateInvitationToken(token);
+      await cloud.signIn('email', invitation.email, password);
+      await acceptInvitationToken(token);
+      forgetInviteAccountCreated(invitation.email);
+      setMessage('Invitation accepted. Preparing your private OpenStage library...');
+      onAccepted();
     } catch (authError) {
       setError(cloudAuthErrorMessage(authError));
     } finally {
@@ -4285,12 +4402,19 @@ function InviteAcceptanceView({
     }
   }
 
-  async function acceptInvite() {
+  async function finishConfirmedSignup() {
+    if (!invitation?.email) return;
+
     setBusy(true);
     setError('');
     setMessage('');
     try {
+      await validateInvitationToken(token);
+      if (!signedInWithInvitedEmail) {
+        throw new Error('Sign in with the invited email address to finish setup.');
+      }
       await acceptInvitationToken(token);
+      forgetInviteAccountCreated(invitation.email);
       setMessage('Invitation accepted. Preparing your private OpenStage library...');
       onAccepted();
     } catch (acceptError) {
@@ -4327,8 +4451,22 @@ function InviteAcceptanceView({
                 You are signed in as {cloud.user.email || cloud.user.id}. Sign out and use {invitation.email} to accept this invitation.
               </div>
             )}
-            {!signedInWithInvitedEmail && (
+            {mode === 'confirmation-required' ? (
+              <div className="grid gap-3 rounded-md border border-teal-300/30 bg-teal-950/40 p-4 text-sm text-teal-100">
+                <h2 className="text-xl font-semibold text-white">Check Your Email</h2>
+                <p>Your OpenStage account was created. Confirm your email, then return to this invitation link to finish setup.</p>
+                {canFinishAfterConfirmedSignup && (
+                  <button className="primary-button justify-center" type="button" disabled={busy} onClick={() => void finishConfirmedSignup()}>
+                    Finish Setup
+                  </button>
+                )}
+              </div>
+            ) : mode === 'existing' ? (
               <div className="grid gap-3">
+                <div>
+                  <h2 className="text-xl font-semibold">Existing OpenStage Account</h2>
+                  <p className="mt-1 text-sm text-slate-300">This email already has an account. Sign in with its password to accept this invitation.</p>
+                </div>
                 <label className="grid gap-1 text-sm font-semibold">
                   Email
                   <input
@@ -4348,20 +4486,60 @@ function InviteAcceptanceView({
                     onChange={(event) => setPassword(event.target.value)}
                   />
                 </label>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <button className="primary-button justify-center" type="button" disabled={busy || !cloud.configured} onClick={() => void signInInvitedUser('sign-in')}>
-                    Sign In
-                  </button>
-                  <button className="secondary-button justify-center" type="button" disabled={busy || !cloud.configured} onClick={() => void signInInvitedUser('create')}>
-                    Create Invited Account
-                  </button>
-                </div>
+                <button className="primary-button justify-center" type="button" disabled={busy || !cloud.configured} onClick={() => void signInExistingAndAccept()}>
+                  Sign In and Accept Invitation
+                </button>
+                <button className="secondary-button justify-center" type="button" disabled={busy} onClick={() => setMode('create')}>
+                  Create New Account Instead
+                </button>
               </div>
-            )}
-            {signedInWithInvitedEmail && (
-              <button className="primary-button justify-center" type="button" disabled={busy} onClick={() => void acceptInvite()}>
-                {busy ? 'Accepting...' : 'Accept Invitation'}
-              </button>
+            ) : (
+              <div className="grid gap-3">
+                <div>
+                  <h2 className="text-xl font-semibold">Create Your OpenStage Account</h2>
+                  <p className="mt-1 text-sm text-slate-300">Set a password for this invited account before entering OpenStage.</p>
+                </div>
+                <label className="grid gap-1 text-sm font-semibold">
+                  Email
+                  <input
+                    className="rounded-md border border-slate-600 bg-slate-950 px-3 py-2 text-white"
+                    type="email"
+                    value={invitation.email}
+                    readOnly
+                  />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold">
+                  Password
+                  <input
+                    className="rounded-md border border-slate-600 bg-slate-950 px-3 py-2 text-white"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold">
+                  Confirm Password
+                  <input
+                    className="rounded-md border border-slate-600 bg-slate-950 px-3 py-2 text-white"
+                    type="password"
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                  />
+                </label>
+                <button className="primary-button justify-center" type="button" disabled={busy || !cloud.configured} onClick={() => void createInvitedAccount()}>
+                  {busy ? 'Creating Account...' : 'Create Account'}
+                </button>
+                <button className="secondary-button justify-center" type="button" disabled={busy} onClick={() => setMode('existing')}>
+                  I Already Have an Account
+                </button>
+                {canFinishAfterConfirmedSignup && (
+                  <button className="secondary-button justify-center" type="button" disabled={busy} onClick={() => void finishConfirmedSignup()}>
+                    Finish Confirmed Account Setup
+                  </button>
+                )}
+              </div>
             )}
             {cloud.user && (
               <button className="secondary-button justify-center" type="button" disabled={busy} onClick={() => void cloud.signOut()}>
@@ -4379,6 +4557,104 @@ function InviteAcceptanceView({
           OpenStage accounts are invitation-only. Accepting this invitation creates a private local library for this account on this device.
         </p>
       </section>
+    </main>
+  );
+}
+
+function PasswordRecoveryView() {
+  const cloud = useCloud();
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  async function savePassword(event: React.FormEvent) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    if (!password) {
+      setError('New password is required.');
+      return;
+    }
+    if (password.length < invitePasswordMinLength) {
+      setError(`Password must be at least ${invitePasswordMinLength} characters.`);
+      return;
+    }
+    if (!confirmPassword) {
+      setError('Confirm password is required.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await updateCloudPassword(password);
+      setPassword('');
+      setConfirmPassword('');
+      setMessage('Password updated. You can now log in with your new password.');
+      window.history.replaceState({}, '', '/');
+    } catch (updateError) {
+      setError(cloudAuthErrorMessage(updateError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center px-4 py-10">
+      <form className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-2xl" onSubmit={savePassword}>
+        <div className="mb-6 flex items-center gap-3">
+          <img src="/openstage-icon.svg" className="h-12 w-12" alt="" />
+          <div>
+            <h1 className="text-2xl font-semibold">Set New Password</h1>
+            <p className="text-sm text-slate-300">Choose a new OpenStage Cloud password.</p>
+          </div>
+        </div>
+        {cloud.loading ? (
+          <div className="rounded-md border border-teal-300/30 bg-teal-950/40 px-3 py-2 text-sm text-teal-100">
+            Preparing password recovery...
+          </div>
+        ) : !cloud.user ? (
+          <div className="rounded-md border border-amber-300/40 bg-amber-950/50 px-3 py-2 text-sm text-amber-100">
+            This recovery link is not signed in yet. Open the latest password reset link from your email and try again.
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            <label className="grid gap-1 text-sm font-semibold">
+              New Password
+              <input
+                className="rounded-md border border-slate-600 bg-slate-950 px-3 py-2 text-white"
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold">
+              Confirm Password
+              <input
+                className="rounded-md border border-slate-600 bg-slate-950 px-3 py-2 text-white"
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+              />
+            </label>
+            <button className="primary-button justify-center" type="submit" disabled={busy}>
+              {busy ? 'Updating Password...' : 'Update Password'}
+            </button>
+          </div>
+        )}
+        {(error || message) && (
+          <div className={`mt-4 rounded-md border px-3 py-2 text-sm ${error ? 'border-red-400/40 bg-red-950/60 text-red-100' : 'border-teal-300/40 bg-teal-950/50 text-teal-100'}`}>
+            {error || message}
+          </div>
+        )}
+      </form>
     </main>
   );
 }
@@ -4421,7 +4697,7 @@ function AdminView() {
       }));
       setLastInviteUrl(result.inviteUrl);
       setEmail('');
-      setMessage(result.emailSent ? 'Invitation created and email sent.' : 'Invitation created. Email could not be sent, so copy the invite link.');
+      setMessage('Invitation link created. Copy the link and send it to the user.');
     } catch (inviteError) {
       setError(inviteError instanceof Error ? inviteError.message : 'Could not create invitation.');
     }
@@ -4451,7 +4727,7 @@ function AdminView() {
       if (action === 'link') {
         await copyInviteUrl(result.inviteUrl);
       } else {
-        setMessage(action === 'revoke' ? 'Invitation revoked.' : result.emailSent ? 'Invitation resent.' : 'Invite link refreshed. Email could not be sent.');
+        setMessage(action === 'revoke' ? 'Invitation revoked.' : 'Invite link refreshed. Copy the latest link and send it to the user.');
       }
     } catch (inviteError) {
       setError(inviteError instanceof Error ? inviteError.message : 'Invitation update failed.');
@@ -4495,7 +4771,7 @@ function AdminView() {
       <section className="grid gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div>
           <h3 className="text-xl font-semibold">Invite User</h3>
-          <p className="mt-1 text-sm text-slate-600">New users start with an empty private OpenStage library.</p>
+          <p className="mt-1 text-sm text-slate-600">New users start with an empty private OpenStage library. OpenStage creates a link for you to send manually.</p>
         </div>
         <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_10rem_auto]" onSubmit={createInvite}>
           <input className="input" type="email" placeholder="musician@example.com" value={email} onChange={(event) => setEmail(event.target.value)} required />
@@ -4546,7 +4822,7 @@ function AdminView() {
                     <Copy size={16} /> Copy Link
                   </button>
                   <button className="secondary-button" type="button" disabled={busyId !== '' || invite.status !== 'Pending'} onClick={() => void invitationAction(invite, 'resend')}>
-                    Resend
+                    Refresh Link
                   </button>
                   <button className="secondary-button" type="button" disabled={busyId !== '' || invite.status !== 'Pending'} onClick={() => void invitationAction(invite, 'revoke')}>
                     Revoke

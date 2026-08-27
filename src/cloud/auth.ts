@@ -39,11 +39,12 @@ export async function signInWithEmail(email: string, password: string) {
 
 export async function createAccountWithEmail(email: string, password: string) {
   const client = requireSupabase();
-  const { error } = await client.auth.signUp({
+  const { data, error } = await client.auth.signUp({
     email,
     password
   });
   if (error) throw error;
+  return data;
 }
 
 export async function signOut() {
@@ -126,9 +127,16 @@ export async function getOpenStageProfile(userId: string): Promise<OpenStageProf
 export async function sendPasswordResetEmail(email: string) {
   const client = requireSupabase();
   const { error } = await client.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin
+    redirectTo: `${window.location.origin}/reset-password`
   });
   if (error) throw error;
+}
+
+export async function updateCloudPassword(password: string) {
+  const client = requireSupabase();
+  const { data, error } = await client.auth.updateUser({ password });
+  if (error) throw error;
+  return data.user ?? null;
 }
 
 export function onAuthStateChanged(callback: (user: User | null, event: AuthChangeEvent, session: Session | null) => void) {
