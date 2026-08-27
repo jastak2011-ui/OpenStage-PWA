@@ -48,6 +48,7 @@ import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
 import { hasStageMoreMenuAction, hasStageTopToolbarAction, isBpmVisualControlAvailable, stageToolbarShareSongLabel } from './stageToolbar-test-target.mjs';
 import { getBearerToken, resolveAuthenticatedUserFromRequest } from '../../server/auth.js';
 import { getDatabaseNameForUser, legacyOpenStageDatabaseName } from '../data/databaseIdentity-test-target.mjs';
+import { getLegacyClaimMarkerKey, legacyClaimVerificationPassed, userScopedSettingsMigrationSummary, verifyCopiedLibrary } from '../data/legacyLibraryMigration-test-target.mjs';
 import { appStoreStorageKey, getAppStoreStorageKeyForUser } from '../store/settingsStorageKeys-test-target.mjs';
 import { findSharedSongDuplicate } from './sharedSongImport-test-target.mjs';
 import { applyStageHarmonyEdit } from './stageHarmonyEdit-test-target.mjs';
@@ -164,6 +165,50 @@ assert.equal(appStoreStorageKey, 'openstage-app-store-v1');
 assert.equal(getAppStoreStorageKeyForUser(), 'openstage-app-store-v1');
 assert.equal(getAppStoreStorageKeyForUser('user-a'), 'openstage-app-store-v1:user-a');
 assert.notEqual(getAppStoreStorageKeyForUser('user-a'), getAppStoreStorageKeyForUser('user-b'));
+assert.equal(getLegacyClaimMarkerKey('user-a'), 'openstage.legacyLibraryClaimed:user-a');
+assert.deepEqual(userScopedSettingsMigrationSummary().copied, [
+  'performance display preferences',
+  'formatting profiles',
+  'pedal mappings',
+  'musical performance preferences'
+]);
+assert.ok(userScopedSettingsMigrationSummary().excluded.includes('Search Import session'));
+
+const migrationSongs = [
+  { id: 'song-a', songUuid: 'uuid-a', title: 'Normal', artist: 'A', chart: 'Verse:\nC Normal', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'song-b', songUuid: 'uuid-b', title: 'Harmony', artist: 'B', chart: '[HARMONY]Sing[/HARMONY]\nG line', updatedAt: '2026-01-02T00:00:00Z' }
+];
+const migrationSetlistRows = [
+  { id: 'row-1', songId: 'song-b', order: 0 },
+  { id: 'row-2', songId: 'song-a', order: 1 }
+];
+const migrationSavedSetlists = [
+  { id: 'setlist-a', name: 'Show', songIds: ['song-b', 'song-a'], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z' }
+];
+const migrationRestorePoints = [
+  { id: 'restorePoint', songs: migrationSongs, setlist: migrationSetlistRows, setlists: migrationSavedSetlists, settings: {}, timestamp: '2026-01-03T00:00:00Z', expiresAt: '2026-01-10T00:00:00Z' }
+];
+const fakeMigrationDb = ({ songs, setlist, setlists, restorePoints }) => ({
+  songs: { toArray: async () => songs },
+  setlist: { toArray: async () => setlist },
+  setlists: { toArray: async () => setlists },
+  restorePoints: { toArray: async () => restorePoints }
+});
+const migrationVerification = await verifyCopiedLibrary(
+  fakeMigrationDb({ songs: migrationSongs, setlist: migrationSetlistRows, setlists: migrationSavedSetlists, restorePoints: migrationRestorePoints }),
+  fakeMigrationDb({ songs: [...migrationSongs], setlist: [...migrationSetlistRows], setlists: [...migrationSavedSetlists], restorePoints: [...migrationRestorePoints] })
+);
+assert.equal(migrationVerification.source.songs, 2);
+assert.equal(migrationVerification.target.songs, 2);
+assert.equal(migrationVerification.songIdsMatch, true);
+assert.equal(migrationVerification.setlistOrderMatches, true);
+assert.equal(migrationVerification.representativeChartsMatch, true);
+assert.equal(legacyClaimVerificationPassed(migrationVerification), true);
+const failedMigrationVerification = await verifyCopiedLibrary(
+  fakeMigrationDb({ songs: migrationSongs, setlist: migrationSetlistRows, setlists: migrationSavedSetlists, restorePoints: migrationRestorePoints }),
+  fakeMigrationDb({ songs: migrationSongs.slice(0, 1), setlist: migrationSetlistRows, setlists: migrationSavedSetlists, restorePoints: migrationRestorePoints })
+);
+assert.equal(legacyClaimVerificationPassed(failedMigrationVerification), false);
 
 assert.equal(parseDurationInput('2'), 120);
 assert.equal(parseDurationInput('2:00'), 120);

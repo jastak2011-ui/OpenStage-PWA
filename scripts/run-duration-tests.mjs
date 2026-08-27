@@ -149,6 +149,14 @@ await build({
 });
 
 await build({
+  entryPoints: [resolve(root, 'src/data/legacyLibraryMigration.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(root, 'src/data/legacyLibraryMigration-test-target.mjs')
+});
+
+await build({
   entryPoints: [resolve(root, 'src/store/settingsStorageKeys.ts')],
   bundle: true,
   platform: 'node',

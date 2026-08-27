@@ -46,6 +46,7 @@ export function openUserDatabase(userId?: string | null) {
 
 export let db: OpenStageDatabase;
 let storageInitializationError: Error | null = null;
+let activeDatabaseName = legacyOpenStageDatabaseName;
 
 try {
   db = new OpenStageDatabase();
@@ -53,6 +54,24 @@ try {
   markStartupError(error);
   storageInitializationError = new Error('OpenStage storage could not initialize. IndexedDB may be blocked or unavailable in this browser.');
   db = null as unknown as OpenStageDatabase;
+}
+
+export function getActiveDatabaseName() {
+  return activeDatabaseName;
+}
+
+export function activateDatabaseForUser(userId?: string | null) {
+  const nextName = getDatabaseNameForUser(userId);
+  if (db && activeDatabaseName === nextName) return db;
+  try {
+    db?.close();
+  } catch {
+    // Continue with the new active database if closing the previous handle fails.
+  }
+  activeDatabaseName = nextName;
+  db = new OpenStageDatabase(nextName);
+  storageInitializationError = null;
+  return db;
 }
 
 export async function ensureSeedData() {

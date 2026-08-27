@@ -68,6 +68,69 @@ export async function getCloudAccessToken(): Promise<string> {
   return token;
 }
 
+export type OpenStageProfile = {
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  role: 'admin' | 'user';
+  disabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export function getCachedProfileStorageKey(userId: string) {
+  return `openstage.cloud.profile:${encodeURIComponent(userId)}`;
+}
+
+export function readCachedProfile(userId: string): OpenStageProfile | null {
+  try {
+    const raw = window.localStorage.getItem(getCachedProfileStorageKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as OpenStageProfile;
+    if (parsed?.user_id !== userId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function cacheProfile(profile: OpenStageProfile) {
+  try {
+    window.localStorage.setItem(getCachedProfileStorageKey(profile.user_id), JSON.stringify(profile));
+  } catch {
+    // Local Stage can continue if the profile cache cannot be written.
+  }
+}
+
+export async function getOpenStageProfile(userId: string): Promise<OpenStageProfile> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('openstage_profiles')
+    .select('user_id, email, display_name, role, disabled, created_at, updated_at')
+    .eq('user_id', userId)
+    .single();
+
+  if (error) throw error;
+  const role = data?.role === 'admin' ? 'admin' : 'user';
+  return {
+    user_id: data.user_id,
+    email: typeof data.email === 'string' ? data.email : '',
+    display_name: typeof data.display_name === 'string' ? data.display_name : null,
+    role,
+    disabled: Boolean(data.disabled),
+    created_at: typeof data.created_at === 'string' ? data.created_at : undefined,
+    updated_at: typeof data.updated_at === 'string' ? data.updated_at : undefined
+  };
+}
+
+export async function sendPasswordResetEmail(email: string) {
+  const client = requireSupabase();
+  const { error } = await client.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin
+  });
+  if (error) throw error;
+}
+
 export function onAuthStateChanged(callback: (user: User | null, event: AuthChangeEvent, session: Session | null) => void) {
   if (!supabase) {
     callback(null, 'INITIAL_SESSION', null);

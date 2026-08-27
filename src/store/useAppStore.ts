@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createId } from '../lib/ids';
-import { appStoreStorageKey } from './settingsStorageKeys';
+import { appStoreStorageKey, getAppStoreStorageKeyForUser } from './settingsStorageKeys';
 import type { AppLogEntry, PerformanceState, RenderDiagnostics, SyncConflict, SyncStatus } from '../types';
 
 export const defaultPedalMappings = {
@@ -942,3 +942,9 @@ export const useAppStore = create<AppStore>()(
     }
   )
 );
+
+export function switchAppStorePersistenceUser(userId?: string | null) {
+  const nextKey = getAppStoreStorageKeyForUser(userId);
+  useAppStore.persist.setOptions({ name: nextKey });
+  return useAppStore.persist.rehydrate();
+}

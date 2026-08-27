@@ -59,9 +59,26 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { db, ensureSeedData } from './data/db';
+import { activateDatabaseForUser, db, getActiveDatabaseName } from './data/db';
+import { getDatabaseNameForUser } from './data/databaseIdentity';
+import {
+  claimLegacyLibraryForUser,
+  getLegacyLibraryCounts,
+  getScopedLibraryCounts,
+  isLegacyLibraryClaimed,
+  legacyClaimVerificationPassed,
+  type LegacyClaimResult,
+  type LegacyLibraryCounts
+} from './data/legacyLibraryMigration';
 import { lyricTextHarmonyState, renderLyricTextWithHarmony, type LyricTextWithHarmonyOptions } from './components/LyricTextWithHarmony';
-import { getCloudAccessToken } from './cloud/auth';
+import {
+  cacheProfile,
+  getCloudAccessToken,
+  getOpenStageProfile,
+  readCachedProfile,
+  sendPasswordResetEmail,
+  type OpenStageProfile
+} from './cloud/auth';
 import { useCloud } from './cloud/cloud';
 import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './lib/importExport';
 import { chordOverTextToAnchoredLine, chordTokensToAnchoredLine, inlineChordsToChordOverLyrics, type AnchoredChordLine } from './lib/chordLayout';
@@ -290,7 +307,8 @@ import { clearRenderCache, getRenderCacheSize, preloadSongs, renderSong, type Re
 import { markStartupError } from './services/startupDiagnostics';
 import { syncLibraryOfflineFirst } from './services/sync/syncEngine';
 import { getStageTheme, stageThemes } from './services/theme/themeEngine';
-import { defaultPedalMappings, defaultPerformanceState, useAppStore } from './store/useAppStore';
+import { defaultPedalMappings, defaultPerformanceState, switchAppStorePersistenceUser, useAppStore } from './store/useAppStore';
+import { getAppStoreStorageKeyForUser } from './store/settingsStorageKeys';
 import {
   pullSongsFromSupabase,
   pushSongsToSupabase,
@@ -469,6 +487,7 @@ type AutoscrollStopReason =
   | 'no-scroll-target'
   | 'no-overflow'
   | 'route-change'
+  | 'logout'
   | 'raf-stalled'
   | 'scroll-not-changing'
   | 'target-changed'
@@ -1083,6 +1102,16 @@ export default function App() {
   });
   const pwaUpdate = usePwaUpdateSnapshot();
   const [storageError, setStorageError] = useState('');
+  const [authReady, setAuthReady] = useState(false);
+  const [authProfile, setAuthProfile] = useState<OpenStageProfile | null>(null);
+  const [authError, setAuthError] = useState('');
+  const [authOffline, setAuthOffline] = useState(false);
+  const [activeDatabaseName, setActiveDatabaseName] = useState('');
+  const [legacyClaimCounts, setLegacyClaimCounts] = useState<LegacyLibraryCounts | null>(null);
+  const [claimPromptOpen, setClaimPromptOpen] = useState(false);
+  const [claimingLibrary, setClaimingLibrary] = useState(false);
+  const [claimResult, setClaimResult] = useState<LegacyClaimResult | null>(null);
+  const [claimError, setClaimError] = useState('');
   const [isTransitioningSong, setIsTransitioningSong] = useState(false);
   const [autoscrollDebug, setAutoscrollDebug] = useState<AutoscrollDebugInfo>({
     targetType: 'none',
@@ -1266,15 +1295,97 @@ export default function App() {
   }, [performanceState]);
 
   useEffect(() => {
-    void ensureSeedData()
-      .then(loadData)
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        markStartupError(error);
-        setStorageError(message);
-        reportError('Storage startup failed', error);
-      });
-  }, []);
+    let cancelled = false;
+
+    const clearUserOwnedMemory = () => {
+      setSongs([]);
+      setSetlist([]);
+      setSavedSetlists([]);
+      setSelectedSongId('');
+      setEditingSetlistId(null);
+      setActiveSetlistId(null);
+      setSetlistName('New Setlist');
+      setSetlistNotes('');
+      setClaimPromptOpen(false);
+      setLegacyClaimCounts(null);
+      setClaimResult(null);
+      setClaimError('');
+    };
+
+    const hasAnyLibraryData = (counts: LegacyLibraryCounts) =>
+      counts.songs > 0 || counts.setlist > 0 || counts.setlists > 0 || counts.restorePoints > 0;
+
+    async function bootstrapAuthenticatedStorage() {
+      if (cloud.loading) return;
+
+      setAuthReady(false);
+      setAuthError('');
+      setAuthOffline(false);
+
+      if (!cloud.user) {
+        clearUserOwnedMemory();
+        setAuthProfile(null);
+        setActiveDatabaseName('');
+        activateDatabaseForUser(null);
+        void switchAppStorePersistenceUser(null);
+        setAuthReady(true);
+        return;
+      }
+
+      try {
+        let profile: OpenStageProfile | null = null;
+        try {
+          profile = await getOpenStageProfile(cloud.user.id);
+          cacheProfile(profile);
+        } catch (profileError) {
+          const scopedCounts = await getScopedLibraryCounts(cloud.user.id).catch(() => null);
+          const cached = readCachedProfile(cloud.user.id);
+          if (cached && scopedCounts && hasAnyLibraryData(scopedCounts)) {
+            profile = cached;
+            setAuthOffline(true);
+          } else {
+            throw profileError;
+          }
+        }
+
+        if (!profile) throw new Error('OpenStage profile was not found.');
+        if (profile.disabled) throw new Error('This OpenStage account is disabled.');
+
+        await switchAppStorePersistenceUser(cloud.user.id);
+        activateDatabaseForUser(cloud.user.id);
+        setActiveDatabaseName(getActiveDatabaseName());
+
+        if (cancelled) return;
+        setAuthProfile(profile);
+        await loadData();
+
+        const [legacyCounts, scopedCounts] = await Promise.all([
+          getLegacyLibraryCounts(),
+          getScopedLibraryCounts(cloud.user.id)
+        ]);
+        const scopedEmpty = !hasAnyLibraryData(scopedCounts);
+        const canClaimLegacy = profile.role === 'admin' && hasAnyLibraryData(legacyCounts) && scopedEmpty && !isLegacyLibraryClaimed(cloud.user.id);
+        if (!cancelled && canClaimLegacy) {
+          setLegacyClaimCounts(legacyCounts);
+          setClaimPromptOpen(true);
+        }
+
+        if (!cancelled) setAuthReady(true);
+      } catch (error) {
+        if (cancelled) return;
+        clearUserOwnedMemory();
+        setAuthProfile(null);
+        setAuthError(error instanceof Error ? error.message : 'OpenStage could not verify your account.');
+        setAuthReady(true);
+      }
+    }
+
+    void bootstrapAuthenticatedStorage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cloud.loading, cloud.user?.id]);
 
   useEffect(() => {
     if (!isIPhoneViewport()) return;
@@ -3122,6 +3233,63 @@ export default function App() {
     if (email) await signInWithEmail(email);
   }
 
+  async function logoutCloudUser() {
+    if (isAutoscrolling) stopAutoscroll('logout');
+    setSongs([]);
+    setSetlist([]);
+    setSavedSetlists([]);
+    setSelectedSongId('');
+    setEditingSetlistId(null);
+    setActiveSetlistId(null);
+    setClaimPromptOpen(false);
+    setLegacyClaimCounts(null);
+    setClaimResult(null);
+    setClaimError('');
+    setAuthProfile(null);
+    setActiveDatabaseName('');
+    activateDatabaseForUser(null);
+    await cloud.signOut();
+  }
+
+  async function claimExistingLibrary() {
+    if (!cloud.user?.id || !authProfile || authProfile.role !== 'admin') {
+      setClaimError('Only the authenticated admin account can claim this existing device library.');
+      return;
+    }
+
+    setClaimingLibrary(true);
+    setClaimError('');
+    setClaimResult(null);
+    try {
+      const result = await claimLegacyLibraryForUser(cloud.user.id);
+      if (!legacyClaimVerificationPassed(result.verification)) {
+        throw new Error('Library copy could not be verified. Your original library has not been changed.');
+      }
+      await switchAppStorePersistenceUser(cloud.user.id);
+      activateDatabaseForUser(cloud.user.id);
+      setActiveDatabaseName(getActiveDatabaseName());
+      await loadData();
+      setClaimResult(result);
+      setClaimPromptOpen(false);
+      setToast({ type: 'success', message: 'Library claimed successfully.' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Library copy could not be verified. Your original library has not been changed.';
+      setClaimError(message);
+      reportError('Legacy library claim failed', error);
+    } finally {
+      setClaimingLibrary(false);
+    }
+  }
+
+  function deferLegacyClaim() {
+    setClaimPromptOpen(false);
+    setClaimError('');
+    setToast({
+      type: 'success',
+      message: 'Existing library was not claimed. Your private library remains active.'
+    });
+  }
+
   const activeSharedImportId = pendingImportShareId || sharedImportId;
   const shouldShowSharedImportLanding = Boolean(
     sharedImportId &&
@@ -3130,6 +3298,36 @@ export default function App() {
     !isStandalonePwaContext() &&
     !sharedImportLandingBypassed
   );
+
+  if (cloud.loading || !authReady) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white">
+        <DebugHudBanner />
+        <div className="flex min-h-screen items-center justify-center p-6">
+          <div className="rounded-lg border border-slate-700 bg-slate-900 p-6 text-center shadow-xl">
+            <img src="/openstage-icon.svg" className="mx-auto mb-4 h-14 w-14" alt="" />
+            <h1 className="text-2xl font-semibold">OpenStage</h1>
+            <p className="mt-2 text-sm text-slate-300">Preparing your library...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!cloud.user || authError || !authProfile) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white">
+        <DebugHudBanner />
+        <LoginView
+          cloudConfigured={cloud.configured}
+          error={authError}
+          onLogin={(email, password) => cloud.signIn('email', email, password)}
+          onForgotPassword={sendPasswordResetEmail}
+          onLogout={cloud.user ? logoutCloudUser : undefined}
+        />
+      </div>
+    );
+  }
 
   if (activeSharedImportId) {
     return (
@@ -3215,29 +3413,16 @@ export default function App() {
             <button className="icon-button" title="Export CSV" onClick={() => exportSongs('csv')}>
               <Download size={18} />
             </button>
+            <div className="hidden max-w-[220px] text-right text-xs text-slate-300 lg:block">
+              <div className="truncate">{authProfile.email || cloud.user.email || 'OpenStage account'}</div>
+              <div className="truncate text-slate-500">{authProfile.role}{authOffline ? ' · offline' : ''}</div>
+            </div>
             <button
               className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-700 px-3 text-sm text-slate-100 disabled:opacity-40"
-              disabled={!supabase || !syncEmail || syncState === 'syncing'}
-              onClick={syncPush}
+              onClick={() => void logoutCloudUser()}
             >
               <LogIn size={16} />
-              Push
-            </button>
-            <button
-              className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-700 px-3 text-sm text-slate-100 disabled:opacity-40"
-              disabled={!supabase || !syncEmail || syncState === 'syncing'}
-              onClick={syncPull}
-            >
-              <ChevronDown size={16} />
-              Pull
-            </button>
-            <button
-              className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-700 px-3 text-sm text-slate-100 disabled:opacity-40"
-              disabled={!supabase}
-              onClick={handleSupabaseAuth}
-            >
-              <LogIn size={16} />
-              {syncEmail ? 'Sign out' : 'Sign in'}
+              Logout
             </button>
           </div>
         </div>
@@ -3301,8 +3486,8 @@ export default function App() {
                   <button className="stage-menu-button justify-start" type="button" onClick={() => { void exportSongs('json'); setMobileNavOpen(false); }}>
                     <FileJson size={18} /> Export Backup
                   </button>
-                  <button className="stage-menu-button justify-start" type="button" disabled={!supabase} onClick={() => { void handleSupabaseAuth(); setMobileNavOpen(false); }}>
-                    <LogIn size={18} /> {syncEmail ? 'Sign out' : 'Sign in / Sync'}
+                  <button className="stage-menu-button justify-start" type="button" onClick={() => { setMobileNavOpen(false); void logoutCloudUser(); }}>
+                    <LogIn size={18} /> Logout
                   </button>
                 </div>
               </div>
@@ -3463,6 +3648,10 @@ export default function App() {
           onRestoreLibrary={(userId) => restoreLibraryFromCloud(userId)}
           onUndoLastRestore={undoLastRestore}
           cloudBackupProgress={cloudBackupProgress}
+          legacyClaimCounts={legacyClaimCounts}
+          claimError={claimError}
+          claimingLibrary={claimingLibrary}
+          onClaimLegacyLibrary={() => void claimExistingLibrary()}
           onPedals={() => setActiveMode('pedals')}
           onImport={() => setActiveMode('import')}
           syncStatus={syncStatus}
@@ -3651,8 +3840,8 @@ export default function App() {
       )}
 
       {!isStageSurface && <footer className="border-t border-slate-300 bg-white px-4 py-2 text-xs text-slate-600">
-        IndexedDB offline storage active. Supabase sync: {syncState}
-        {syncEmail ? ` as ${syncEmail}` : supabase ? ', signed out' : ''}.
+        IndexedDB offline storage active: {activeDatabaseName || getActiveDatabaseName()}. Supabase sync: {syncState}
+        {authOffline ? ' · using cached profile offline' : ''}.
       </footer>}
       {aiImportOpen && (
         <AiImportSongModal
@@ -3688,6 +3877,27 @@ export default function App() {
           }}
           onCancel={() => setPendingOnSongSetlistReview(null)}
           onImport={(mode) => applyPendingOnSongSetlistImport(pendingOnSongSetlistReview, mode)}
+        />
+      )}
+      {claimPromptOpen && legacyClaimCounts && (
+        <ClaimExistingLibraryModal
+          counts={legacyClaimCounts}
+          error={claimError}
+          busy={claimingLibrary}
+          onClaim={() => void claimExistingLibrary()}
+          onNotNow={deferLegacyClaim}
+        />
+      )}
+      {claimResult && (
+        <ClaimSuccessModal
+          result={claimResult}
+          onBackup={() => {
+            const userId = cloud.user?.id;
+            if (!userId) return;
+            setClaimResult(null);
+            void backupLibraryToCloud(userId, false);
+          }}
+          onLater={() => setClaimResult(null)}
         />
       )}
       {toast && <Toast toast={toast} />}
@@ -3741,6 +3951,199 @@ function Toast({ toast }: { toast: Exclude<ToastState, null> }) {
           {toast.actionLabel}
         </button>
       )}
+    </div>
+  );
+}
+
+function LoginView({
+  cloudConfigured,
+  error,
+  onLogin,
+  onForgotPassword,
+  onLogout
+}: {
+  cloudConfigured: boolean;
+  error: string;
+  onLogin: (email: string, password: string) => Promise<void>;
+  onForgotPassword: (email: string) => Promise<void>;
+  onLogout?: () => Promise<void>;
+}) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [localError, setLocalError] = useState('');
+
+  async function submitLogin(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setLocalError('');
+    setMessage('');
+    try {
+      await onLogin(email.trim(), password);
+    } catch (loginError) {
+      setLocalError(cloudAuthErrorMessage(loginError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function forgotPassword() {
+    if (!email.trim()) {
+      setLocalError('Enter your email address first.');
+      return;
+    }
+    setBusy(true);
+    setLocalError('');
+    setMessage('');
+    try {
+      await onForgotPassword(email.trim());
+      setMessage('Password reset email sent.');
+    } catch (resetError) {
+      setLocalError(cloudAuthErrorMessage(resetError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center px-4 py-10">
+      <form className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-2xl" onSubmit={submitLogin}>
+        <div className="mb-6 flex items-center gap-3">
+          <img src="/openstage-icon.svg" className="h-12 w-12" alt="" />
+          <div>
+            <h1 className="text-2xl font-semibold">OpenStage</h1>
+            <p className="text-sm text-slate-300">Use your OpenStage account to continue.</p>
+          </div>
+        </div>
+        <h2 className="mb-4 text-lg font-semibold">Log in</h2>
+        <label className="grid gap-1 text-sm font-semibold">
+          Email
+          <input
+            className="rounded-md border border-slate-600 bg-slate-950 px-3 py-2 text-white"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
+        </label>
+        <label className="mt-4 grid gap-1 text-sm font-semibold">
+          Password
+          <input
+            className="rounded-md border border-slate-600 bg-slate-950 px-3 py-2 text-white"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
+        </label>
+        {(error || localError) && (
+          <div className="mt-4 rounded-md border border-red-400/40 bg-red-950/60 px-3 py-2 text-sm text-red-100">
+            {localError || error}
+          </div>
+        )}
+        {message && (
+          <div className="mt-4 rounded-md border border-teal-300/40 bg-teal-950/50 px-3 py-2 text-sm text-teal-100">
+            {message}
+          </div>
+        )}
+        {!cloudConfigured && (
+          <div className="mt-4 rounded-md border border-amber-300/40 bg-amber-950/50 px-3 py-2 text-sm text-amber-100">
+            OpenStage Cloud is not configured in this build.
+          </div>
+        )}
+        <button className="primary-button mt-5 w-full justify-center" type="submit" disabled={busy || !cloudConfigured}>
+          {busy ? 'Logging in...' : 'Log in'}
+        </button>
+        <button className="mt-3 w-full rounded-md px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800" type="button" disabled={busy || !cloudConfigured} onClick={() => void forgotPassword()}>
+          Forgot password
+        </button>
+        {onLogout && (
+          <button className="mt-2 w-full rounded-md px-3 py-2 text-sm font-semibold text-slate-400 hover:bg-slate-800" type="button" onClick={() => void onLogout()}>
+            Clear session
+          </button>
+        )}
+        <p className="mt-5 text-xs leading-relaxed text-slate-400">
+          OpenStage needs an internet connection to sign in. After sign-in, your local stage library remains available during temporary network loss.
+        </p>
+      </form>
+    </main>
+  );
+}
+
+function ClaimExistingLibraryModal({
+  counts,
+  error,
+  busy,
+  onClaim,
+  onNotNow
+}: {
+  counts: LegacyLibraryCounts;
+  error: string;
+  busy: boolean;
+  onClaim: () => void;
+  onNotNow: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4">
+      <div className="w-full max-w-lg rounded-xl border border-slate-300 bg-white p-5 text-slate-950 shadow-2xl">
+        <h2 className="text-xl font-semibold">Existing OpenStage Library Found</h2>
+        <p className="mt-3 text-sm text-slate-700">
+          This device has an existing OpenStage library that has not yet been assigned to an account.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
+          <div><strong>Songs:</strong> {counts.songs}</div>
+          <div><strong>Setlists:</strong> {counts.setlists}</div>
+          <div><strong>Current setlist rows:</strong> {counts.setlist}</div>
+          <div><strong>Restore Points:</strong> {counts.restorePoints}</div>
+          <div className="col-span-2"><strong>Legacy settings:</strong> {counts.hasLegacySettings ? 'Found' : 'Not found'}</div>
+        </div>
+        <p className="mt-4 text-sm text-slate-700">
+          This will copy the existing library into your private OpenStage account. The original device library will be kept as a safety backup.
+        </p>
+        {error && <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button className="secondary-button" type="button" disabled={busy} onClick={onNotNow}>
+            Not Now
+          </button>
+          <button className="primary-button" type="button" disabled={busy} onClick={onClaim}>
+            {busy ? 'Copying Library...' : 'Claim This Library'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClaimSuccessModal({
+  result,
+  onBackup,
+  onLater
+}: {
+  result: LegacyClaimResult;
+  onBackup: () => void;
+  onLater: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4">
+      <div className="w-full max-w-md rounded-xl border border-slate-300 bg-white p-5 text-slate-950 shadow-2xl">
+        <h2 className="text-xl font-semibold">Library claimed successfully.</h2>
+        <p className="mt-3 text-sm text-slate-700">
+          Your private local library is now using {result.targetDatabaseName}. The original legacy library remains unchanged.
+        </p>
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+          <div>Songs copied: {result.verification.target.songs}</div>
+          <div>Setlists copied: {result.verification.target.setlists}</div>
+          <div>Restore points copied: {result.verification.target.restorePoints}</div>
+          <div>Settings key: {result.targetSettingsKey}</div>
+        </div>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button className="secondary-button" type="button" onClick={onLater}>Later</button>
+          <button className="primary-button" type="button" onClick={onBackup}>Back Up to Cloud</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -6950,6 +7353,10 @@ function SettingsView({
   onRestoreLibrary,
   onUndoLastRestore,
   cloudBackupProgress,
+  legacyClaimCounts,
+  claimError,
+  claimingLibrary,
+  onClaimLegacyLibrary,
   onPedals,
   onImport,
   syncStatus,
@@ -6967,6 +7374,10 @@ function SettingsView({
   onRestoreLibrary: (userId: string) => Promise<CloudRestoreResult>;
   onUndoLastRestore: () => Promise<void>;
   cloudBackupProgress: CloudBackupProgress;
+  legacyClaimCounts: LegacyLibraryCounts | null;
+  claimError: string;
+  claimingLibrary: boolean;
+  onClaimLegacyLibrary: () => void;
   onPedals: () => void;
   onImport: () => void;
   syncStatus: string;
@@ -7023,6 +7434,21 @@ function SettingsView({
           onRestoreLibrary={onRestoreLibrary}
           onUndoLastRestore={onUndoLastRestore}
         />
+        {legacyClaimCounts && (
+          <SettingsCard title="Existing Device Library">
+            <p className="text-sm text-slate-600">An unclaimed legacy OpenStage library is still stored safely on this device.</p>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-700">
+              <div>Songs: <strong>{legacyClaimCounts.songs}</strong></div>
+              <div>Setlists: <strong>{legacyClaimCounts.setlists}</strong></div>
+              <div>Restore Points: <strong>{legacyClaimCounts.restorePoints}</strong></div>
+              <div>Settings: <strong>{legacyClaimCounts.hasLegacySettings ? 'Found' : 'None'}</strong></div>
+            </div>
+            {claimError && <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{claimError}</p>}
+            <button className="primary-button mt-4" type="button" disabled={claimingLibrary} onClick={onClaimLegacyLibrary}>
+              {claimingLibrary ? 'Copying Library...' : 'Claim Existing Library'}
+            </button>
+          </SettingsCard>
+        )}
         <SettingsCard title="Sync Foundation">
           <p className="text-sm text-slate-600">Automatic sync and restore are not enabled yet. Manual Cloud Backup is available above.</p>
           <div className="mt-3 flex flex-wrap gap-2">
