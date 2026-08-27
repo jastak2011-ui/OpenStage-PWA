@@ -43,3 +43,46 @@ export function requireAuthenticatedUser(createClient) {
     }
   };
 }
+
+export async function resolveAuthenticatedAdminFromRequest(request, createClient) {
+  const authUser = await resolveAuthenticatedUserFromRequest(request, createClient);
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('openstage_profiles')
+    .select('user_id, email, role, disabled')
+    .eq('user_id', authUser.id)
+    .single();
+
+  if (error || !data) {
+    const forbidden = new Error('Admin profile was not found.');
+    forbidden.status = 403;
+    throw forbidden;
+  }
+
+  if (data.role !== 'admin' || data.disabled) {
+    const forbidden = new Error('Admin access is required.');
+    forbidden.status = 403;
+    throw forbidden;
+  }
+
+  return {
+    ...authUser,
+    profile: data
+  };
+}
+
+export function requireAuthenticatedAdmin(createClient) {
+  return async (request, response, next) => {
+    try {
+      request.authAdmin = await resolveAuthenticatedAdminFromRequest(request, createClient);
+      request.authUser = request.authAdmin;
+      next();
+    } catch (error) {
+      const status = error?.status === 401 ? 401 : error?.status === 403 ? 403 : 500;
+      response.status(status).json({
+        ok: false,
+        error: status === 401 ? 'Unauthorized.' : status === 403 ? 'Forbidden.' : 'Admin authentication failed.'
+      });
+    }
+  };
+}

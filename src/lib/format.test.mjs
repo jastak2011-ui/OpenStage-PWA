@@ -46,7 +46,19 @@ import { parseCsvSongs, parseJsonSongs, songsToCsv, songsToJson } from './import
 import { parseWebpageChartText } from './webpageChartImport-test-target.mjs';
 import { getStageSwipeDirection } from './stageGestures-test-target.mjs';
 import { hasStageMoreMenuAction, hasStageTopToolbarAction, isBpmVisualControlAvailable, stageToolbarShareSongLabel } from './stageToolbar-test-target.mjs';
-import { getBearerToken, resolveAuthenticatedUserFromRequest } from '../../server/auth.js';
+import { getBearerToken, resolveAuthenticatedAdminFromRequest, resolveAuthenticatedUserFromRequest } from '../../server/auth.js';
+import {
+  assertPendingInvitation,
+  createInviteUrl,
+  getInvitationStatus,
+  hashInviteToken,
+  inviteTokenMatches,
+  isValidAdminEmail,
+  normalizeAdminEmail,
+  normalizeOpenStageRole,
+  publicInvitation,
+  publicProfile
+} from '../../server/admin.js';
 import { getDatabaseNameForUser, legacyOpenStageDatabaseName } from '../data/databaseIdentity-test-target.mjs';
 import { getLegacyClaimMarkerKey, legacyClaimVerificationPassed, userScopedSettingsMigrationSummary, verifyCopiedLibrary } from '../data/legacyLibraryMigration-test-target.mjs';
 import { appStoreStorageKey, getAppStoreStorageKeyForUser } from '../store/settingsStorageKeys-test-target.mjs';
@@ -108,13 +120,21 @@ import {
 import { clearRenderCache, getRenderCacheSize, renderSong } from '../services/rendering/songRenderer-test-target.mjs';
 
 const serverIndexSource = readFileSync(new URL('../../server/index.js', import.meta.url), 'utf8');
+const appSource = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
 assert.match(serverIndexSource, /app\.get\('\/api\/sync\/library', requireCloudUser,/);
 assert.match(serverIndexSource, /app\.post\('\/api\/sync\/song', requireCloudUser,/);
 assert.match(serverIndexSource, /app\.post\('\/api\/sync\/setlist', requireCloudUser,/);
+assert.match(serverIndexSource, /app\.get\('\/api\/admin\/overview', requireCloudAdmin,/);
+assert.match(serverIndexSource, /app\.post\('\/api\/admin\/invitations', requireCloudAdmin,/);
+assert.match(serverIndexSource, /app\.patch\('\/api\/admin\/users\/:userId', requireCloudAdmin,/);
 assert.match(serverIndexSource, /\.from\('user_songs'\)[\s\S]*?\.eq\('user_id', userId\)/);
 assert.match(serverIndexSource, /\.from\('user_setlists'\)[\s\S]*?\.eq\('user_id', userId\)/);
 assert.match(serverIndexSource, /user_id: userId/);
 assert.doesNotMatch(serverIndexSource, /const userId = typeof request\.(body|query)\?\.userId/);
+assert.match(appSource, /activeMode === 'admin' && authProfile\.role === 'admin'/);
+assert.match(appSource, /item\.mode !== 'admin' \|\| authProfile\.role === 'admin'/);
+assert.match(appSource, /Create Invited Account/);
+assert.doesNotMatch(appSource, />\s*Create Account\s*</);
 
 assert.equal(getBearerToken({ headers: {} }), '');
 assert.equal(getBearerToken({ headers: { authorization: 'Bearer token-a' } }), 'token-a');
@@ -157,6 +177,115 @@ assert.deepEqual(resolvedAuthUser, {
   email: 'user-a@example.com',
   token: 'valid-token'
 });
+assert.equal(normalizeAdminEmail(' Admin@Example.COM '), 'admin@example.com');
+assert.equal(isValidAdminEmail('music@example.com'), true);
+assert.equal(isValidAdminEmail('not-email'), false);
+assert.equal(normalizeOpenStageRole('admin'), 'admin');
+assert.equal(normalizeOpenStageRole('owner'), 'user');
+assert.equal(createInviteUrl('https://openstage-pwa.onrender.com/', 'a b'), 'https://openstage-pwa.onrender.com/invite?token=a%20b');
+const inviteHash = hashInviteToken('invite-token');
+assert.notEqual(inviteHash, 'invite-token');
+assert.equal(inviteTokenMatches('invite-token', inviteHash), true);
+assert.equal(inviteTokenMatches('wrong-token', inviteHash), false);
+const pendingInvite = {
+  id: 'invite-a',
+  email: 'new@example.com',
+  role: 'admin',
+  invited_by: 'admin-user',
+  created_at: '2026-01-01T00:00:00Z',
+  expires_at: '2026-01-08T00:00:00Z',
+  accepted_at: null,
+  revoked_at: null,
+  last_sent_at: '2026-01-01T00:00:00Z',
+  token_hash: 'secret-hash'
+};
+assert.equal(getInvitationStatus(pendingInvite, new Date('2026-01-02T00:00:00Z')), 'Pending');
+assert.equal(getInvitationStatus({ ...pendingInvite, expires_at: '2025-01-01T00:00:00Z' }, new Date('2026-01-02T00:00:00Z')), 'Expired');
+assert.equal(getInvitationStatus({ ...pendingInvite, accepted_at: '2026-01-02T00:00:00Z' }, new Date('2026-01-02T00:00:00Z')), 'Accepted');
+assert.equal(getInvitationStatus({ ...pendingInvite, revoked_at: '2026-01-02T00:00:00Z' }, new Date('2026-01-02T00:00:00Z')), 'Revoked');
+assert.doesNotThrow(() => assertPendingInvitation(pendingInvite, new Date('2026-01-02T00:00:00Z')));
+assert.throws(() => assertPendingInvitation({ ...pendingInvite, revoked_at: '2026-01-02T00:00:00Z' }, new Date('2026-01-02T00:00:00Z')), /revoked/);
+assert.deepEqual(publicInvitation(pendingInvite, new Date('2026-01-02T00:00:00Z')), {
+  id: 'invite-a',
+  email: 'new@example.com',
+  role: 'admin',
+  invitedBy: 'admin-user',
+  createdAt: '2026-01-01T00:00:00Z',
+  expiresAt: '2026-01-08T00:00:00Z',
+  acceptedAt: null,
+  revokedAt: null,
+  lastSentAt: '2026-01-01T00:00:00Z',
+  status: 'Pending'
+});
+assert.equal(Object.prototype.hasOwnProperty.call(publicInvitation(pendingInvite), 'token_hash'), false);
+assert.deepEqual(publicProfile({
+  user_id: 'user-a',
+  email: 'user@example.com',
+  display_name: 'User A',
+  role: 'owner',
+  disabled: 0,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-02T00:00:00Z'
+}), {
+  userId: 'user-a',
+  email: 'user@example.com',
+  displayName: 'User A',
+  role: 'user',
+  disabled: false,
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-02T00:00:00Z'
+});
+const makeAdminResolverClient = (profile) => {
+  let call = 0;
+  return () => {
+    call += 1;
+    if (call === 1) {
+      return {
+        auth: {
+          getUser: async (token) => {
+            assert.equal(token, 'admin-token');
+            return { data: { user: { id: 'admin-user', email: 'admin@example.com' } } };
+          }
+        }
+      };
+    }
+    return {
+      from: (table) => {
+        assert.equal(table, 'openstage_profiles');
+        return {
+          select: () => ({
+            eq: (_column, value) => {
+              assert.equal(value, 'admin-user');
+              return {
+                single: async () => profile
+              };
+            }
+          })
+        };
+      }
+    };
+  };
+};
+const resolvedAdmin = await resolveAuthenticatedAdminFromRequest(
+  { headers: { authorization: 'Bearer admin-token' } },
+  makeAdminResolverClient({ data: { user_id: 'admin-user', email: 'admin@example.com', role: 'admin', disabled: false } })
+);
+assert.equal(resolvedAdmin.id, 'admin-user');
+assert.equal(resolvedAdmin.profile.role, 'admin');
+await assert.rejects(
+  () => resolveAuthenticatedAdminFromRequest(
+    { headers: { authorization: 'Bearer admin-token' } },
+    makeAdminResolverClient({ data: { user_id: 'admin-user', email: 'admin@example.com', role: 'user', disabled: false } })
+  ),
+  /Admin access is required/
+);
+await assert.rejects(
+  () => resolveAuthenticatedAdminFromRequest(
+    { headers: { authorization: 'Bearer admin-token' } },
+    makeAdminResolverClient({ data: { user_id: 'admin-user', email: 'admin@example.com', role: 'admin', disabled: true } })
+  ),
+  /Admin access is required/
+);
 assert.equal(legacyOpenStageDatabaseName, 'openstage-pwa');
 assert.equal(getDatabaseNameForUser(), 'openstage-pwa');
 assert.equal(getDatabaseNameForUser('user-a'), 'openstage-pwa-user-a');

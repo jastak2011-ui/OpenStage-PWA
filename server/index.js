@@ -5,7 +5,21 @@ import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { lookupMusicBrainzChartSourceLinks, searchMusicBrainzRecordings } from './musicbrainz.js';
 import { resolveSongsterrSong } from './songsterr.js';
-import { requireAuthenticatedUser } from './auth.js';
+import { requireAuthenticatedAdmin, requireAuthenticatedUser } from './auth.js';
+import {
+  assertPendingInvitation,
+  createInviteToken,
+  createInviteUrl,
+  getInvitationStatus,
+  hashInviteToken,
+  inviteTtlMs,
+  inviteTokenMatches,
+  isValidAdminEmail,
+  normalizeAdminEmail,
+  normalizeOpenStageRole,
+  publicInvitation,
+  publicProfile
+} from './admin.js';
 
 const app = express();
 const port = Number(process.env.PORT) || 10000;
@@ -132,6 +146,7 @@ function createSupabaseClient() {
 }
 
 const requireCloudUser = requireAuthenticatedUser(createSupabaseClient);
+const requireCloudAdmin = requireAuthenticatedAdmin(createSupabaseClient);
 
 function logSupabaseError(context, error, extra = {}) {
   console.error(`${context}:`, {
@@ -174,6 +189,38 @@ async function getTableCount(supabase, tableName) {
 
   if (error) throw error;
   return count ?? 0;
+}
+
+async function sendSupabaseInviteEmail(supabase, email, token) {
+  const redirectTo = createInviteUrl(openStageFrontendBaseUrl, token);
+  const { error } = await supabase.auth.admin.inviteUserByEmail(email, {
+    redirectTo
+  });
+  if (error) throw error;
+}
+
+async function activeEnabledAdminCount(supabase) {
+  const { count, error } = await supabase
+    .from('openstage_profiles')
+    .select('*', { count: 'exact', head: true })
+    .eq('role', 'admin')
+    .eq('disabled', false);
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
+async function findInvitationByToken(supabase, token) {
+  const tokenHash = hashInviteToken(token);
+  const { data, error } = await supabase
+    .from('openstage_invitations')
+    .select('*')
+    .eq('token_hash', tokenHash)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data || !inviteTokenMatches(token, data.token_hash)) return null;
+  return data;
 }
 
 async function insertRehearsalRoom(supabase, roomName, expiresAt) {
@@ -287,6 +334,388 @@ app.get('/api/sync-status', async (_request, response) => {
     response.status(500).json({
       ok: false,
       error: 'Cloud sync status check failed.'
+    });
+  }
+});
+
+app.get('/api/admin/overview', requireCloudAdmin, async (_request, response) => {
+  try {
+    const supabase = createSupabaseClient();
+    const [inviteResult, profileResult] = await Promise.all([
+      supabase
+        .from('openstage_invitations')
+        .select('id, email, role, invited_by, created_at, expires_at, accepted_at, revoked_at, last_sent_at')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('openstage_profiles')
+        .select('user_id, email, display_name, role, disabled, created_at, updated_at')
+        .order('email', { ascending: true })
+    ]);
+
+    if (inviteResult.error) throw inviteResult.error;
+    if (profileResult.error) throw profileResult.error;
+
+    response.json({
+      ok: true,
+      invitations: (inviteResult.data || []).map((invite) => publicInvitation(invite)),
+      users: (profileResult.data || []).map((profile) => publicProfile(profile))
+    });
+  } catch (error) {
+    logSupabaseError('Admin overview failed', error);
+    response.status(500).json({ ok: false, error: 'Admin overview failed.' });
+  }
+});
+
+app.post('/api/admin/invitations', requireCloudAdmin, async (request, response) => {
+  const email = normalizeAdminEmail(request.body?.email);
+  const role = normalizeOpenStageRole(request.body?.role);
+
+  if (!isValidAdminEmail(email)) {
+    response.status(400).json({ ok: false, error: 'A valid email address is required.' });
+    return;
+  }
+
+  try {
+    const supabase = createSupabaseClient();
+    const token = createInviteToken();
+    const expiresAt = new Date(Date.now() + inviteTtlMs).toISOString();
+    const now = new Date().toISOString();
+
+    const { data: existingInvite, error: existingError } = await supabase
+      .from('openstage_invitations')
+      .select('*')
+      .eq('email', email)
+      .is('accepted_at', null)
+      .is('revoked_at', null)
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+
+    if (existingInvite) {
+      const existingStatus = getInvitationStatus(existingInvite);
+      if (existingStatus === 'Pending') {
+        response.status(409).json({
+          ok: false,
+          error: 'A pending invitation already exists for this email address.'
+        });
+        return;
+      }
+
+      const { data: refreshedInvite, error: refreshError } = await supabase
+        .from('openstage_invitations')
+        .update({
+          role,
+          token_hash: hashInviteToken(token),
+          invited_by: request.authAdmin.id,
+          expires_at: expiresAt,
+          last_sent_at: now,
+          revoked_at: null,
+          accepted_at: null
+        })
+        .eq('id', existingInvite.id)
+        .select('id, email, role, invited_by, created_at, expires_at, accepted_at, revoked_at, last_sent_at')
+        .single();
+
+      if (refreshError) throw refreshError;
+
+      let refreshedEmailSent = true;
+      try {
+        await sendSupabaseInviteEmail(supabase, email, token);
+      } catch (inviteEmailError) {
+        refreshedEmailSent = false;
+        logSupabaseError('Supabase invite email failed', inviteEmailError, { email });
+      }
+
+      response.json({
+        ok: true,
+        invitation: publicInvitation(refreshedInvite),
+        inviteUrl: createInviteUrl(openStageFrontendBaseUrl, token),
+        emailSent: refreshedEmailSent
+      });
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('openstage_invitations')
+      .insert({
+        email,
+        role,
+        token_hash: hashInviteToken(token),
+        invited_by: request.authAdmin.id,
+        expires_at: expiresAt,
+        last_sent_at: now
+      })
+      .select('id, email, role, invited_by, created_at, expires_at, accepted_at, revoked_at, last_sent_at')
+      .single();
+
+    if (error) throw error;
+
+    let emailSent = true;
+    try {
+      await sendSupabaseInviteEmail(supabase, email, token);
+    } catch (inviteEmailError) {
+      emailSent = false;
+      logSupabaseError('Supabase invite email failed', inviteEmailError, { email });
+    }
+
+    response.json({
+      ok: true,
+      invitation: publicInvitation(data),
+      inviteUrl: createInviteUrl(openStageFrontendBaseUrl, token),
+      emailSent
+    });
+  } catch (error) {
+    logSupabaseError('Create invitation failed', error, { email, role });
+    response.status(500).json({ ok: false, error: 'Could not create invitation.' });
+  }
+});
+
+async function rotateInvitationToken(request, response, { sendEmail }) {
+  const invitationId = request.params.id;
+
+  try {
+    const supabase = createSupabaseClient();
+    const { data: invitation, error: fetchError } = await supabase
+      .from('openstage_invitations')
+      .select('*')
+      .eq('id', invitationId)
+      .single();
+
+    if (fetchError) throw fetchError;
+    assertPendingInvitation(invitation);
+
+    const token = createInviteToken();
+    const expiresAt = new Date(Date.now() + inviteTtlMs).toISOString();
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('openstage_invitations')
+      .update({
+        token_hash: hashInviteToken(token),
+        expires_at: expiresAt,
+        last_sent_at: now
+      })
+      .eq('id', invitationId)
+      .select('id, email, role, invited_by, created_at, expires_at, accepted_at, revoked_at, last_sent_at')
+      .single();
+
+    if (error) throw error;
+
+    let emailSent = false;
+    if (sendEmail) {
+      try {
+        await sendSupabaseInviteEmail(supabase, invitation.email, token);
+        emailSent = true;
+      } catch (inviteEmailError) {
+        logSupabaseError('Supabase invite resend failed', inviteEmailError, { invitationId });
+      }
+    }
+
+    response.json({
+      ok: true,
+      invitation: publicInvitation(data),
+      inviteUrl: createInviteUrl(openStageFrontendBaseUrl, token),
+      emailSent
+    });
+  } catch (error) {
+    const status = error?.status || 500;
+    if (status === 500) logSupabaseError('Rotate invitation token failed', error, { invitationId });
+    response.status(status).json({
+      ok: false,
+      error: status === 400 ? error.message : 'Could not update invitation.'
+    });
+  }
+}
+
+app.post('/api/admin/invitations/:id/link', requireCloudAdmin, (request, response) =>
+  rotateInvitationToken(request, response, { sendEmail: false })
+);
+
+app.post('/api/admin/invitations/:id/resend', requireCloudAdmin, (request, response) =>
+  rotateInvitationToken(request, response, { sendEmail: true })
+);
+
+app.post('/api/admin/invitations/:id/revoke', requireCloudAdmin, async (request, response) => {
+  const invitationId = request.params.id;
+
+  try {
+    const supabase = createSupabaseClient();
+    const { data: invitation, error: fetchError } = await supabase
+      .from('openstage_invitations')
+      .select('*')
+      .eq('id', invitationId)
+      .single();
+
+    if (fetchError) throw fetchError;
+    assertPendingInvitation(invitation);
+
+    const { data, error } = await supabase
+      .from('openstage_invitations')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('id', invitationId)
+      .select('id, email, role, invited_by, created_at, expires_at, accepted_at, revoked_at, last_sent_at')
+      .single();
+
+    if (error) throw error;
+    response.json({ ok: true, invitation: publicInvitation(data) });
+  } catch (error) {
+    const status = error?.status || 500;
+    if (status === 500) logSupabaseError('Revoke invitation failed', error, { invitationId });
+    response.status(status).json({
+      ok: false,
+      error: status === 400 ? error.message : 'Could not revoke invitation.'
+    });
+  }
+});
+
+app.patch('/api/admin/users/:userId', requireCloudAdmin, async (request, response) => {
+  const targetUserId = request.params.userId;
+  const nextRole = request.body?.role === undefined ? undefined : normalizeOpenStageRole(request.body.role);
+  const nextDisabled = request.body?.disabled === undefined ? undefined : Boolean(request.body.disabled);
+
+  if (nextRole === undefined && nextDisabled === undefined) {
+    response.status(400).json({ ok: false, error: 'No user update was provided.' });
+    return;
+  }
+
+  try {
+    const supabase = createSupabaseClient();
+    const { data: currentProfile, error: currentError } = await supabase
+      .from('openstage_profiles')
+      .select('user_id, email, display_name, role, disabled, created_at, updated_at')
+      .eq('user_id', targetUserId)
+      .single();
+
+    if (currentError) throw currentError;
+
+    const enabledAdminCount = await activeEnabledAdminCount(supabase);
+    const wouldRemoveEnabledAdmin =
+      currentProfile.role === 'admin' &&
+      currentProfile.disabled === false &&
+      ((nextRole && nextRole !== 'admin') || nextDisabled === true);
+
+    if (wouldRemoveEnabledAdmin && enabledAdminCount <= 1) {
+      response.status(400).json({
+        ok: false,
+        error: 'At least one enabled admin must remain.'
+      });
+      return;
+    }
+
+    const patch = { updated_at: new Date().toISOString() };
+    if (nextRole !== undefined) patch.role = nextRole;
+    if (nextDisabled !== undefined) patch.disabled = nextDisabled;
+
+    const { data, error } = await supabase
+      .from('openstage_profiles')
+      .update(patch)
+      .eq('user_id', targetUserId)
+      .select('user_id, email, display_name, role, disabled, created_at, updated_at')
+      .single();
+
+    if (error) throw error;
+    response.json({ ok: true, user: publicProfile(data) });
+  } catch (error) {
+    logSupabaseError('Admin user update failed', error, { targetUserId });
+    response.status(500).json({ ok: false, error: 'Could not update user.' });
+  }
+});
+
+app.get('/api/invitations/validate', async (request, response) => {
+  const token = typeof request.query?.token === 'string' ? request.query.token : '';
+  if (!token) {
+    response.status(400).json({ ok: false, error: 'Invitation token is required.' });
+    return;
+  }
+
+  try {
+    const supabase = createSupabaseClient();
+    const invitation = await findInvitationByToken(supabase, token);
+    if (!invitation) {
+      response.status(404).json({ ok: false, error: 'Invitation not found.' });
+      return;
+    }
+
+    const status = getInvitationStatus(invitation);
+    if (status !== 'Pending') {
+      response.status(400).json({ ok: false, error: `Invitation is ${status.toLowerCase()}.`, status });
+      return;
+    }
+
+    response.json({
+      ok: true,
+      invitation: {
+        email: invitation.email,
+        role: normalizeOpenStageRole(invitation.role),
+        expiresAt: invitation.expires_at,
+        status
+      }
+    });
+  } catch (error) {
+    logSupabaseError('Validate invitation failed', error);
+    response.status(500).json({ ok: false, error: 'Could not validate invitation.' });
+  }
+});
+
+app.post('/api/invitations/accept', requireCloudUser, async (request, response) => {
+  const token = typeof request.body?.token === 'string' ? request.body.token : '';
+  if (!token) {
+    response.status(400).json({ ok: false, error: 'Invitation token is required.' });
+    return;
+  }
+
+  try {
+    const supabase = createSupabaseClient();
+    const invitation = await findInvitationByToken(supabase, token);
+    if (!invitation) {
+      response.status(404).json({ ok: false, error: 'Invitation not found.' });
+      return;
+    }
+    assertPendingInvitation(invitation);
+
+    const authEmail = normalizeAdminEmail(request.authUser.email);
+    if (authEmail !== invitation.email) {
+      response.status(403).json({ ok: false, error: 'Sign in with the invited email address to accept this invitation.' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const { data: profile, error: profileError } = await supabase
+      .from('openstage_profiles')
+      .upsert(
+        {
+          user_id: request.authUser.id,
+          email: invitation.email,
+          role: normalizeOpenStageRole(invitation.role),
+          disabled: false,
+          updated_at: now
+        },
+        { onConflict: 'user_id' }
+      )
+      .select('user_id, email, display_name, role, disabled, created_at, updated_at')
+      .single();
+
+    if (profileError) throw profileError;
+
+    const { data: updatedInvite, error: inviteError } = await supabase
+      .from('openstage_invitations')
+      .update({ accepted_at: now })
+      .eq('id', invitation.id)
+      .select('id, email, role, invited_by, created_at, expires_at, accepted_at, revoked_at, last_sent_at')
+      .single();
+
+    if (inviteError) throw inviteError;
+
+    response.json({
+      ok: true,
+      profile: publicProfile(profile),
+      invitation: publicInvitation(updatedInvite)
+    });
+  } catch (error) {
+    const status = error?.status || 500;
+    if (status === 500) logSupabaseError('Accept invitation failed', error);
+    response.status(status).json({
+      ok: false,
+      error: status === 400 ? error.message : 'Could not accept invitation.'
     });
   }
 });

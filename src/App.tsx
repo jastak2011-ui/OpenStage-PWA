@@ -502,6 +502,7 @@ const mobileModeOptions: Array<{ mode: StageMode; label: string; icon: React.Rea
   { mode: 'displays', label: 'Displays', icon: <Monitor size={19} /> },
   { mode: 'pedals', label: 'Pedals', icon: <Settings size={19} /> },
   { mode: 'settings', label: 'Settings', icon: <Settings size={19} /> },
+  { mode: 'admin', label: 'Admin', icon: <Lock size={19} /> },
   { mode: 'diagnostics', label: 'Diagnostics', icon: <Gauge size={19} /> },
   { mode: 'help', label: 'Help', icon: <HelpCircle size={19} /> }
 ];
@@ -858,6 +859,12 @@ function getPendingImportShareIdFromSearch() {
   return new URLSearchParams(window.location.search).get('pendingImportShareId')?.trim() ?? '';
 }
 
+function getInviteTokenFromPath() {
+  if (typeof window === 'undefined') return '';
+  if (window.location.pathname !== '/invite') return '';
+  return new URLSearchParams(window.location.search).get('token')?.trim() ?? '';
+}
+
 function isIosBrowserContext() {
   if (typeof navigator === 'undefined') return false;
   const userAgent = navigator.userAgent || '';
@@ -914,6 +921,127 @@ async function fetchSharedSong(shareId: string) {
   }
 
   return songFromSharedSong(body.song, shareId);
+}
+
+type AdminInvitation = {
+  id: string;
+  email: string;
+  role: 'admin' | 'user';
+  invitedBy?: string;
+  createdAt?: string;
+  expiresAt?: string;
+  acceptedAt?: string;
+  revokedAt?: string;
+  lastSentAt?: string;
+  status: 'Pending' | 'Accepted' | 'Revoked' | 'Expired';
+};
+
+type AdminUserSummary = {
+  userId: string;
+  email: string;
+  displayName?: string;
+  role: 'admin' | 'user';
+  disabled: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+type AdminOverview = {
+  invitations: AdminInvitation[];
+  users: AdminUserSummary[];
+};
+
+type InviteValidation = {
+  email: string;
+  role: 'admin' | 'user';
+  expiresAt?: string;
+  status: string;
+};
+
+async function readApiJson(response: Response) {
+  return response.json().catch(() => null);
+}
+
+async function fetchAdminOverview(): Promise<AdminOverview> {
+  const response = await fetch(`${openStageApiBaseUrl}/api/admin/overview`, {
+    headers: await createCloudAuthHeaders()
+  });
+  const body = await readApiJson(response);
+  if (!response.ok || !body?.ok) {
+    throw new Error(body?.error || `Admin overview failed with HTTP ${response.status}`);
+  }
+  return {
+    invitations: Array.isArray(body.invitations) ? body.invitations : [],
+    users: Array.isArray(body.users) ? body.users : []
+  };
+}
+
+async function createAdminInvitation(input: { email: string; role: 'admin' | 'user' }) {
+  const response = await fetch(`${openStageApiBaseUrl}/api/admin/invitations`, {
+    method: 'POST',
+    headers: await createCloudAuthHeaders(),
+    body: JSON.stringify(input)
+  });
+  const body = await readApiJson(response);
+  if (!response.ok || !body?.ok) {
+    throw new Error(body?.error || `Invitation failed with HTTP ${response.status}`);
+  }
+  return {
+    invitation: body.invitation as AdminInvitation,
+    inviteUrl: String(body.inviteUrl || ''),
+    emailSent: Boolean(body.emailSent)
+  };
+}
+
+async function updateAdminInvitation(id: string, action: 'link' | 'resend' | 'revoke') {
+  const response = await fetch(`${openStageApiBaseUrl}/api/admin/invitations/${encodeURIComponent(id)}/${action}`, {
+    method: 'POST',
+    headers: await createCloudAuthHeaders()
+  });
+  const body = await readApiJson(response);
+  if (!response.ok || !body?.ok) {
+    throw new Error(body?.error || `Invitation update failed with HTTP ${response.status}`);
+  }
+  return {
+    invitation: body.invitation as AdminInvitation,
+    inviteUrl: typeof body.inviteUrl === 'string' ? body.inviteUrl : '',
+    emailSent: Boolean(body.emailSent)
+  };
+}
+
+async function updateAdminUser(userId: string, patch: Partial<Pick<AdminUserSummary, 'role' | 'disabled'>>) {
+  const response = await fetch(`${openStageApiBaseUrl}/api/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    headers: await createCloudAuthHeaders(),
+    body: JSON.stringify(patch)
+  });
+  const body = await readApiJson(response);
+  if (!response.ok || !body?.ok) {
+    throw new Error(body?.error || `User update failed with HTTP ${response.status}`);
+  }
+  return body.user as AdminUserSummary;
+}
+
+async function validateInvitationToken(token: string): Promise<InviteValidation> {
+  const response = await fetch(`${openStageApiBaseUrl}/api/invitations/validate?token=${encodeURIComponent(token)}`);
+  const body = await readApiJson(response);
+  if (!response.ok || !body?.ok) {
+    throw new Error(body?.error || `Invitation validation failed with HTTP ${response.status}`);
+  }
+  return body.invitation as InviteValidation;
+}
+
+async function acceptInvitationToken(token: string) {
+  const response = await fetch(`${openStageApiBaseUrl}/api/invitations/accept`, {
+    method: 'POST',
+    headers: await createCloudAuthHeaders(),
+    body: JSON.stringify({ token })
+  });
+  const body = await readApiJson(response);
+  if (!response.ok || !body?.ok) {
+    throw new Error(body?.error || `Invitation acceptance failed with HTTP ${response.status}`);
+  }
+  return body.profile as OpenStageProfile;
 }
 
 function songFromAiImport(imported: AiImportedSong, requested: { title: string; artist: string }): Song {
@@ -1064,6 +1192,7 @@ export default function App() {
   const cloud = useCloud();
   const sharedImportId = getSharedImportIdFromPath();
   const pendingImportShareId = getPendingImportShareIdFromSearch();
+  const inviteToken = getInviteTokenFromPath();
   const [songs, setSongs] = useState<Song[]>([]);
   const [setlist, setSetlist] = useState<SetlistItem[]>([]);
   const [savedSetlists, setSavedSetlists] = useState<SavedSetlist[]>([]);
@@ -3299,6 +3428,21 @@ export default function App() {
     !sharedImportLandingBypassed
   );
 
+  if (inviteToken) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white">
+        <DebugHudBanner />
+        <InviteAcceptanceView
+          token={inviteToken}
+          onAccepted={() => {
+            window.history.replaceState({}, '', '/');
+            window.location.reload();
+          }}
+        />
+      </div>
+    );
+  }
+
   if (cloud.loading || !authReady) {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
@@ -3383,6 +3527,7 @@ export default function App() {
             <ModeButton icon={<Monitor size={17} />} label="Displays" mode="displays" active={activeMode} setActive={setActiveMode} />
             <ModeButton icon={<Settings size={17} />} label="Pedals" mode="pedals" active={activeMode} setActive={setActiveMode} />
             <ModeButton icon={<Settings size={17} />} label="Settings" mode="settings" active={activeMode} setActive={setActiveMode} />
+            {authProfile.role === 'admin' && <ModeButton icon={<Lock size={17} />} label="Admin" mode="admin" active={activeMode} setActive={setActiveMode} />}
             <ModeButton icon={<Gauge size={17} />} label="Diagnostics" mode="diagnostics" active={activeMode} setActive={setActiveMode} />
             <ModeButton icon={<HelpCircle size={17} />} label="Help" mode="help" active={activeMode} setActive={setActiveMode} />
           </nav>
@@ -3456,7 +3601,7 @@ export default function App() {
             </div>
             <div className="max-h-[calc(100svh-5rem)] overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
               <div className="grid gap-2">
-                {mobileModeOptions.map((item) => (
+                {mobileModeOptions.filter((item) => item.mode !== 'admin' || authProfile.role === 'admin').map((item) => (
                   <button
                     key={item.mode}
                     className={`flex min-h-12 items-center gap-3 rounded-md border px-3 text-left text-sm font-semibold ${activeMode === item.mode ? 'border-teal-300 bg-teal-500/15 text-teal-100' : 'border-slate-800 bg-slate-900 text-slate-100'}`}
@@ -3657,6 +3802,10 @@ export default function App() {
           syncStatus={syncStatus}
           conflicts={conflicts}
         />
+      )}
+
+      {activeMode === 'admin' && authProfile.role === 'admin' && (
+        <AdminView />
       )}
 
       {activeMode === 'diagnostics' && (
@@ -4071,6 +4220,386 @@ function LoginView({
       </form>
     </main>
   );
+}
+
+function InviteAcceptanceView({
+  token,
+  onAccepted
+}: {
+  token: string;
+  onAccepted: () => void;
+}) {
+  const cloud = useCloud();
+  const [invitation, setInvitation] = useState<InviteValidation | null>(null);
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    async function validate() {
+      setLoading(true);
+      setError('');
+      try {
+        const nextInvitation = await validateInvitationToken(token);
+        if (!cancelled) setInvitation(nextInvitation);
+      } catch (validationError) {
+        if (!cancelled) setError(validationError instanceof Error ? validationError.message : 'Invitation could not be validated.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void validate();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const signedInEmail = cloud.user?.email?.trim().toLowerCase() || '';
+  const invitedEmail = invitation?.email?.trim().toLowerCase() || '';
+  const signedInWithInvitedEmail = Boolean(signedInEmail && invitedEmail && signedInEmail === invitedEmail);
+
+  async function signInInvitedUser(action: 'sign-in' | 'create') {
+    if (!invitation?.email || !password) {
+      setError('Password is required.');
+      return;
+    }
+
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      if (action === 'create') {
+        await cloud.createAccount(invitation.email, password);
+        setMessage('Account created. Please check your email to confirm your account if OpenStage asks for confirmation, then sign in here.');
+      } else {
+        await cloud.signIn('email', invitation.email, password);
+        setMessage('Signed in. You can now accept the invitation.');
+      }
+    } catch (authError) {
+      setError(cloudAuthErrorMessage(authError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function acceptInvite() {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      await acceptInvitationToken(token);
+      setMessage('Invitation accepted. Preparing your private OpenStage library...');
+      onAccepted();
+    } catch (acceptError) {
+      setError(acceptError instanceof Error ? acceptError.message : 'Could not accept invitation.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center px-4 py-10">
+      <section className="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+        <div className="mb-6 flex items-center gap-3">
+          <img src="/openstage-icon.svg" className="h-12 w-12" alt="" />
+          <div>
+            <h1 className="text-2xl font-semibold">OpenStage Invitation</h1>
+            <p className="text-sm text-slate-300">Join OpenStage with your invited email address.</p>
+          </div>
+        </div>
+        {loading ? (
+          <div className="rounded-md border border-teal-300/30 bg-teal-950/40 px-3 py-2 text-sm text-teal-100">
+            Checking invitation...
+          </div>
+        ) : invitation ? (
+          <div className="grid gap-4">
+            <div className="rounded-md border border-slate-700 bg-slate-950 p-4 text-sm">
+              <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Invited Email</div>
+              <div className="mt-1 text-lg font-semibold text-white">{invitation.email}</div>
+              <div className="mt-2 text-slate-300">Role: {invitation.role}</div>
+              <div className="text-slate-400">Expires: {formatLastBackupTime(invitation.expiresAt || '')}</div>
+            </div>
+            {cloud.user && !signedInWithInvitedEmail && (
+              <div className="rounded-md border border-amber-300/40 bg-amber-950/50 px-3 py-2 text-sm text-amber-100">
+                You are signed in as {cloud.user.email || cloud.user.id}. Sign out and use {invitation.email} to accept this invitation.
+              </div>
+            )}
+            {!signedInWithInvitedEmail && (
+              <div className="grid gap-3">
+                <label className="grid gap-1 text-sm font-semibold">
+                  Email
+                  <input
+                    className="rounded-md border border-slate-600 bg-slate-950 px-3 py-2 text-white"
+                    type="email"
+                    value={invitation.email}
+                    readOnly
+                  />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold">
+                  Password
+                  <input
+                    className="rounded-md border border-slate-600 bg-slate-950 px-3 py-2 text-white"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                </label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button className="primary-button justify-center" type="button" disabled={busy || !cloud.configured} onClick={() => void signInInvitedUser('sign-in')}>
+                    Sign In
+                  </button>
+                  <button className="secondary-button justify-center" type="button" disabled={busy || !cloud.configured} onClick={() => void signInInvitedUser('create')}>
+                    Create Invited Account
+                  </button>
+                </div>
+              </div>
+            )}
+            {signedInWithInvitedEmail && (
+              <button className="primary-button justify-center" type="button" disabled={busy} onClick={() => void acceptInvite()}>
+                {busy ? 'Accepting...' : 'Accept Invitation'}
+              </button>
+            )}
+            {cloud.user && (
+              <button className="secondary-button justify-center" type="button" disabled={busy} onClick={() => void cloud.signOut()}>
+                Sign Out
+              </button>
+            )}
+          </div>
+        ) : null}
+        {(error || message) && (
+          <div className={`mt-4 rounded-md border px-3 py-2 text-sm ${error ? 'border-red-400/40 bg-red-950/60 text-red-100' : 'border-teal-300/40 bg-teal-950/50 text-teal-100'}`}>
+            {error || message}
+          </div>
+        )}
+        <p className="mt-5 text-xs leading-relaxed text-slate-400">
+          OpenStage accounts are invitation-only. Accepting this invitation creates a private local library for this account on this device.
+        </p>
+      </section>
+    </main>
+  );
+}
+
+function AdminView() {
+  const [overview, setOverview] = useState<AdminOverview>({ invitations: [], users: [] });
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState('');
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState<'user' | 'admin'>('user');
+  const [lastInviteUrl, setLastInviteUrl] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const loadOverview = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setOverview(await fetchAdminOverview());
+    } catch (overviewError) {
+      setError(overviewError instanceof Error ? overviewError.message : 'Admin overview failed.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadOverview();
+  }, [loadOverview]);
+
+  async function createInvite(event: React.FormEvent) {
+    event.preventDefault();
+    setMessage('');
+    setError('');
+    try {
+      const result = await createAdminInvitation({ email, role });
+      setOverview((current) => ({
+        ...current,
+        invitations: [result.invitation, ...current.invitations.filter((invite) => invite.id !== result.invitation.id)]
+      }));
+      setLastInviteUrl(result.inviteUrl);
+      setEmail('');
+      setMessage(result.emailSent ? 'Invitation created and email sent.' : 'Invitation created. Email could not be sent, so copy the invite link.');
+    } catch (inviteError) {
+      setError(inviteError instanceof Error ? inviteError.message : 'Could not create invitation.');
+    }
+  }
+
+  async function copyInviteUrl(url: string) {
+    if (!url) return;
+    try {
+      await navigator.clipboard?.writeText(url);
+      setMessage('Invite link copied.');
+    } catch {
+      window.prompt('Copy this invite link:', url);
+    }
+  }
+
+  async function invitationAction(invite: AdminInvitation, action: 'link' | 'resend' | 'revoke') {
+    setBusyId(`${invite.id}:${action}`);
+    setMessage('');
+    setError('');
+    try {
+      const result = await updateAdminInvitation(invite.id, action);
+      setOverview((current) => ({
+        ...current,
+        invitations: current.invitations.map((item) => item.id === invite.id ? result.invitation : item)
+      }));
+      if (result.inviteUrl) setLastInviteUrl(result.inviteUrl);
+      if (action === 'link') {
+        await copyInviteUrl(result.inviteUrl);
+      } else {
+        setMessage(action === 'revoke' ? 'Invitation revoked.' : result.emailSent ? 'Invitation resent.' : 'Invite link refreshed. Email could not be sent.');
+      }
+    } catch (inviteError) {
+      setError(inviteError instanceof Error ? inviteError.message : 'Invitation update failed.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function userAction(user: AdminUserSummary, patch: Partial<Pick<AdminUserSummary, 'role' | 'disabled'>>) {
+    setBusyId(`${user.userId}:user`);
+    setMessage('');
+    setError('');
+    try {
+      const updated = await updateAdminUser(user.userId, patch);
+      setOverview((current) => ({
+        ...current,
+        users: current.users.map((item) => item.userId === user.userId ? updated : item)
+      }));
+      setMessage('User updated.');
+    } catch (userError) {
+      setError(userError instanceof Error ? userError.message : 'User update failed.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  return (
+    <main className="mx-auto grid max-w-6xl gap-6 px-4 py-6">
+      <div>
+        <p className="text-sm font-semibold uppercase tracking-normal text-teal-700">OpenStage Cloud</p>
+        <h2 className="text-3xl font-semibold">Admin</h2>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+          Invite users and manage account access. Admins can manage roles and invitations, but this page does not expose another user&apos;s private library.
+        </p>
+      </div>
+      {(error || message) && (
+        <div className={`rounded-md border px-3 py-2 text-sm font-semibold ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-teal-200 bg-teal-50 text-teal-900'}`}>
+          {error || message}
+        </div>
+      )}
+      <section className="grid gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div>
+          <h3 className="text-xl font-semibold">Invite User</h3>
+          <p className="mt-1 text-sm text-slate-600">New users start with an empty private OpenStage library.</p>
+        </div>
+        <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_10rem_auto]" onSubmit={createInvite}>
+          <input className="input" type="email" placeholder="musician@example.com" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          <select className="input" value={role} onChange={(event) => setRole(event.target.value === 'admin' ? 'admin' : 'user')}>
+            <option value="user">User</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button className="primary-button justify-center" type="submit" disabled={loading}>Create Invite</button>
+        </form>
+        {lastInviteUrl && (
+          <div className="grid gap-2 rounded-md border border-teal-200 bg-teal-50 p-3 text-sm">
+            <div className="font-semibold text-teal-950">Latest invite link</div>
+            <div className="break-all font-mono text-xs text-teal-900">{lastInviteUrl}</div>
+            <button className="secondary-button w-fit" type="button" onClick={() => void copyInviteUrl(lastInviteUrl)}>
+              <Copy size={16} /> Copy Link
+            </button>
+          </div>
+        )}
+      </section>
+      <section className="grid gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-semibold">Invitations</h3>
+            <p className="mt-1 text-sm text-slate-600">Pending invitations expire after 7 days.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={() => void loadOverview()}>
+            <RotateCcw size={16} /> Refresh
+          </button>
+        </div>
+        {loading ? (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Loading admin data...</div>
+        ) : overview.invitations.length === 0 ? (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">No invitations yet.</div>
+        ) : (
+          <div className="grid gap-2">
+            {overview.invitations.map((invite) => (
+              <div key={invite.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-slate-950">{invite.email}</div>
+                  <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-600">
+                    <span className={adminStatusClass(invite.status)}>{invite.status}</span>
+                    <span>Role: {invite.role}</span>
+                    <span>Expires: {formatLastBackupTime(invite.expiresAt || '')}</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button className="secondary-button" type="button" disabled={busyId !== '' || invite.status !== 'Pending'} onClick={() => void invitationAction(invite, 'link')}>
+                    <Copy size={16} /> Copy Link
+                  </button>
+                  <button className="secondary-button" type="button" disabled={busyId !== '' || invite.status !== 'Pending'} onClick={() => void invitationAction(invite, 'resend')}>
+                    Resend
+                  </button>
+                  <button className="secondary-button" type="button" disabled={busyId !== '' || invite.status !== 'Pending'} onClick={() => void invitationAction(invite, 'revoke')}>
+                    Revoke
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+      <section className="grid gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div>
+          <h3 className="text-xl font-semibold">Users</h3>
+          <p className="mt-1 text-sm text-slate-600">Disable access or change roles. User libraries remain private to each account.</p>
+        </div>
+        {overview.users.length === 0 ? (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">No users found.</div>
+        ) : (
+          <div className="grid gap-2">
+            {overview.users.map((user) => (
+              <div key={user.userId} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-slate-950">{user.email || user.userId}</div>
+                  <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-600">
+                    <span>{user.role}</span>
+                    <span>{user.disabled ? 'Disabled' : 'Enabled'}</span>
+                    <span className="font-mono">{user.userId}</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <select className="input h-10 w-28" value={user.role} disabled={busyId !== ''} onChange={(event) => void userAction(user, { role: event.target.value === 'admin' ? 'admin' : 'user' })}>
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <button className="secondary-button" type="button" disabled={busyId !== ''} onClick={() => void userAction(user, { disabled: !user.disabled })}>
+                    {user.disabled ? <Unlock size={16} /> : <Lock size={16} />}
+                    {user.disabled ? 'Enable' : 'Disable'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function adminStatusClass(status: AdminInvitation['status']) {
+  if (status === 'Pending') return 'rounded-full border border-teal-300 bg-teal-50 px-2 py-0.5 font-semibold text-teal-800';
+  if (status === 'Accepted') return 'rounded-full border border-slate-300 bg-white px-2 py-0.5 font-semibold text-slate-700';
+  if (status === 'Expired') return 'rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 font-semibold text-amber-800';
+  return 'rounded-full border border-red-300 bg-red-50 px-2 py-0.5 font-semibold text-red-800';
 }
 
 function ClaimExistingLibraryModal({
@@ -7536,11 +8065,6 @@ function OpenStageCloudSettingsCard({
 }) {
   const cloud = useCloud();
   const [message, setMessage] = useState('');
-  const [emailModalOpen, setEmailModalOpen] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [emailError, setEmailError] = useState('');
-  const [emailSubmitting, setEmailSubmitting] = useState(false);
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [restorePreview, setRestorePreview] = useState<CloudLibraryPreview | null>(null);
   const [restoreStep, setRestoreStep] = useState<'preview' | 'confirm'>('preview');
@@ -7559,33 +8083,6 @@ function OpenStageCloudSettingsCard({
   const activeProgressLabel = progress.phase === 'setlists'
     ? `Backing up setlists... ${progress.setlistDone} / ${progress.setlistTotal}`
     : `Backing up songs... ${progress.songDone} / ${progress.songTotal}`;
-
-  async function submitEmailAuth(action: 'sign-in' | 'create') {
-    setEmailError('');
-    setMessage('');
-    if (!email.trim() || !password) {
-      setEmailError('Email and password are required.');
-      return;
-    }
-
-    setEmailSubmitting(true);
-    try {
-      if (action === 'create') {
-        await cloud.createAccount(email.trim(), password);
-        setMessage('Please check your email to confirm your account, if email confirmation is required.');
-      } else {
-        await cloud.signIn('email', email.trim(), password);
-        setMessage('Signed in to OpenStage Cloud.');
-      }
-      setEmailModalOpen(false);
-      setPassword('');
-    } catch (error) {
-      reportError('OpenStage Cloud email authentication failed', error);
-      setEmailError(cloudAuthErrorMessage(error));
-    } finally {
-      setEmailSubmitting(false);
-    }
-  }
 
   function openRestorePreview() {
     if (!cloud.user?.id) return;
@@ -7725,10 +8222,11 @@ function OpenStageCloudSettingsCard({
               <button className="secondary-button opacity-60" type="button" disabled title="Coming soon">
                 Sign in with Google
               </button>
-              <button className="secondary-button" type="button" disabled={!cloud.configured || cloud.loading} onClick={() => setEmailModalOpen(true)}>
+              <button className="secondary-button opacity-60" type="button" disabled title="Use the login screen">
                 Sign in with Email
               </button>
             </div>
+            <p className="text-xs text-slate-600">OpenStage Cloud accounts are invitation-only. Use the login screen or an invitation link to sign in.</p>
             <p className="text-xs text-amber-700">Sign in to enable cloud backup.</p>
           </>
         )}
@@ -7777,36 +8275,6 @@ function OpenStageCloudSettingsCard({
         {message && <p className="whitespace-pre-line rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">{message}</p>}
         {restoreError && !restoreModalOpen && <p className="whitespace-pre-line rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{restoreError}</p>}
       </div>
-      {emailModalOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4">
-          <form className="grid w-full max-w-md gap-4 rounded-md border border-slate-300 bg-white p-5 text-slate-900 shadow-2xl" onSubmit={(event) => event.preventDefault()}>
-            <div>
-              <h3 className="text-xl font-semibold">OpenStage Cloud</h3>
-              <p className="mt-1 text-sm text-slate-600">Sign in or create an account with email and password.</p>
-            </div>
-            <label className="grid gap-1 text-sm">
-              <span className="font-semibold">Email</span>
-              <input className="input" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-            </label>
-            <label className="grid gap-1 text-sm">
-              <span className="font-semibold">Password</span>
-              <input className="input" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-            </label>
-            {emailError && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{emailError}</div>}
-            <div className="flex flex-wrap justify-end gap-2">
-              <button className="secondary-button" type="button" disabled={emailSubmitting} onClick={() => void submitEmailAuth('sign-in')}>
-                Sign In
-              </button>
-              <button className="primary-button" type="button" disabled={emailSubmitting} onClick={() => void submitEmailAuth('create')}>
-                Create Account
-              </button>
-              <button className="secondary-button" type="button" disabled={emailSubmitting} onClick={() => setEmailModalOpen(false)}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
       {restoreModalOpen && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4">
           <section className="grid w-full max-w-md gap-4 rounded-md border border-slate-300 bg-white p-5 text-slate-900 shadow-2xl">
